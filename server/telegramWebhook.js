@@ -200,6 +200,93 @@ function shortTaskCaption(row) {
   return `№ ${num}${title ? `: ${title}` : ""}\nСтатус: ${st || "—"}`;
 }
 
+function taskCaptionWithPlan(row) {
+  const base = shortTaskCaption(row);
+  const plan = String(row[TASK_COLUMNS.plan] || "").trim();
+  if (!plan) return base;
+  const compactPlan = plan.length > 800 ? `${plan.slice(0, 797)}...` : plan;
+  return `${base}\nПлан решения (коммент сотрудника): ${compactPlan}`;
+}
+
+function ensureLastTaskStore(payload) {
+  if (!payload.telegramLastTaskByChat || typeof payload.telegramLastTaskByChat !== "object") {
+    payload.telegramLastTaskByChat = {};
+  }
+  return payload.telegramLastTaskByChat;
+}
+
+function setLastTaskContext(payload, chatId, taskId, promptMessageId = null) {
+  const store = ensureLastTaskStore(payload);
+  store[String(chatId)] = {
+    taskId: String(taskId ?? "").trim(),
+    promptMessageId: Number(promptMessageId) || null,
+    at: Date.now()
+  };
+}
+
+async function safeDeleteMessage(token, chatId, messageId) {
+  const mid = Number(messageId) || 0;
+  if (!mid) return;
+  try {
+    await tg(token, "deleteMessage", { chat_id: chatId, message_id: mid });
+  } catch (_) {
+    /* noop */
+  }
+}
+
+function resolveTaskUpdateRecipientChatIds(payload, row, excludeChatId = "") {
+  const employees = getEmployeesSection(payload);
+  const empRows = Array.isArray(employees?.rows) ? employees.rows : [];
+  const out = new Set();
+  const exclude = String(excludeChatId || "").trim();
+  const addChat = (chat) => {
+    const c = String(chat || "").trim();
+    if (!c) return;
+    if (exclude && c === exclude) return;
+    out.add(c);
+  };
+
+  const names = new Set();
+  const assigned = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
+  const responsible = String(row[TASK_COLUMNS.responsible] || "").trim();
+  if (assigned) names.add(assigned);
+  if (responsible) names.add(responsible);
+  for (const er of empRows) {
+    const fio = String(er[EMPLOYEE_COLUMNS.fullName] || "").trim();
+    if (!fio || !names.has(fio)) continue;
+    if (String(er[EMPLOYEE_COLUMNS.telegram] || "").trim() !== "Подключен") continue;
+    addChat(er[EMPLOYEE_COLUMNS.chatId]);
+  }
+
+  const ds = payload.displaySettings || {};
+  const dupIds = new Set(
+    Array.isArray(ds.telegramGlobalDuplicateRecipientIds)
+      ? ds.telegramGlobalDuplicateRecipientIds.map((x) => String(x).trim()).filter(Boolean)
+      : []
+  );
+  for (const er of empRows) {
+    const eid = String(er[EMPLOYEE_COLUMNS.id] ?? "").trim();
+    if (!eid || !dupIds.has(eid)) continue;
+    if (String(er[EMPLOYEE_COLUMNS.telegram] || "").trim() !== "Подключен") continue;
+    addChat(er[EMPLOYEE_COLUMNS.chatId]);
+  }
+  return Array.from(out);
+}
+
+async function broadcastTaskCardUpdate(payload, token, row, reasonText, excludeChatId = "") {
+  const taskId = String(row[TASK_COLUMNS.number] ?? "").trim();
+  const kb = { inline_keyboard: mainKeyboard(taskId) };
+  const text = `${taskCaptionWithPlan(row)}\n\n${String(reasonText || "").trim() || "Обновление по задаче."}`;
+  const chatIds = resolveTaskUpdateRecipientChatIds(payload, row, excludeChatId);
+  for (const cid of chatIds) {
+    await tg(token, "sendMessage", {
+      chat_id: cid,
+      text,
+      reply_markup: kb
+    });
+  }
+}
+
 function defaultAcceptTemplate() {
   return "Задача [ид_задачи] ([название_задачи]): запрос на закрытие принят администратором.";
 }
@@ -529,11 +616,12 @@ async function handleCallback(q, pool, token) {
   };
 
   if (parsed.action === "sm") {
+    setLastTaskContext(payload, chatId, taskId, messageId);
     const keyboard = STATUS_OPTIONS.map((label, i) => [{ text: statusLabelWithEmoji(label), callback_data: cb(taskId, `ss|${i}`) }]);
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${shortTaskCaption(row)}\n\nВыберите новый статус:`,
+      text: `${taskCaptionWithPlan(row)}\n\nВыберите новый статус:`,
       reply_markup: { inline_keyboard: keyboard }
     });
     await answerOk();
@@ -562,12 +650,13 @@ async function handleCallback(q, pool, token) {
         empName,
         `Telegram: запрошено закрытие задачи (ожидает подтверждения)`
       );
+      setLastTaskContext(payload, chatId, taskId, messageId);
       await savePayload(pool, payload);
 
       await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: messageId,
-        text: `${shortTaskCaption(row)}\n\nЗапрос на закрытие отправлен администратору. Ожидайте подтверждения.`,
+        text: `${taskCaptionWithPlan(row)}\n\nЗапрос на закрытие отправлен администратору. Ожидайте подтверждения.`,
         reply_markup: { inline_keyboard: mainKeyboard(taskId) }
       });
       await notifyCloseConfirmRecipients(pool, token, payload, taskId, row, empName);
@@ -578,12 +667,13 @@ async function handleCallback(q, pool, token) {
     const oldStatus = String(row[TASK_COLUMNS.status] ?? "").trim();
     row[TASK_COLUMNS.status] = newStatus;
     appendTaskHistory(payload, taskId, empName, `Telegram: статус «${oldStatus || "—"}» → «${newStatus}»`);
+    setLastTaskContext(payload, chatId, taskId, messageId);
     await savePayload(pool, payload);
 
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${shortTaskCaption(row)}\n\nСтатус обновлён.`,
+      text: `${taskCaptionWithPlan(row)}\n\nСтатус обновлён.`,
       reply_markup: { inline_keyboard: mainKeyboard(taskId) }
     });
     await answerOk();
@@ -593,11 +683,12 @@ async function handleCallback(q, pool, token) {
   if (parsed.action === "cm") {
     if (!payload.telegramSessions) payload.telegramSessions = {};
     payload.telegramSessions[String(chatId)] = { expect: "comment", taskId, promptMessageId: Number(messageId) || null };
+    setLastTaskContext(payload, chatId, taskId, messageId);
     await savePayload(pool, payload);
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${shortTaskCaption(row)}\n\nНапишите комментарий одним сообщением ниже (или /отмена).`,
+      text: `${taskCaptionWithPlan(row)}\n\nНапишите комментарий одним сообщением ниже (или /отмена).`,
       reply_markup: { inline_keyboard: [] }
     });
     await answerOk();
@@ -607,11 +698,12 @@ async function handleCallback(q, pool, token) {
   if (parsed.action === "ph") {
     if (!payload.telegramSessions) payload.telegramSessions = {};
     payload.telegramSessions[String(chatId)] = { expect: "photo", taskId, promptMessageId: Number(messageId) || null };
+    setLastTaskContext(payload, chatId, taskId, messageId);
     await savePayload(pool, payload);
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${shortTaskCaption(row)}\n\nПришлите фото одним сообщением (или /отмена).`,
+      text: `${taskCaptionWithPlan(row)}\n\nПришлите фото одним сообщением (или /отмена).`,
       reply_markup: { inline_keyboard: [] }
     });
     await answerOk();
@@ -736,6 +828,10 @@ async function handleMessage(msg, pool, token) {
   if (chatId == null) return;
   const chatKey = String(chatId);
   const text = String(msg.text || "").trim();
+  const hasPhoto = Array.isArray(msg.photo) && msg.photo.length > 0;
+  const docMime = String(msg.document?.mime_type || "").toLowerCase();
+  const hasImageDocument = Boolean(msg.document?.file_id) && docMime.startsWith("image/");
+  const messageId = Number(msg.message_id) || null;
 
   if (msg.contact?.phone_number) {
     const payload = await loadPayload(pool);
@@ -767,7 +863,24 @@ async function handleMessage(msg, pool, token) {
   }
 
   const payload = await loadPayload(pool);
-  const sess = payload.telegramSessions?.[chatKey];
+  let sess = payload.telegramSessions?.[chatKey];
+
+  if ((!sess || !sess.taskId) && (text || hasPhoto || hasImageDocument)) {
+    const last = payload.telegramLastTaskByChat?.[chatKey];
+    const lastTaskId = String(last?.taskId || "").trim();
+    const lastAt = Number(last?.at) || 0;
+    const freshEnough = lastAt > 0 && Date.now() - lastAt <= 6 * 60 * 60 * 1000;
+    if (lastTaskId && freshEnough) {
+      sess = {
+        expect: text ? "comment" : "photo",
+        taskId: lastTaskId,
+        promptMessageId: Number(last?.promptMessageId) || null
+      };
+      if (!payload.telegramSessions) payload.telegramSessions = {};
+      payload.telegramSessions[chatKey] = sess;
+      await savePayload(pool, payload);
+    }
+  }
   if (!sess || !sess.taskId) return;
 
   const tasks = getTasksSection(payload);
@@ -805,33 +918,43 @@ async function handleMessage(msg, pool, token) {
     }
     clearSession(payload, chatKey);
     await savePayload(pool, payload);
+    await safeDeleteMessage(token, chatId, messageId);
     if (promptMessageId) {
       const edited = await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: promptMessageId,
-        text: `${shortTaskCaption(row)}\n\nКомментарий сохранён в поле «План решения (коммент сотрудника)».`,
+        text: `${taskCaptionWithPlan(row)}\n\nКомментарий сохранён.`,
         reply_markup: { inline_keyboard: mainKeyboard(taskId) }
       });
       if (!edited?.ok) {
         await tg(token, "sendMessage", {
           chat_id: chatId,
-          text: `Комментарий сохранён в поле «План решения (коммент сотрудника)» задачи №${taskId}.`,
+          text: `${taskCaptionWithPlan(row)}\n\nКомментарий сохранён.`,
           reply_markup: { inline_keyboard: mainKeyboard(taskId) }
         });
       }
     } else {
       await tg(token, "sendMessage", {
         chat_id: chatId,
-        text: `Комментарий сохранён в поле «План решения (коммент сотрудника)» задачи №${taskId}.`,
+        text: `${taskCaptionWithPlan(row)}\n\nКомментарий сохранён.`,
         reply_markup: { inline_keyboard: mainKeyboard(taskId) }
       });
     }
+    await broadcastTaskCardUpdate(payload, token, row, "Комментарий сотрудника обновлён.", chatKey);
     return;
   }
 
-  if (sess.expect === "photo" && msg.photo && msg.photo.length) {
-    const best = msg.photo[msg.photo.length - 1];
-    const fileId = best.file_id;
+  if (sess.expect === "comment" && !text) {
+    await tg(token, "sendMessage", { chat_id: chatId, text: "Пожалуйста, отправьте комментарий текстом или /отмена." });
+    return;
+  }
+
+  if (sess.expect === "photo" && (hasPhoto || hasImageDocument)) {
+    const fileId = hasPhoto ? String(msg.photo[msg.photo.length - 1]?.file_id || "") : String(msg.document?.file_id || "");
+    if (!fileId) {
+      await tg(token, "sendMessage", { chat_id: chatId, text: "Не удалось прочитать фото. Попробуйте ещё раз." });
+      return;
+    }
     let storedName = "";
     try {
       const media = await addTelegramPhotoToTaskMediaAfter(row, token, fileId);
@@ -847,28 +970,33 @@ async function handleMessage(msg, pool, token) {
     );
     clearSession(payload, chatKey);
     await savePayload(pool, payload);
+    await safeDeleteMessage(token, chatId, messageId);
     if (promptMessageId) {
       const edited = await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: promptMessageId,
-        text: `${shortTaskCaption(row)}\n\nФото добавлено в «Медиа после».`,
+        text: `${taskCaptionWithPlan(row)}\n\nФото добавлено в «Медиа после».`,
         reply_markup: { inline_keyboard: mainKeyboard(taskId) }
       });
       if (!edited?.ok) {
         await tg(token, "sendMessage", {
           chat_id: chatId,
-          text: `Фото добавлено в «Медиа после» задачи №${taskId}.`,
+          text: `${taskCaptionWithPlan(row)}\n\nФото добавлено в «Медиа после».`,
           reply_markup: { inline_keyboard: mainKeyboard(taskId) }
         });
       }
     } else {
       await tg(token, "sendMessage", {
         chat_id: chatId,
-        text: `Фото добавлено в «Медиа после» задачи №${taskId}.`,
+        text: `${taskCaptionWithPlan(row)}\n\nФото добавлено в «Медиа после».`,
         reply_markup: { inline_keyboard: mainKeyboard(taskId) }
       });
     }
     return;
+  }
+
+  if (sess.expect === "photo") {
+    await tg(token, "sendMessage", { chat_id: chatId, text: "Пожалуйста, отправьте фото (как фото или документ-изображение) или /отмена." });
   }
 }
 

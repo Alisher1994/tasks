@@ -509,24 +509,31 @@ app.put("/api/data", authMiddleware, async (req, res) => {
     if (!v.ok) {
       return res.status(400).json({ error: v.error || "Некорректные данные" });
     }
-    const { rows: existingRows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
-    const existingPayload = existingRows[0]?.payload && typeof existingRows[0].payload === "object"
-      ? existingRows[0].payload
-      : {};
     const data = typeof incomingData === "object" && incomingData ? { ...incomingData } : incomingData;
-    // Служебные поля Telegram живут на сервере и не должны теряться при клиентском sync /api/data.
-    if (data && typeof data === "object") {
-      if (existingPayload.telegramSessions && typeof data.telegramSessions !== "object") {
-        data.telegramSessions = existingPayload.telegramSessions;
-      }
-      if (existingPayload.telegramCloseRequests && typeof data.telegramCloseRequests !== "object") {
-        data.telegramCloseRequests = existingPayload.telegramCloseRequests;
-      }
-    }
+    // Служебные поля Telegram живут только на сервере. На клиентском PUT /api/data
+    // мы всегда сохраняем их из текущего payload в БД (без доверия клиентскому слепку),
+    // чтобы гонки между webhook и авто-sync не ломали сценарии комментариев/фото.
     await pool.query(
       `INSERT INTO app_state (id, payload, updated_at)
        VALUES (1, $1::jsonb, NOW())
-       ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+       ON CONFLICT (id) DO UPDATE SET
+         payload = jsonb_set(
+           jsonb_set(
+             jsonb_set(
+               EXCLUDED.payload,
+               '{telegramSessions}',
+               COALESCE(app_state.payload->'telegramSessions', '{}'::jsonb),
+               true
+             ),
+             '{telegramCloseRequests}',
+             COALESCE(app_state.payload->'telegramCloseRequests', '{}'::jsonb),
+             true
+           ),
+           '{telegramLastTaskByChat}',
+           COALESCE(app_state.payload->'telegramLastTaskByChat', '{}'::jsonb),
+           true
+         ),
+         updated_at = NOW()`,
       [JSON.stringify(data)]
     );
     return res.json({ ok: true });
