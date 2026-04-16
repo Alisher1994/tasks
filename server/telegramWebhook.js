@@ -104,10 +104,10 @@ function mainKeyboard(taskNumber) {
   const n = encodeTaskNum(taskNumber);
   return [
     [
-      { text: "Сменить статус", callback_data: cb(n, "sm") },
-      { text: "Комментарий", callback_data: cb(n, "cm") }
+      { text: "⌛️ Сменить статус", callback_data: cb(n, "sm") },
+      { text: "🗣 Комментарий", callback_data: cb(n, "cm") }
     ],
-    [{ text: "Отправить фото", callback_data: cb(n, "ph") }]
+    [{ text: "📸 Отправить фото", callback_data: cb(n, "ph") }]
   ];
 }
 

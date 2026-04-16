@@ -735,10 +735,10 @@ function buildTelegramInlineKeyboardForTask(taskNumber) {
   return {
     inline_keyboard: [
       [
-        { text: "Сменить статус", callback_data: makeCb("sm") },
-        { text: "Комментарий", callback_data: makeCb("cm") }
+        { text: "⌛️ Сменить статус", callback_data: makeCb("sm") },
+        { text: "🗣 Комментарий", callback_data: makeCb("cm") }
       ],
-      [{ text: "Отправить фото", callback_data: makeCb("ph") }]
+      [{ text: "📸 Отправить фото", callback_data: makeCb("ph") }]
     ]
   };
 }
@@ -7243,11 +7243,11 @@ function renderOtherSettingsPanel() {
                 </div>
                 <div id="taskMsgTelegramKeyboard" class="telegram-emulator-keyboard">
                   <div class="telegram-emulator-keyboard-row">
-                    <span class="telegram-emulator-btn">Сменить статус</span>
-                    <span class="telegram-emulator-btn">Комментарий</span>
+                    <span class="telegram-emulator-btn">⌛️ Сменить статус</span>
+                    <span class="telegram-emulator-btn">🗣 Комментарий</span>
                   </div>
                   <div class="telegram-emulator-keyboard-row">
-                    <span class="telegram-emulator-btn telegram-emulator-btn--wide">Отправить фото</span>
+                    <span class="telegram-emulator-btn telegram-emulator-btn--wide">📸 Отправить фото</span>
                   </div>
                 </div>
               </div>
