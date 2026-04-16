@@ -41,6 +41,7 @@ const EMPLOYEE_COLUMNS = {
   chatId: 6,
   activity: 7
 };
+const CONFIRM_ALWAYS_POSITIONS = new Set(["Администратор", "Генеральный директор"]);
 
 const TASK_HISTORY_MAX = 300;
 
@@ -109,6 +110,61 @@ function mainKeyboard(taskNumber) {
     ],
     [{ text: "📸 Отправить фото", callback_data: cb(n, "ph") }]
   ];
+}
+
+function findEmployeeByFullName(empSection, fullName) {
+  const want = String(fullName || "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!want) return null;
+  const rows = empSection?.rows || [];
+  return (
+    rows.find((row) => String(row[EMPLOYEE_COLUMNS.fullName] || "").trim().replace(/\s+/g, " ") === want) || null
+  );
+}
+
+function findDepartmentRowByName(payload, departmentName) {
+  const want = String(departmentName || "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!want) return null;
+  const sections = payload?.sections || [];
+  const departments = sections.find((s) => s.id === "departments");
+  const rows = departments?.rows || [];
+  return rows.find((row) => String(row[1] || "").trim().replace(/\s+/g, " ") === want) || null;
+}
+
+function getDepartmentHeadChatIdsForTask(payload, row) {
+  const employees = getEmployeesSection(payload);
+  const assignedName = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
+  if (!assignedName) return [];
+  const assignedEmp = findEmployeeByFullName(employees, assignedName);
+  if (!assignedEmp) return [];
+  const departmentName = String(assignedEmp[EMPLOYEE_COLUMNS.department] || "").trim();
+  if (!departmentName) return [];
+  const depRow = findDepartmentRowByName(payload, departmentName);
+  if (!depRow) return [];
+  const headName = String(depRow[2] || "").trim();
+  if (!headName) return [];
+  const headEmp = findEmployeeByFullName(employees, headName);
+  if (!headEmp) return [];
+  if (String(headEmp[EMPLOYEE_COLUMNS.telegram] || "").trim() !== "Подключен") return [];
+  const chatId = String(headEmp[EMPLOYEE_COLUMNS.chatId] || "").trim();
+  return chatId ? [chatId] : [];
+}
+
+function getAlwaysConfirmChatIds(payload) {
+  const employees = getEmployeesSection(payload);
+  const rows = employees?.rows || [];
+  const out = new Set();
+  for (const r of rows) {
+    if (String(r[EMPLOYEE_COLUMNS.telegram] || "").trim() !== "Подключен") continue;
+    const pos = String(r[EMPLOYEE_COLUMNS.position] || "").trim();
+    if (!CONFIRM_ALWAYS_POSITIONS.has(pos)) continue;
+    const chatId = String(r[EMPLOYEE_COLUMNS.chatId] || "").trim();
+    if (chatId) out.add(chatId);
+  }
+  return Array.from(out);
 }
 
 function backOnlyKeyboard(taskNumber) {
@@ -645,16 +701,40 @@ async function handleCallback(q, pool, token) {
 
     if (isClose) {
       if (!payload.telegramCloseRequests) payload.telegramCloseRequests = {};
+      const requestAllowed = new Set();
+      getDepartmentHeadChatIdsForTask(payload, row).forEach((cid) => requestAllowed.add(cid));
+      getAlwaysConfirmChatIds(payload).forEach((cid) => requestAllowed.add(cid));
+      const ds = payload.displaySettings || {};
+      const allow = new Set(
+        Array.isArray(ds.telegramCloseConfirmAllowedIds)
+          ? ds.telegramCloseConfirmAllowedIds.map((x) => String(x).trim()).filter(Boolean)
+          : []
+      );
+      const dup = new Set(
+        Array.isArray(ds.telegramGlobalDuplicateRecipientIds)
+          ? ds.telegramGlobalDuplicateRecipientIds.map((x) => String(x).trim()).filter(Boolean)
+          : []
+      );
+      const employees = getEmployeesSection(payload);
+      const rows = employees?.rows || [];
+      for (const r of rows) {
+        const id = String(r[EMPLOYEE_COLUMNS.id] ?? "").trim();
+        if (!id || !allow.has(id) || !dup.has(id)) continue;
+        if (String(r[EMPLOYEE_COLUMNS.telegram] || "").trim() !== "Подключен") continue;
+        const cid = String(r[EMPLOYEE_COLUMNS.chatId] || "").trim();
+        if (cid) requestAllowed.add(cid);
+      }
       payload.telegramCloseRequests[taskId] = {
         chatId: String(chatId),
         employeeName: empName,
-        at: Date.now()
+        at: Date.now(),
+        allowedConfirmChatIds: Array.from(requestAllowed)
       };
       appendTaskHistory(
         payload,
         taskId,
         empName,
-        `Telegram: запрошено закрытие задачи (ожидает подтверждения)`
+        `Telegram: запрошено закрытие задачи (ожидает подтверждения${requestAllowed.size ? `, согласующих: ${requestAllowed.size}` : ""})`
       );
       setLastTaskContext(payload, chatId, taskId, messageId);
       await savePayload(pool, payload);
@@ -736,13 +816,17 @@ async function handleCallback(q, pool, token) {
       await answerOk();
       return;
     }
-    if (!canConfirmCloseInPayload(payload, String(chatId))) {
-      await answerOk("Недостаточно прав");
-      return;
-    }
     const req = payload.telegramCloseRequests?.[taskId];
     if (!req) {
       await answerOk("Запрос уже обработан");
+      return;
+    }
+    const allowed = Array.isArray(req.allowedConfirmChatIds)
+      ? req.allowedConfirmChatIds.map((x) => String(x).trim()).filter(Boolean)
+      : [];
+    const canByRequest = allowed.includes(String(chatId));
+    if (!canByRequest && !canConfirmCloseInPayload(payload, String(chatId))) {
+      await answerOk("Недостаточно прав");
       return;
     }
 
@@ -788,6 +872,18 @@ async function handleCallback(q, pool, token) {
 }
 
 function canConfirmCloseInPayload(payload, chatId) {
+  const reqMap = payload?.telegramCloseRequests;
+  if (reqMap && typeof reqMap === "object") {
+    const c = String(chatId).trim();
+    for (const key of Object.keys(reqMap)) {
+      const req = reqMap[key];
+      const allowed = Array.isArray(req?.allowedConfirmChatIds)
+        ? req.allowedConfirmChatIds.map((x) => String(x).trim()).filter(Boolean)
+        : [];
+      if (allowed.includes(c)) return true;
+    }
+  }
+
   const c = String(chatId).trim();
   const emp = findEmployeeByChatId(getEmployeesSection(payload), c);
   if (!emp) return false;
@@ -809,25 +905,10 @@ function canConfirmCloseInPayload(payload, chatId) {
 }
 
 async function notifyCloseConfirmRecipients(pool, token, payload, taskId, row, requesterName) {
-  const ds = payload.displaySettings || {};
-  const allow = new Set(
-    Array.isArray(ds.telegramCloseConfirmAllowedIds)
-      ? ds.telegramCloseConfirmAllowedIds.map((x) => String(x).trim()).filter(Boolean)
-      : []
-  );
-  const dup = new Set(
-    Array.isArray(ds.telegramGlobalDuplicateRecipientIds)
-      ? ds.telegramGlobalDuplicateRecipientIds.map((x) => String(x).trim()).filter(Boolean)
-      : []
-  );
-  const employees = getEmployeesSection(payload);
-  const rows = employees?.rows || [];
-  const targets = rows.filter((r) => {
-    const id = String(r[EMPLOYEE_COLUMNS.id] ?? "").trim();
-    if (!id || !allow.has(id) || !dup.has(id)) return false;
-    if (String(r[EMPLOYEE_COLUMNS.telegram] || "").trim() !== "Подключен") return false;
-    return Boolean(String(r[EMPLOYEE_COLUMNS.chatId] || "").trim());
-  });
+  const closeReq = payload?.telegramCloseRequests?.[String(taskId)] || {};
+  const targetChatIds = Array.isArray(closeReq.allowedConfirmChatIds)
+    ? closeReq.allowedConfirmChatIds.map((x) => String(x).trim()).filter(Boolean)
+    : [];
   const text = `Запрос на закрытие задачи №${taskId}\n${String(row[TASK_COLUMNS.task] || "").trim()}\nОт: ${requesterName}`;
   const kb = {
     inline_keyboard: [
@@ -837,8 +918,7 @@ async function notifyCloseConfirmRecipients(pool, token, payload, taskId, row, r
       ]
     ]
   };
-  for (const a of targets) {
-    const cid = String(a[EMPLOYEE_COLUMNS.chatId] || "").trim();
+  for (const cid of targetChatIds) {
     await tg(token, "sendMessage", { chat_id: cid, text, reply_markup: kb });
   }
 }

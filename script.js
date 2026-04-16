@@ -749,6 +749,21 @@ function addGlobalDuplicateRecipientNames(namesSet) {
   }
 }
 
+function getDepartmentHeadNameByEmployeeName(employeeFullName) {
+  const empName = normalizePersonName(employeeFullName);
+  if (!empName) return "";
+  const empRows = getSectionById("employees")?.rows || [];
+  const empRow = empRows.find((r) => normalizePersonName(r[EMPLOYEE_COLUMNS.fullName]) === empName);
+  if (!empRow) return "";
+  const departmentName = normalizePersonName(empRow[EMPLOYEE_COLUMNS.department]);
+  if (!departmentName) return "";
+  const depRows = getSectionById("departments")?.rows || [];
+  const depRow = depRows.find((r) => normalizePersonName(r[1]) === departmentName);
+  if (!depRow) return "";
+  const headName = normalizePersonName(depRow[2]);
+  return headName || "";
+}
+
 /**
  * Имена получателей: исполнитель и контролирующий (все из списка ответственных по задаче получают сообщение).
  * Дублирование РП↔ЗРП только если в этих полях указан РП или ЗРП с карточки объекта задачи (остальные ФИО не вызывают эту пару).
@@ -762,6 +777,8 @@ function collectTaskTelegramRecipientNames(taskRow) {
   };
   addBase(taskRow[TASK_COLUMNS.assignedResponsible]);
   addBase(taskRow[TASK_COLUMNS.responsible]);
+  const departmentHead = getDepartmentHeadNameByEmployeeName(taskRow[TASK_COLUMNS.assignedResponsible]);
+  if (departmentHead) base.add(departmentHead);
 
   const names = new Set(base);
   const oz = getObjectRpZrpForTask(taskRow);
