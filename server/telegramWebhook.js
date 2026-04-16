@@ -592,12 +592,13 @@ async function handleCallback(q, pool, token) {
 
   if (parsed.action === "cm") {
     if (!payload.telegramSessions) payload.telegramSessions = {};
-    payload.telegramSessions[String(chatId)] = { expect: "comment", taskId };
+    payload.telegramSessions[String(chatId)] = { expect: "comment", taskId, promptMessageId: Number(messageId) || null };
     await savePayload(pool, payload);
-    await tg(token, "sendMessage", {
+    await tg(token, "editMessageText", {
       chat_id: chatId,
-      text: `${shortTaskCaption(row)}\n\nНапишите комментарий ОТВЕТОМ на это сообщение (или /отмена).`,
-      reply_markup: { force_reply: true, selective: true }
+      message_id: messageId,
+      text: `${shortTaskCaption(row)}\n\nНапишите комментарий одним сообщением ниже (или /отмена).`,
+      reply_markup: { inline_keyboard: [] }
     });
     await answerOk();
     return;
@@ -605,12 +606,13 @@ async function handleCallback(q, pool, token) {
 
   if (parsed.action === "ph") {
     if (!payload.telegramSessions) payload.telegramSessions = {};
-    payload.telegramSessions[String(chatId)] = { expect: "photo", taskId };
+    payload.telegramSessions[String(chatId)] = { expect: "photo", taskId, promptMessageId: Number(messageId) || null };
     await savePayload(pool, payload);
-    await tg(token, "sendMessage", {
+    await tg(token, "editMessageText", {
       chat_id: chatId,
-      text: `${shortTaskCaption(row)}\n\nПришлите фото ОТВЕТОМ на это сообщение (или /отмена).`,
-      reply_markup: { force_reply: true, selective: true }
+      message_id: messageId,
+      text: `${shortTaskCaption(row)}\n\nПришлите фото одним сообщением (или /отмена).`,
+      reply_markup: { inline_keyboard: [] }
     });
     await answerOk();
     return;
@@ -780,6 +782,7 @@ async function handleMessage(msg, pool, token) {
   const emp = findEmployeeByChatId(employees, chatKey);
   const empName = emp ? String(emp[EMPLOYEE_COLUMNS.fullName] || "").trim() : `chat ${chatKey}`;
   const taskId = String(row[TASK_COLUMNS.number] ?? "").trim();
+  const promptMessageId = Number(sess.promptMessageId) || null;
 
   if (sess.expect === "comment" && text) {
     const prevPlan = String(row[TASK_COLUMNS.plan] || "").trim();
@@ -802,18 +805,27 @@ async function handleMessage(msg, pool, token) {
     }
     clearSession(payload, chatKey);
     await savePayload(pool, payload);
-    await tg(token, "sendMessage", {
-      chat_id: chatId,
-      text: `Комментарий сохранён в поле «План решения (коммент сотрудника)» задачи №${taskId}.`,
-      reply_markup: { inline_keyboard: mainKeyboard(taskId) }
-    });
-    return;
-  }
-  if (sess.expect === "comment") {
-    await tg(token, "sendMessage", {
-      chat_id: chatId,
-      text: "Не вижу текст комментария. Отправьте текст ОТВЕТОМ на сообщение бота (или /отмена)."
-    });
+    if (promptMessageId) {
+      const edited = await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: promptMessageId,
+        text: `${shortTaskCaption(row)}\n\nКомментарий сохранён в поле «План решения (коммент сотрудника)».`,
+        reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+      });
+      if (!edited?.ok) {
+        await tg(token, "sendMessage", {
+          chat_id: chatId,
+          text: `Комментарий сохранён в поле «План решения (коммент сотрудника)» задачи №${taskId}.`,
+          reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+        });
+      }
+    } else {
+      await tg(token, "sendMessage", {
+        chat_id: chatId,
+        text: `Комментарий сохранён в поле «План решения (коммент сотрудника)» задачи №${taskId}.`,
+        reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+      });
+    }
     return;
   }
 
@@ -835,18 +847,27 @@ async function handleMessage(msg, pool, token) {
     );
     clearSession(payload, chatKey);
     await savePayload(pool, payload);
-    await tg(token, "sendMessage", {
-      chat_id: chatId,
-      text: `Фото добавлено в «Медиа после» задачи №${taskId}.`,
-      reply_markup: { inline_keyboard: mainKeyboard(taskId) }
-    });
-    return;
-  }
-  if (sess.expect === "photo") {
-    await tg(token, "sendMessage", {
-      chat_id: chatId,
-      text: "Не вижу фото. Отправьте фото ОТВЕТОМ на сообщение бота (или /отмена)."
-    });
+    if (promptMessageId) {
+      const edited = await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: promptMessageId,
+        text: `${shortTaskCaption(row)}\n\nФото добавлено в «Медиа после».`,
+        reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+      });
+      if (!edited?.ok) {
+        await tg(token, "sendMessage", {
+          chat_id: chatId,
+          text: `Фото добавлено в «Медиа после» задачи №${taskId}.`,
+          reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+        });
+      }
+    } else {
+      await tg(token, "sendMessage", {
+        chat_id: chatId,
+        text: `Фото добавлено в «Медиа после» задачи №${taskId}.`,
+        reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+      });
+    }
     return;
   }
 }
