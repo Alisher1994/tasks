@@ -1497,6 +1497,13 @@ let sections = [
   }
 ];
 
+/** Копия строк справочников фаз на случай пустых `rows` из БД/localStorage (иначе в задачах пустые списки). */
+const PHASE_CATALOG_DEFAULT_ROWS = Object.fromEntries(
+  sections
+    .filter((s) => ["phases", "phaseSections", "phaseSubsections"].includes(s.id))
+    .map((s) => [s.id, JSON.parse(JSON.stringify(s.rows))])
+);
+
 let activeSectionId = "tasks";
 let isSettingsOpen = false;
 const filtersBySection = {};
@@ -5942,6 +5949,16 @@ function syncEmployeesDerivedFields() {
 }
 
 function normalizePhaseAndSectionCatalogs() {
+  const phases = getSectionById("phases");
+  if (phases) {
+    phases.rows = phases.rows
+      .map((row, index) => {
+        const value = String(row[1] || row[2] || "").trim();
+        return [String(index + 1), value];
+      })
+      .filter((row) => row[1]);
+  }
+
   const phaseSections = getSectionById("phaseSections");
   if (phaseSections) {
     phaseSections.rows = phaseSections.rows
@@ -5961,6 +5978,22 @@ function normalizePhaseAndSectionCatalogs() {
       })
       .filter((row) => row[1]);
   }
+}
+
+/** После нормализации: если справочник опустел — подставляем встроенный набор. @returns {boolean} были ли правки */
+function ensureNonEmptyPhaseCatalogs() {
+  let changed = false;
+  for (const id of ["phases", "phaseSections", "phaseSubsections"]) {
+    const sec = getSectionById(id);
+    if (!sec || !Array.isArray(sec.rows)) continue;
+    const names = getUniqueValues(sec.rows, 1);
+    const fallback = PHASE_CATALOG_DEFAULT_ROWS[id];
+    if (names.length === 0 && fallback?.length) {
+      sec.rows = JSON.parse(JSON.stringify(fallback));
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 function openResponsibleMultiSelectModal(section, rowIndex) {
@@ -8100,6 +8133,12 @@ function restoreSectionsData() {
     sections = sections.map((base) => {
       const saved = byId.get(base.id);
       if (!saved || !Array.isArray(saved.rows)) return base;
+      if (
+        saved.rows.length === 0 &&
+        (base.id === "phases" || base.id === "phaseSections" || base.id === "phaseSubsections")
+      ) {
+        return base;
+      }
       const migratedRows = saved.rows.map((row) => migrateRowForSection(base, row));
       return {
         ...base,
@@ -8109,6 +8148,9 @@ function restoreSectionsData() {
     ensureSystemRoles();
     ensureSystemDepartments();
     normalizePhaseAndSectionCatalogs();
+    if (ensureNonEmptyPhaseCatalogs()) {
+      saveSectionsData();
+    }
     syncEmployeesDerivedFields();
   } catch (_) {
     // broken storage ignored

@@ -300,10 +300,15 @@ function findEmployeeByStartParam(employees, startParam) {
 }
 
 function findEmployeeByTelegramName(employees, from) {
-  const display = telegramDisplayName(from);
-  if (!display) return null;
   const rows = employees?.rows || [];
   if (!rows.length) return null;
+  /** Один сотрудник в справочнике — привязка по /start без совпадения имён в Telegram. */
+  if (rows.length === 1) {
+    return rows[0];
+  }
+
+  const display = telegramDisplayName(from);
+  if (!display) return null;
 
   const scores = rows.map((row) => {
     const fio = String(row[EMPLOYEE_COLUMNS.fullName] || "");
@@ -313,10 +318,17 @@ function findEmployeeByTelegramName(employees, from) {
   for (const x of scores) {
     if (x.sc > bestScore) bestScore = x.sc;
   }
-  if (bestScore < 2) return null;
-  const top = scores.filter((x) => x.sc === bestScore);
-  if (top.length !== 1) return null;
-  return top[0].row;
+  if (bestScore >= 2) {
+    const top = scores.filter((x) => x.sc === bestScore);
+    if (top.length === 1) return top[0].row;
+    return null;
+  }
+  /** Одно общее слово (например только имя в Telegram) и один явный кандидат. */
+  if (bestScore >= 1 && nameTokens(display).length >= 1) {
+    const top = scores.filter((x) => x.sc === bestScore);
+    if (top.length === 1) return top[0].row;
+  }
+  return null;
 }
 
 function clearChatIdFromOtherEmployees(employees, chatIdStr, exceptRow) {
