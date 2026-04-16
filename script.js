@@ -7943,6 +7943,10 @@ function openTaskDetailsModal(section, row, rowIndex) {
   });
 
   let activeMediaTarget = null;
+  const persistDraftMediaNow = () => {
+    applyDraftToTask(section, rowIndex, taskId, draftState, { appendHistory: false });
+    isDirty = false;
+  };
 
   const refreshModalGalleries = () => {
     const beforeList = modal.querySelector('[data-gallery-kind="before"]');
@@ -7982,6 +7986,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
           const ok = await upsertDraftMediaSlot(draftState, activeMediaTarget.kind, activeMediaTarget.slotIndex, file);
           if (!ok) return;
           isDirty = true;
+          persistDraftMediaNow();
           refreshModalGalleries();
         });
       });
@@ -7994,6 +7999,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
         setActiveMediaSlot(button);
         removeDraftMediaSlot(draftState, activeMediaTarget.kind, activeMediaTarget.slotIndex);
         isDirty = true;
+        persistDraftMediaNow();
         refreshModalGalleries();
       });
     });
@@ -8030,6 +8036,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
     const ok = await upsertDraftMediaSlot(draftState, activeMediaTarget.kind, activeMediaTarget.slotIndex, file);
     if (!ok) return;
     isDirty = true;
+    persistDraftMediaNow();
     refreshModalGalleries();
   };
   document.addEventListener("paste", onPaste);
@@ -8170,7 +8177,8 @@ function removeDraftMediaSlot(draftState, kind, slotIndex) {
   delete draftState.preview[`${kind}-${slotIndex}`];
 }
 
-function applyDraftToTask(section, rowIndex, taskId, draftState) {
+function applyDraftToTask(section, rowIndex, taskId, draftState, options = {}) {
+  const appendHistory = options.appendHistory !== false;
   const beforeItems = draftState.before.filter(Boolean).slice(0, 5);
   const afterItems = draftState.after.filter(Boolean).slice(0, 5);
   section.rows[rowIndex][TASK_COLUMNS.mediaBefore] = beforeItems.join(", ");
@@ -8197,7 +8205,9 @@ function applyDraftToTask(section, rowIndex, taskId, draftState) {
       mediaPreviewStore[getMediaSlotKey(taskId, TASK_COLUMNS.mediaAfter, i)] = { ...preview };
     }
   });
-  appendTaskHistoryEntry(taskId, "Сохранение карточки: обновлены «Медиа до» и «Медиа после»");
+  if (appendHistory) {
+    appendTaskHistoryEntry(taskId, "Сохранение карточки: обновлены «Медиа до» и «Медиа после»");
+  }
   saveSectionsData();
 }
 
