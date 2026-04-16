@@ -4465,9 +4465,8 @@ function dedupeEmployeesInPlace(employeesSection) {
       const first = firstRowIndexWithSameCompletePhone(rows, p);
       if (first !== -1 && first !== rowIndex) {
         row[EMPLOYEE_COLUMNS.phone] = UZ_PHONE_PREFIX;
-        const isConnected = row[EMPLOYEE_COLUMNS.telegram] === "Подключен";
-        row[EMPLOYEE_COLUMNS.chatId] = isConnected ? makeChatIdFromPhone(row[EMPLOYEE_COLUMNS.phone]) : "";
-        row[EMPLOYEE_COLUMNS.activity] = isConnected ? "Активен" : "Не активен";
+        row[EMPLOYEE_COLUMNS.chatId] = "";
+        row[EMPLOYEE_COLUMNS.activity] = row[EMPLOYEE_COLUMNS.telegram] === "Подключен" ? "Активен" : "Не активен";
       }
     }
     const name = normalizePersonName(row[EMPLOYEE_COLUMNS.fullName] || "");
@@ -4494,9 +4493,8 @@ function enforceEmployeeUniquenessAfterEdit(section, rowIndex) {
     if (first !== -1 && first !== rowIndex) {
       window.alert("Этот номер телефона уже указан у другого сотрудника. Поле очищено.");
       row[EMPLOYEE_COLUMNS.phone] = UZ_PHONE_PREFIX;
-      const isConnected = row[EMPLOYEE_COLUMNS.telegram] === "Подключен";
-      row[EMPLOYEE_COLUMNS.chatId] = isConnected ? makeChatIdFromPhone(row[EMPLOYEE_COLUMNS.phone]) : "";
-      row[EMPLOYEE_COLUMNS.activity] = isConnected ? "Активен" : "Не активен";
+      row[EMPLOYEE_COLUMNS.chatId] = "";
+      row[EMPLOYEE_COLUMNS.activity] = row[EMPLOYEE_COLUMNS.telegram] === "Подключен" ? "Активен" : "Не активен";
       changed = true;
     }
   }
@@ -5710,9 +5708,7 @@ function normalizeRowAfterEdit(section, rowIndex, colIndex) {
       row[EMPLOYEE_COLUMNS.phone] = formatUzPhoneDisplay(normalizeUzPhone(row[EMPLOYEE_COLUMNS.phone]));
     }
     if (colIndex === EMPLOYEE_COLUMNS.telegram || colIndex === EMPLOYEE_COLUMNS.phone) {
-      const isConnected = row[EMPLOYEE_COLUMNS.telegram] === "Подключен";
-      row[EMPLOYEE_COLUMNS.chatId] = isConnected ? makeChatIdFromPhone(row[EMPLOYEE_COLUMNS.phone]) : "";
-      row[EMPLOYEE_COLUMNS.activity] = isConnected ? "Активен" : "Не активен";
+      applyEmployeeTelegramDerivedFields(row);
     }
     if (colIndex === EMPLOYEE_COLUMNS.position) {
       row[EMPLOYEE_COLUMNS.position] = String(row[EMPLOYEE_COLUMNS.position] || "").trim();
@@ -5885,6 +5881,28 @@ function makeChatIdFromPhone(phoneValue) {
   return digits || "";
 }
 
+/** Раньше Chat ID подставлялся из 9 цифр номера — для Telegram API это неверно; такие значения сбрасываем. */
+function isPhoneDerivedEmployeeChatId(phoneValue, chatIdRaw) {
+  const pseudo = makeChatIdFromPhone(phoneValue);
+  const cid = String(chatIdRaw ?? "").trim();
+  if (!cid || !pseudo) return false;
+  return cid === pseudo;
+}
+
+/** При «Подключен» не заполняем Chat ID из телефона — только реальный user id (/start или вручную). */
+function applyEmployeeTelegramDerivedFields(row) {
+  const isConnected = String(row[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен";
+  if (!isConnected) {
+    row[EMPLOYEE_COLUMNS.chatId] = "";
+    row[EMPLOYEE_COLUMNS.activity] = "Не активен";
+    return;
+  }
+  if (isPhoneDerivedEmployeeChatId(row[EMPLOYEE_COLUMNS.phone], row[EMPLOYEE_COLUMNS.chatId])) {
+    row[EMPLOYEE_COLUMNS.chatId] = "";
+  }
+  row[EMPLOYEE_COLUMNS.activity] = "Активен";
+}
+
 function getEmployeesForSelection() {
   const employeesSection = getSectionById("employees");
   if (!employeesSection) return [];
@@ -5941,9 +5959,7 @@ function syncEmployeesDerivedFields() {
     if (!String(row[EMPLOYEE_COLUMNS.department] || "").trim()) {
       row[EMPLOYEE_COLUMNS.department] = defaultDepartment;
     }
-    const isConnected = row[EMPLOYEE_COLUMNS.telegram] === "Подключен";
-    row[EMPLOYEE_COLUMNS.chatId] = isConnected ? makeChatIdFromPhone(row[EMPLOYEE_COLUMNS.phone]) : "";
-    row[EMPLOYEE_COLUMNS.activity] = isConnected ? "Активен" : "Не активен";
+    applyEmployeeTelegramDerivedFields(row);
   });
   dedupeEmployeesInPlace(employeesSection);
 }
@@ -6702,7 +6718,7 @@ function renderOtherSettingsPanel() {
                 ? `https://t.me/${String(displaySettings.telegramBotUsername).trim()}?start=e_<ID>`
                 : "https://t.me/<бот>?start=e_<ID>"
             )}</code>, где <strong>ID</strong> — значение из первой колонки сотрудника (например <code>e_3</code> в ссылке для ID 3). Если открыть бота без параметра, сопоставление идёт по <strong>имени и фамилии</strong> в профиле Telegram и ФИО в таблице (полное совпадение токенов имени).</p>
-            <p class="other-settings-hint">Поле «Chat ID» можно не заполнять вручную: оно обновится после /start. Автоподстановка из номера телефона в таблице по-прежнему не равна реальному <code>chat_id</code> для API.</p>
+            <p class="other-settings-hint">Поле «Chat ID» не заполняется из номера телефона — только реальный Telegram user id после команды /start у бота (или вручную).</p>
           </div>
         </div>
 
