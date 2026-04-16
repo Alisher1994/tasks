@@ -1737,8 +1737,8 @@ let sections = [
   {
     id: "departments",
     title: "Отдел",
-    columns: ["ID", "Отдел", "Тип"],
-    rows: SYSTEM_DEPARTMENTS.map((department, index) => [String(index + 1), department, "Системный"])
+    columns: ["ID", "Отдел", "Руководитель отдела", "Тип"],
+    rows: SYSTEM_DEPARTMENTS.map((department, index) => [String(index + 1), department, "", "Системный"])
   },
   {
     id: "phases",
@@ -5064,7 +5064,7 @@ function isReadonlyColumn(section, colIndex) {
   if (section.id === "roles" && colIndex === 2) {
     return true;
   }
-  if (section.id === "departments" && colIndex === 2) {
+  if (section.id === "departments" && colIndex === 3) {
     return true;
   }
   return false;
@@ -5956,6 +5956,13 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
     });
     return;
   }
+  if (section.id === "departments" && colIndex === 2) {
+    const employeeOptions = getEmployeesList();
+    openSingleLookupModal("Выбор руководителя отдела", employeeOptions, row[2], (value) => {
+      row[2] = value;
+    });
+    return;
+  }
   if (section.id === "objects" && (colIndex === OBJECT_COLUMNS.rp || colIndex === OBJECT_COLUMNS.zrp)) {
     openEmployeeSingleSelectModal(section, rowIndex, colIndex);
     return;
@@ -6196,7 +6203,7 @@ function normalizeRowAfterEdit(section, rowIndex, colIndex) {
     return;
   }
   if (section.id === "departments") {
-    row[2] = getDepartmentTypeLabel(row[1]);
+    row[3] = getDepartmentTypeLabel(row[1]);
     return;
   }
 
@@ -6423,12 +6430,12 @@ function ensureSystemDepartments() {
   if (!departmentsSection) return;
   const existing = new Set(departmentsSection.rows.map((row) => String(row[1] || "").trim()).filter(Boolean));
   departmentsSection.rows.forEach((row) => {
-    row[2] = getDepartmentTypeLabel(row[1]);
+    row[3] = getDepartmentTypeLabel(row[1]);
   });
   SYSTEM_DEPARTMENTS.forEach((department) => {
     if (!existing.has(department)) {
       const nextId = String(departmentsSection.rows.length + 1);
-      departmentsSection.rows.push([nextId, department, "Системный"]);
+      departmentsSection.rows.push([nextId, department, "", "Системный"]);
     }
   });
 }
@@ -8648,7 +8655,7 @@ function addEmptyRow(section) {
     row[2] = "Не системный";
   }
   if (section.id === "departments") {
-    row[2] = "Не системный";
+    row[3] = "Не системный";
   }
 
   section.rows.push(row);
@@ -8872,7 +8879,9 @@ function migrateRowForSection(baseSection, row) {
 
   if (baseSection.id === "departments") {
     if (source.length === 2) {
-      source.push(getDepartmentTypeLabel(source[1]));
+      source.push("", getDepartmentTypeLabel(source[1]));
+    } else if (source.length === 3) {
+      source.splice(2, 0, "");
     }
   }
 
