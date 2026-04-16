@@ -5465,14 +5465,23 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
     return;
   }
   if (section.id === "data" && colIndex === 2) {
-    openSingleLookupModal("Выбор раздела", getUniqueValues(getSectionById("phaseSections")?.rows || [], 1), row[2], (value) => {
+    const phase = String(row[1] || "").trim();
+    const fromHierarchy = getPhaseSections(phase);
+    const fromCatalog = getUniqueValues(getSectionById("phaseSections")?.rows || [], 1);
+    const sectionOptions = Array.from(new Set([...fromHierarchy, ...fromCatalog].filter(Boolean)));
+    openSingleLookupModal("Выбор раздела", sectionOptions, row[2], (value) => {
       row[2] = value;
       normalizeRowAfterEdit(section, rowIndex, colIndex);
     });
     return;
   }
   if (section.id === "data" && colIndex === 3) {
-    openSingleLookupModal("Выбор подраздела", getUniqueValues(getSectionById("phaseSubsections")?.rows || [], 1), row[3], (value) => {
+    const phase = String(row[1] || "").trim();
+    const sec = String(row[2] || "").trim();
+    const fromHierarchy = getPhaseSubsections(phase, sec);
+    const fromCatalog = getUniqueValues(getSectionById("phaseSubsections")?.rows || [], 1);
+    const subsectionOptions = Array.from(new Set([...fromHierarchy, ...fromCatalog].filter(Boolean)));
+    openSingleLookupModal("Выбор подраздела", subsectionOptions, row[3], (value) => {
       row[3] = value;
       normalizeRowAfterEdit(section, rowIndex, colIndex);
     });
@@ -5964,12 +5973,36 @@ function syncEmployeesDerivedFields() {
   dedupeEmployeesInPlace(employeesSection);
 }
 
+/** Только цифры — не считаем человекочитаемым названием фазы/раздела/подраздела. */
+function isCatalogNumericPlaceholder(s) {
+  return /^\d+$/.test(String(s ?? "").trim());
+}
+
+/**
+ * Достаёт подпись строки справочника фаз (устойчиво к перепутанным колонкам и «номерам вместо текста» из импорта).
+ * @param {"phase"|"section"|"subsection"} kind
+ */
+function pickPhaseCatalogLabel(row, kind) {
+  const r = Array.isArray(row) ? row : [];
+  const t = (i) => String(r[i] ?? "").trim();
+  const pickNonNumeric = (...candidates) => {
+    for (const c of candidates) {
+      if (c && !isCatalogNumericPlaceholder(c)) return c;
+    }
+    return "";
+  };
+  if (kind === "subsection") {
+    return pickNonNumeric(t(1), t(3), t(2), t(0)) || t(1) || t(3) || "";
+  }
+  return pickNonNumeric(t(1), t(2), t(0)) || t(1) || t(2) || "";
+}
+
 function normalizePhaseAndSectionCatalogs() {
   const phases = getSectionById("phases");
   if (phases) {
     phases.rows = phases.rows
       .map((row, index) => {
-        const value = String(row[1] || row[2] || "").trim();
+        const value = pickPhaseCatalogLabel(row, "phase");
         return [String(index + 1), value];
       })
       .filter((row) => row[1]);
@@ -5979,7 +6012,7 @@ function normalizePhaseAndSectionCatalogs() {
   if (phaseSections) {
     phaseSections.rows = phaseSections.rows
       .map((row, index) => {
-        const value = String(row[1] || row[2] || "").trim();
+        const value = pickPhaseCatalogLabel(row, "section");
         return [String(index + 1), value];
       })
       .filter((row) => row[1]);
@@ -5989,7 +6022,7 @@ function normalizePhaseAndSectionCatalogs() {
   if (phaseSubsections) {
     phaseSubsections.rows = phaseSubsections.rows
       .map((row, index) => {
-        const value = String(row[1] || row[3] || "").trim();
+        const value = pickPhaseCatalogLabel(row, "subsection");
         return [String(index + 1), value];
       })
       .filter((row) => row[1]);
@@ -6004,7 +6037,8 @@ function ensureNonEmptyPhaseCatalogs() {
     if (!sec || !Array.isArray(sec.rows)) continue;
     const names = getUniqueValues(sec.rows, 1);
     const fallback = PHASE_CATALOG_DEFAULT_ROWS[id];
-    if (names.length === 0 && fallback?.length) {
+    const onlyNumericLabels = names.length > 0 && names.every((n) => isCatalogNumericPlaceholder(n));
+    if (fallback?.length && (names.length === 0 || onlyNumericLabels)) {
       sec.rows = JSON.parse(JSON.stringify(fallback));
       changed = true;
     }
