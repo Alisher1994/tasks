@@ -263,9 +263,15 @@ function shortTaskCaption(row) {
   return `№ ${num}${title ? `: ${title}` : ""}\nСтатус: ${st || "—"}`;
 }
 
-function formatRuDateTime(dt) {
+function resolveAppTimeZone(payload) {
+  const tz = String(payload?.displaySettings?.serverTimezone || "").trim();
+  return tz || "UTC";
+}
+
+function formatRuDateTime(dt, timeZone = "UTC") {
   try {
     return new Intl.DateTimeFormat("ru-RU", {
+      timeZone,
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
@@ -743,7 +749,7 @@ async function handleCallback(q, pool, token) {
   };
 
   if (parsed.action === "rd") {
-    const nowText = formatRuDateTime(new Date());
+    const nowText = formatRuDateTime(new Date(), resolveAppTimeZone(payload));
     const canMarkRead = isAssignedEmployeeReader(payload, row, chatId);
     if (canMarkRead) {
       row[TASK_COLUMNS.readState] = composeReadStateValue(true, nowText);
