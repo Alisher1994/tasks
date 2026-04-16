@@ -2389,7 +2389,19 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
       </div>
     `;
   }
-  if (["employees", "data", "phases", "phaseSections", "phaseSubsections"].includes(sectionId)) {
+  if (sectionId === "employees") {
+    return `
+      <div class="action-buttons">
+        <button type="button" class="icon-action-btn copy-employee-msg-btn" title="Скопировать сообщение сотруднику" data-row-index="${rowIndex}">
+          <i data-lucide="copy" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+        <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
+          <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+      </div>
+    `;
+  }
+  if (["data", "phases", "phaseSections", "phaseSubsections"].includes(sectionId)) {
     return `
       <div class="action-buttons">
         <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
@@ -4604,6 +4616,23 @@ function getEmployeeByPhone(phoneValue) {
   return employeesSection.rows.find((row) => normalizeUzPhone(row[4]) === normalized) || null;
 }
 
+function maskEmployeePhoneForMessage(phoneRaw) {
+  const normalized = normalizeUzPhone(phoneRaw);
+  const local = normalized.replace(/\D/g, "").slice(3);
+  if (!local) return "—";
+  return `${local.slice(0, 2)}${"*".repeat(Math.max(0, local.length - 2))}`;
+}
+
+function buildEmployeeOnboardingMessage(row) {
+  const botUsername = String(displaySettings.telegramBotUsername || "").trim();
+  const bot = botUsername ? `@${botUsername}` : "не задан";
+  const fio = String(row[EMPLOYEE_COLUMNS.fullName] || "").trim() || "—";
+  const phoneMasked = maskEmployeePhoneForMessage(row[EMPLOYEE_COLUMNS.phone]);
+  const pass = normalizeUzPhone(row[EMPLOYEE_COLUMNS.phone]).replace(/\D/g, "").slice(-4) || "****";
+  const site = String(location.origin || "").trim() || "—";
+  return [`Бот: ${bot}`, `Сайт: ${site}`, `ФИО: ${fio}`, `Ваш номер: ${phoneMasked}`, `Пароль: ${pass}`].join("\n");
+}
+
 function parseEmployeesCell(value) {
   return String(value || "")
     .split(",")
@@ -5120,6 +5149,7 @@ function attachTableActionHandlers(section, filteredEntries) {
   const viewButtons = Array.from(document.querySelectorAll(".view-row-btn"));
   const restoreButtons = Array.from(document.querySelectorAll(".restore-row-btn"));
   const sendButtons = Array.from(document.querySelectorAll(".send-row-btn"));
+  const copyEmployeeMsgButtons = Array.from(document.querySelectorAll(".copy-employee-msg-btn"));
   const deleteButtons = Array.from(document.querySelectorAll(".delete-row-btn"));
   const bulkSendBtn = document.getElementById("bulkSendBtn");
   const bulkDeleteBtn = document.getElementById("bulkDeleteBtn");
@@ -5196,6 +5226,30 @@ function attachTableActionHandlers(section, filteredEntries) {
           button.title = `Отправлено: ${rowTitle}`;
         }
       });
+    });
+  });
+
+  copyEmployeeMsgButtons.forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (section.id !== "employees") return;
+      const rowIndex = Number(button.dataset.rowIndex);
+      const row = section.rows[rowIndex];
+      if (!row) return;
+      const text = buildEmployeeOnboardingMessage(row);
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (_) {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      button.title = "Скопировано";
+      setTimeout(() => {
+        button.title = "Скопировать сообщение сотруднику";
+      }, 1200);
     });
   });
 
@@ -5641,6 +5695,9 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
           );
         }
         section.rows[rowIndex][colIndex] = newVal;
+        if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.phone) {
+          section.rows[rowIndex].__prevEmployeePhoneForNormalize = previousTextValue;
+        }
         normalizeRowAfterEdit(section, rowIndex, colIndex);
       }
       cell.contentEditable = "false";
@@ -5668,6 +5725,9 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
     isCommitted = true;
     const prev = section.rows[rowIndex][colIndex];
     section.rows[rowIndex][colIndex] = nextValue;
+    if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.phone) {
+      section.rows[rowIndex].__prevEmployeePhoneForNormalize = prev;
+    }
     if (section.id === "tasks" && String(prev ?? "") !== String(nextValue ?? "")) {
       appendTaskHistoryEntry(
         String(section.rows[rowIndex][TASK_COLUMNS.number]),
@@ -5799,7 +5859,10 @@ function normalizeRowAfterEdit(section, rowIndex, colIndex) {
 
   if (section.id === "employees") {
     if (colIndex === EMPLOYEE_COLUMNS.phone) {
+      const prevPhoneRaw = row.__prevEmployeePhoneForNormalize || "";
       row[EMPLOYEE_COLUMNS.phone] = formatUzPhoneDisplay(normalizeUzPhone(row[EMPLOYEE_COLUMNS.phone]));
+      resetEmployeeTelegramBindingOnPhoneChange(row, prevPhoneRaw);
+      delete row.__prevEmployeePhoneForNormalize;
     }
     if (colIndex === EMPLOYEE_COLUMNS.telegram || colIndex === EMPLOYEE_COLUMNS.phone) {
       applyEmployeeTelegramDerivedFields(row);
@@ -5981,6 +6044,15 @@ function isPhoneDerivedEmployeeChatId(phoneValue, chatIdRaw) {
   const cid = String(chatIdRaw ?? "").trim();
   if (!cid || !pseudo) return false;
   return cid === pseudo;
+}
+
+function resetEmployeeTelegramBindingOnPhoneChange(row, prevPhoneRaw) {
+  const prev = normalizeUzPhone(prevPhoneRaw || "");
+  const next = normalizeUzPhone(row[EMPLOYEE_COLUMNS.phone] || "");
+  if (!prev || !next || prev === next) return;
+  row[EMPLOYEE_COLUMNS.chatId] = "";
+  row[EMPLOYEE_COLUMNS.telegram] = "Не подключен";
+  row[EMPLOYEE_COLUMNS.activity] = "Не активен";
 }
 
 /** При «Подключен» не заполняем Chat ID из телефона — только реальный user id (/start или вручную). */
