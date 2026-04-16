@@ -5077,7 +5077,10 @@ async function uploadTaskMediaToServer(file) {
 }
 
 async function resolveStoredMediaFromFile(file) {
-  const uploadedUrl = await uploadTaskMediaToServer(file).catch(() => "");
+  const uploadedUrl = await uploadTaskMediaToServer(file);
+  if (isHostedRuntime() && getAuthToken() && !uploadedUrl) {
+    throw new Error("Сервер не вернул URL медиа. Проверьте MEDIA_STORAGE_PATH и Volume в Railway.");
+  }
   if (uploadedUrl) {
     return {
       stored: uploadedUrl,

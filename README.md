@@ -29,7 +29,7 @@ npm start
 5. В тех же **Variables** приложения добавьте вручную:
    - **`JWT_SECRET`** — длинная случайная строка (обязательно в production, иначе сервер не стартует);
    - **`ADMIN_PHONE`**, **`ADMIN_PASSWORD`** — первый администратор при первом запуске;
-   - **`CLOUDINARY_CLOUD_NAME`**, **`CLOUDINARY_API_KEY`**, **`CLOUDINARY_API_SECRET`** — постоянное хранилище фото задач (рекомендуется, чтобы медиа не терялись при деплоях);
+   - **`MEDIA_STORAGE_PATH`** — путь к смонтированному Railway Volume (например `/data/media`);
    - при необходимости: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `PUBLIC_APP_URL` (если домен не подставляется автоматически при вызове регистрации webhook).
 6. Команда старта: **`npm start`** (уже в `package.json`). **PORT** задавать не нужно — задаёт Railway.
 
@@ -52,12 +52,20 @@ npm start
 | `GET` | `/api/data` | Снимок данных приложения (Bearer) |
 | `PUT` | `/api/data` | Сохранение снимка (Bearer), тело `{ data: { ... } }` |
 | `POST` | `/api/telegram/set-webhook` | Регистрация webhook бота на текущем домене (Bearer); после сохранения токена в приложении |
-| `POST` | `/api/media/upload` | Загрузка медиа в Cloudinary (Bearer), тело `{ dataUrl, fileName }` |
+| `POST` | `/api/media/upload` | Загрузка медиа в Railway Volume (Bearer), тело `{ dataUrl, fileName }` |
 | `GET` | `/api/admin/users` | Список пользователей (**admin**) |
 | `POST` | `/api/admin/users` | Создать пользователя (**admin**), `{ phone, password, displayName?, role? }` |
 | `DELETE` | `/api/admin/users/:id` | Удалить пользователя (**admin**) |
 
 Telegram: после входа в приложение нажмите **«Сохранить токен»** в «Прочие настройки» → Telegram — сервер вызовет `setWebhook` на `https://<ваш-домен>/api/telegram/webhook`. Команда `/start` в боте привязывает **реальный** Telegram user id к сотруднику в справочнике (и приветствие в чате). Надёжная привязка: ссылка `https://t.me/<бот>?start=e_<ID>` (ID из колонки сотрудника). Если задан `TELEGRAM_WEBHOOK_SECRET`, тот же секрет уходит в Telegram и проверяется заголовком входящих запросов.
+
+### Railway Volume для медиа
+
+1. В сервисе приложения откройте **Volumes** и создайте volume (например mount path `/data/media`).
+2. В Variables добавьте `MEDIA_STORAGE_PATH=/data/media`.
+3. Сделайте Redeploy.
+
+После этого загруженные фото задач сохраняются в volume и не пропадают при новых деплоях.
 
 ## Архитектура данных
 

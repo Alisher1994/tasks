@@ -3,6 +3,7 @@
  * Переменные: DATABASE_URL, JWT_SECRET, ADMIN_PHONE, ADMIN_PASSWORD (первый админ), PORT
  */
 import express from "express";
+import { promises as fsp } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import jwt from "jsonwebtoken";
@@ -10,7 +11,7 @@ import pg from "pg";
 import bcrypt from "bcryptjs";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import { createHash, randomBytes } from "crypto";
+import { randomBytes } from "crypto";
 import { configureTelegramWebhook, handleTelegramWebhook } from "./telegramWebhook.js";
 import { runMigrations } from "./migrate.js";
 import { validateAppPayload } from "./validatePayload.js";
@@ -28,9 +29,8 @@ const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
 const ADMIN_PHONE = process.env.ADMIN_PHONE || "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const NODE_ENV = process.env.NODE_ENV || "development";
-const CLOUDINARY_CLOUD_NAME = String(process.env.CLOUDINARY_CLOUD_NAME || "").trim();
-const CLOUDINARY_API_KEY = String(process.env.CLOUDINARY_API_KEY || "").trim();
-const CLOUDINARY_API_SECRET = String(process.env.CLOUDINARY_API_SECRET || "").trim();
+const MEDIA_STORAGE_PATH = String(process.env.MEDIA_STORAGE_PATH || "").trim()
+  || path.join(rootDir, "storage", "media");
 
 function normalizePhone(raw) {
   const digits = String(raw || "").replace(/\D/g, "");
@@ -93,38 +93,24 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-function canUseCloudinary() {
-  return Boolean(CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET);
+async function ensureMediaStorageDir() {
+  await fsp.mkdir(MEDIA_STORAGE_PATH, { recursive: true });
 }
 
-function cloudinarySignature(params) {
-  const sorted = Object.keys(params)
-    .sort()
-    .map((k) => `${k}=${params[k]}`)
-    .join("&");
-  return createHash("sha1").update(`${sorted}${CLOUDINARY_API_SECRET}`).digest("hex");
+function mimeToExt(mime) {
+  const m = String(mime || "").toLowerCase();
+  if (m === "image/jpeg") return "jpg";
+  if (m === "image/png") return "png";
+  if (m === "image/webp") return "webp";
+  if (m === "image/gif") return "gif";
+  if (m === "application/pdf") return "pdf";
+  return "bin";
 }
 
-async function uploadDataUrlToCloudinary({ dataUrl, folder, publicId }) {
-  const ts = Math.floor(Date.now() / 1000);
-  const signParams = { folder, public_id: publicId, timestamp: ts };
-  const signature = cloudinarySignature(signParams);
-  const form = new FormData();
-  form.set("file", dataUrl);
-  form.set("api_key", CLOUDINARY_API_KEY);
-  form.set("timestamp", String(ts));
-  form.set("signature", signature);
-  form.set("folder", folder);
-  form.set("public_id", publicId);
-  const r = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`, {
-    method: "POST",
-    body: form
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j?.secure_url) {
-    throw new Error(String(j?.error?.message || j?.error || `Cloudinary ${r.status}`));
-  }
-  return j;
+function parseDataUrl(dataUrl) {
+  const m = /^data:([^;]+);base64,(.+)$/s.exec(String(dataUrl || "").trim());
+  if (!m) return null;
+  return { mime: String(m[1] || "").trim(), base64: String(m[2] || "").trim() };
 }
 
 /** Базовый HTTPS-URL приложения для setWebhook (без завершающего /). */
@@ -168,6 +154,7 @@ app.use(
 );
 
 app.use("/api/", apiLimiter);
+app.use("/media", express.static(MEDIA_STORAGE_PATH, { index: false, maxAge: "30d", immutable: true }));
 
 app.use(express.json({ limit: "50mb" }));
 
@@ -287,32 +274,27 @@ app.post("/api/telegram/set-webhook", authMiddleware, async (req, res) => {
 
 app.post("/api/media/upload", authMiddleware, async (req, res) => {
   try {
-    if (!canUseCloudinary()) {
-      return res.status(400).json({
-        error: "Не настроено облачное хранилище медиа. Укажите CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET."
-      });
-    }
+    await ensureMediaStorageDir();
     const dataUrl = String(req.body?.dataUrl || "").trim();
-    const fileName = String(req.body?.fileName || "").trim();
-    if (!/^data:[^;]+;base64,/.test(dataUrl)) {
+    const parsed = parseDataUrl(dataUrl);
+    if (!parsed) {
       return res.status(400).json({ error: "Неверный формат файла (ожидается data URL)." });
     }
-    if (dataUrl.length > 24 * 1024 * 1024) {
+    if (parsed.base64.length > 24 * 1024 * 1024) {
       return res.status(413).json({ error: "Файл слишком большой (максимум ~18MB)." });
     }
-    const safeName = fileName.replace(/[^\w.-]+/g, "_").slice(0, 64) || "media";
-    const publicId = `${Date.now()}-${randomBytes(4).toString("hex")}-${safeName}`.replace(/\.+/g, "_");
-    const uploaded = await uploadDataUrlToCloudinary({
-      dataUrl,
-      folder: "mbc/tasks",
-      publicId
-    });
+    const ext = mimeToExt(parsed.mime);
+    const fileName = `${Date.now()}-${randomBytes(6).toString("hex")}.${ext}`;
+    const absPath = path.join(MEDIA_STORAGE_PATH, fileName);
+    const buf = Buffer.from(parsed.base64, "base64");
+    await fsp.writeFile(absPath, buf);
+    const base = getPublicBaseUrl(req);
+    const url = `${base}/media/${encodeURIComponent(fileName)}`;
     return res.json({
       ok: true,
-      url: String(uploaded.secure_url),
-      publicId: String(uploaded.public_id || ""),
-      resourceType: String(uploaded.resource_type || ""),
-      format: String(uploaded.format || "")
+      url,
+      fileName,
+      mime: parsed.mime
     });
   } catch (e) {
     console.error(e);
@@ -508,6 +490,8 @@ async function main() {
   if (JWT_SECRET === "change-me-in-production") {
     console.warn("Задайте JWT_SECRET в переменных окружения перед production.");
   }
+  await ensureMediaStorageDir();
+  console.log(`Папка медиа: ${MEDIA_STORAGE_PATH}`);
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Сервер слушает порт ${PORT} (${NODE_ENV})`);
