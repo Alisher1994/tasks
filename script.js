@@ -23,6 +23,8 @@ const AUTH_TOKEN_KEY = "mbc_jwt";
 const SESSION_STORAGE_KEY = "mbc_task_auth_user";
 const DISPLAY_SETTINGS_KEY = "mbc_task_display_settings";
 const DATA_STORAGE_KEY = "mbc_task_sections_data";
+/** Data URL превью фото объектов (ключ obj-ph-{id}) — переживает перезагрузку; в ячейке по-прежнему имя файла */
+const OBJECT_PHOTO_THUMBS_STORAGE_KEY = "mbc_object_photo_thumbs";
 const TRASH_STORAGE_KEY = "mbc_task_trash_data";
 /** История действий по задачам: { [taskId]: Array<{ t, who, action }> } */
 const TASK_HISTORY_STORAGE_KEY = "mbc_task_action_history";
@@ -268,6 +270,101 @@ async function pushAppToServer() {
   }
 }
 
+/** Немедленная синхронизация с сервером (без debounce), например перед регистрацией Telegram webhook. */
+async function pushAppToServerImmediate() {
+  if (!isHostedRuntime() || !getAuthToken()) return false;
+  const data = buildAppPayload();
+  const r = await fetch("/api/data", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getAuthToken()}`
+    },
+    body: JSON.stringify({ data })
+  });
+  if (r.status === 401) {
+    setAuthToken("");
+    return false;
+  }
+  return r.ok;
+}
+
+/**
+ * Сохраняет токен в БД и вызывает setWebhook на текущем домене (нужен вход в приложение).
+ * @param {{ skipPush?: boolean }} [options] — если skipPush, PUT /api/data уже выполнен вызывающим кодом.
+ * @returns {Promise<{ ok: boolean, webhookUrl?: string, botUsername?: string, error?: string }>}
+ */
+async function registerTelegramWebhookOnServer(options = {}) {
+  const skipPush = Boolean(options.skipPush);
+  if (!isHostedRuntime() || !getAuthToken()) {
+    return { ok: false, error: "Войдите в систему на хостинге (Railway), чтобы подключить webhook." };
+  }
+  if (!skipPush) {
+    const synced = await pushAppToServerImmediate();
+    if (!synced) {
+      return { ok: false, error: "Не удалось сохранить данные на сервер перед регистрацией бота." };
+    }
+  }
+  const botTok = String(displaySettings.telegramBotToken || "").trim();
+  if (!botTok) {
+    return { ok: true, webhookUrl: "", botUsername: displaySettings.telegramBotUsername || "" };
+  }
+  try {
+    const r = await fetch("/api/telegram/set-webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({})
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      return { ok: false, error: j.error || `Ошибка ${r.status}` };
+    }
+    if (j.botUsername) {
+      displaySettings.telegramBotUsername = String(j.botUsername);
+      saveDisplaySettings();
+    }
+    return { ok: true, webhookUrl: j.webhookUrl, botUsername: j.botUsername };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/**
+ * Подтягивает токен из поля ввода (если оно есть), сбрасывает отложенную синхронизацию,
+ * сразу отправляет полный payload на сервер и регистрирует webhook — чтобы при смене токена на сервере не оставался старый снимок из debounce.
+ */
+async function flushTelegramBotTokenToServer(options = {}) {
+  const silent = Boolean(options.silent);
+  if (!isHostedRuntime() || !getAuthToken()) {
+    return { ok: false, error: "Нет входа в систему на сервере — токен только в браузере." };
+  }
+  clearTimeout(serverSyncTimer);
+  serverSyncTimer = null;
+  const inp = document.getElementById("telegramBotTokenInput");
+  if (inp) {
+    displaySettings.telegramBotToken = String(inp.value || "").trim();
+  }
+  saveDisplaySettings({ skipServerSync: true });
+  const synced = await pushAppToServerImmediate();
+  if (!synced) {
+    saveDisplaySettings();
+    return { ok: false, error: "Не удалось сохранить данные на сервер." };
+  }
+  const tok = String(displaySettings.telegramBotToken || "").trim();
+  let reg = { ok: true, webhookUrl: "", botUsername: displaySettings.telegramBotUsername || "" };
+  if (tok) {
+    reg = await registerTelegramWebhookOnServer({ skipPush: true });
+  }
+  saveDisplaySettings();
+  if (!silent && !reg.ok && reg.error) {
+    window.alert(`Токен записан на сервер, но webhook: ${reg.error}`);
+  }
+  return reg;
+}
+
 async function pullRemoteAppState() {
   if (!isHostedRuntime() || !getAuthToken()) return;
   const r = await fetch("/api/data", {
@@ -296,6 +393,7 @@ function applyServerBundle(data) {
     try {
       localStorage.setItem(DATA_STORAGE_KEY, JSON.stringify(data.sections));
       restoreSectionsData();
+      loadObjectPhotoThumbsFromStorage();
     } catch (_) {
       /* noop */
     }
@@ -566,8 +664,8 @@ function buildDemoTaskRowForPreview(status) {
   row[TASK_COLUMNS.priority] = "Средний";
   row[TASK_COLUMNS.addedDate] = "16.04.2026";
   row[TASK_COLUMNS.phase] = "Реализация";
-  row[TASK_COLUMNS.phaseSection] = "Разработка";
-  row[TASK_COLUMNS.phaseSubsection] = "Интерфейс";
+  row[TASK_COLUMNS.phaseSection] = "СМР";
+  row[TASK_COLUMNS.phaseSubsection] = "Надземные конструкции";
   row[TASK_COLUMNS.assignedResponsible] = "Иван Петров";
   row[TASK_COLUMNS.task] = "Проверить освещение в коридоре";
   row[TASK_COLUMNS.responsible] = "Мария Волкова";
@@ -778,7 +876,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
     return { ok: false, reason: "no_targets", message: msg, missingNames };
   }
 
-  const replyMarkup = options.skipInlineKeyboard ? undefined : buildTelegramInlineKeyboardForTask(row[TASK_COLUMNS.number]);
+  const replyMarkup = options.skipInlineKeyboard ? undefined : buildTelegramInlineKeyboardForTask(taskRow[TASK_COLUMNS.number]);
   const results = await Promise.all(
     targets.map(async (t) => {
       try {
@@ -792,7 +890,8 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
-        return { ...t, ok: response.ok };
+        const apiJson = await response.json().catch(() => ({}));
+        return { ...t, ok: response.ok && apiJson.ok === true, apiDescription: apiJson.description };
       } catch (_) {
         return { ...t, ok: false };
       }
@@ -808,7 +907,10 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
       msg += `\n\nБез доставки (нет подключения Telegram или Chat ID): ${missingNames.join(", ")}.`;
     }
     if (!ok) {
-      msg = "Не удалось отправить сообщение. Проверьте токен и Chat ID.";
+      const firstErr = results.find((r) => !r.ok && r.apiDescription);
+      msg = firstErr?.apiDescription
+        ? `Не удалось отправить: ${firstErr.apiDescription}\n\nУбедитесь, что в «Chat ID» указан числовой Telegram user ID (например из @userinfobot), а не цифры с номера телефона.`
+        : "Не удалось отправить сообщение. Проверьте токен и Chat ID.";
     }
     window.alert(msg);
   }
@@ -1218,9 +1320,9 @@ let sections = [
         "В процессе",
         "Высокий",
         "15.04.2026",
-        "Планирование",
-        "Документы",
-        "Техническое задание",
+        "Инициация",
+        "Первичный анализ ЗУ",
+        "УЧРП",
         "Иван Петров",
         "Проверить состояние стеллажей",
         "Иван Петров",
@@ -1239,8 +1341,8 @@ let sections = [
         "Средний",
         "16.04.2026",
         "Реализация",
-        "Разработка",
-        "Интерфейс",
+        "СМР",
+        "Надземные конструкции",
         "Мария Волкова",
         "Обновить схему эвакуации",
         "Мария Волкова",
@@ -1258,9 +1360,9 @@ let sections = [
         "Закрыт",
         "Низкий",
         "12.04.2026",
-        "Контроль",
-        "Отчеты",
-        "Проверка",
+        "Завершение",
+        "Тех.приемка УК",
+        "ПНР",
         "Антон Кузнецов",
         "Заменить замок архивной комнаты",
         "Антон Кузнецов",
@@ -1295,9 +1397,11 @@ let sections = [
     title: "Фаза",
     columns: ["ID", "Фаза"],
     rows: [
-      ["1", "Планирование"],
-      ["2", "Реализация"],
-      ["3", "Контроль"]
+      ["1", "Инициация"],
+      ["2", "Выбор"],
+      ["3", "Проработка"],
+      ["4", "Реализация"],
+      ["5", "Завершение"]
     ]
   },
   {
@@ -1305,9 +1409,30 @@ let sections = [
     title: "Раздел",
     columns: ["ID", "Раздел"],
     rows: [
-      ["1", "Документы"],
-      ["2", "Разработка"],
-      ["3", "Отчеты"]
+      ["1", "Первичный анализ ЗУ"],
+      ["2", "Глубокий анализ ЗУ"],
+      ["3", "Детальная проверка"],
+      ["4", "Финансирование"],
+      ["5", "Другое"],
+      ["6", "Подбор и найм персонала"],
+      ["7", "Эскизное проектирование"],
+      ["8", "Административные согласования"],
+      ["9", "Геология"],
+      ["10", "ППР"],
+      ["11", "Рабочее проектирование"],
+      ["12", "Маркетинг"],
+      ["13", "Офис продаж"],
+      ["14", "Продажи"],
+      ["15", "Поставки"],
+      ["16", "Тендерные процедуры"],
+      ["17", "СМР"],
+      ["18", "Рабочая комиссия"],
+      ["19", "Устранение замечаний"],
+      ["20", "ЗоС"],
+      ["21", "Акт ГК"],
+      ["22", "Кадастр-Кучирма"],
+      ["23", "Финансовый результат проекта"],
+      ["24", "Тех.приемка УК"]
     ]
   },
   {
@@ -1315,9 +1440,37 @@ let sections = [
     title: "Подраздел",
     columns: ["ID", "Подраздел"],
     rows: [
-      ["1", "Техническое задание"],
-      ["2", "Интерфейс"],
-      ["3", "Проверка"]
+      ["1", "Альбом к Градсовету"],
+      ["2", "Дизайн проект благоустройства"],
+      ["3", "Дизайн проект + РД МОП"],
+      ["4", "Другое"],
+      ["5", "Градсовет"],
+      ["6", "СТУ"],
+      ["7", "УЧРП"],
+      ["8", "Доработка РП"],
+      ["9", "Экспертиза"],
+      ["10", "РнС"],
+      ["11", "Дизайн проект"],
+      ["12", "Рабочий проект"],
+      ["13", "Офис продаж"],
+      ["14", "Мобилизация"],
+      ["15", "Земляные работы"],
+      ["16", "Шпунтовое ограждение"],
+      ["17", "Фундаментные работы"],
+      ["18", "Подземные конструкции"],
+      ["19", "Надземные конструкции"],
+      ["20", "Кровельные работы"],
+      ["21", "Фасадные конструкции"],
+      ["22", "СПК"],
+      ["23", "Кладочные работы"],
+      ["24", "Черновая отделка"],
+      ["25", "Чистовая отделка"],
+      ["26", "Инженерные сети"],
+      ["27", "Лифтовое оборудование"],
+      ["28", "ПНР"],
+      ["29", "Внутриплощадочные сети"],
+      ["30", "Благоустройство"],
+      ["31", "Внеплощадочные сети"]
     ]
   },
   {
@@ -1331,9 +1484,9 @@ let sections = [
     title: "Ответственные",
     columns: ["ID", "Фаза", "Раздел", "Подраздел", "Ответственные", "Описание"],
     rows: [
-      ["1", "Планирование", "Документы", "Техническое задание", "Иван Петров, Мария Волкова", "Базовые требования к системе"],
-      ["2", "Реализация", "Разработка", "Интерфейс", "Мария Волкова, Сергей Орлов", "Создание экранов и форм"],
-      ["3", "Контроль", "Отчеты", "Проверка", "Антон Кузнецов, Елена Белова", "Сверка итоговых показателей"]
+      ["1", "Инициация", "Первичный анализ ЗУ", "УЧРП", "Иван Петров, Мария Волкова", "Сбор исходных данных по ЗУ"],
+      ["2", "Реализация", "СМР", "Фундаментные работы", "Мария Волкова, Сергей Орлов", "Контроль строительства фундамента"],
+      ["3", "Завершение", "Тех.приемка УК", "ПНР", "Антон Кузнецов, Елена Белова", "Приёмка систем и сдача объекта"]
     ]
   },
   {
@@ -1390,6 +1543,8 @@ let displaySettings = {
   highlightClosed: false,
   highlightNeedDecision: false,
   telegramBotToken: "",
+  /** @type {string} username бота без @ — подставляется после setWebhook */
+  telegramBotUsername: "",
   /** Пустая строка = часовой пояс браузера */
   serverTimezone: "",
   dateDisplayFormat: "DMY_DOT",
@@ -1596,6 +1751,73 @@ function getObjectPhotoPreviewKeyForRow(objectRow) {
   return oid ? `obj-ph-${oid}` : "";
 }
 
+function loadObjectPhotoThumbsFromStorage() {
+  const sec = getSectionById("objects");
+  const validIds = new Set();
+  if (sec) {
+    for (let i = 0; i < sec.rows.length; i++) {
+      const oid = String(sec.rows[i][OBJECT_COLUMNS.id] ?? i).trim();
+      if (oid) validIds.add(`obj-ph-${oid}`);
+    }
+  }
+  for (const k of Object.keys(objectPhotoPreviewStore)) {
+    if (!validIds.has(k)) {
+      const prev = objectPhotoPreviewStore[k];
+      if (prev?.url && String(prev.url).startsWith("blob:")) URL.revokeObjectURL(prev.url);
+      delete objectPhotoPreviewStore[k];
+    }
+  }
+  try {
+    const raw = localStorage.getItem(OBJECT_PHOTO_THUMBS_STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (typeof data !== "object" || !data) return;
+    for (const [k, v] of Object.entries(data)) {
+      if (!validIds.has(k)) continue;
+      if (v && typeof v.dataUrl === "string" && v.dataUrl.startsWith("data:")) {
+        objectPhotoPreviewStore[k] = {
+          name: v.name || "",
+          type: v.type || "image/jpeg",
+          url: v.dataUrl
+        };
+      }
+    }
+  } catch (_) {
+    /* noop */
+  }
+}
+
+function saveObjectPhotoThumbsToStorage() {
+  try {
+    const sec = getSectionById("objects");
+    const out = {};
+    if (sec) {
+      for (let i = 0; i < sec.rows.length; i++) {
+        const oid = String(sec.rows[i][OBJECT_COLUMNS.id] ?? i).trim();
+        const pkey = oid ? `obj-ph-${oid}` : "";
+        const v = pkey ? objectPhotoPreviewStore[pkey] : null;
+        if (pkey && v?.url && String(v.url).startsWith("data:")) {
+          out[pkey] = { dataUrl: v.url, name: v.name || "", type: v.type || "" };
+        }
+      }
+    }
+    localStorage.setItem(OBJECT_PHOTO_THUMBS_STORAGE_KEY, JSON.stringify(out));
+  } catch (e) {
+    console.warn("saveObjectPhotoThumbsToStorage", e);
+  }
+}
+
+/** Склонение: 1 задача, 2 задачи, 5 задач */
+function pluralTasksRu(count) {
+  const n = Math.abs(Number(count)) || 0;
+  const mod100 = n % 100;
+  const mod10 = n % 10;
+  if (mod100 > 10 && mod100 < 20) return `${n} задач`;
+  if (mod10 === 1) return `${n} задача`;
+  if (mod10 >= 2 && mod10 <= 4) return `${n} задачи`;
+  return `${n} задач`;
+}
+
 function findObjectRowByTaskObjectLabel(objectLabel) {
   const sec = getSectionById("objects");
   if (!sec) return null;
@@ -1617,7 +1839,7 @@ function renderObjectCardThumb(objectLabel) {
   const key = getObjectPhotoPreviewKeyForRow(found.row);
   const prev = key ? objectPhotoPreviewStore[key] : null;
   if (prev?.url) {
-    return `<div class="tasks-object-pick-photo"><img src="${prev.url}" alt="" loading="lazy" /></div>`;
+    return `<div class="tasks-object-pick-photo"><img src="${escapeHtmlAttr(prev.url)}" alt="" loading="lazy" /></div>`;
   }
   return `<div class="tasks-object-pick-photo tasks-object-pick-photo--empty" aria-hidden="true"><span class="tasks-object-pick-logo" role="img" aria-label=""></span></div>`;
 }
@@ -1635,7 +1857,7 @@ function renderTasksObjectPickerHtml(grouped) {
           ${renderObjectCardThumb(g.key)}
           <div class="tasks-object-pick-card-body">
             <span class="tasks-object-pick-name">${escapeHtmlText(g.key)}</span>
-            <span class="tasks-object-pick-count">${g.count} задач</span>
+            <span class="tasks-object-pick-count">${pluralTasksRu(g.count)}</span>
           </div>
         </button>`
         )
@@ -4196,6 +4418,95 @@ function formatUzPhoneDisplay(normalizedPhone) {
   return `${UZ_PHONE_PREFIX}${rest}`;
 }
 
+/** Локальная часть номера после +998 заполнена полностью (9 цифр). */
+function employeePhoneLocalCompleteNormalized(normalizedPhone) {
+  const digits = String(normalizedPhone || "").replace(/\D/g, "");
+  const local = digits.startsWith("998") ? digits.slice(3) : digits;
+  return local.length === 9;
+}
+
+function firstRowIndexWithSameCompletePhone(rows, phoneNormalized) {
+  if (!employeePhoneLocalCompleteNormalized(phoneNormalized)) return -1;
+  for (let i = 0; i < rows.length; i++) {
+    const p = normalizeUzPhone(rows[i][EMPLOYEE_COLUMNS.phone] || "");
+    if (employeePhoneLocalCompleteNormalized(p) && p === phoneNormalized) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function firstRowIndexWithSameNormalizedName(rows, fullNameRaw) {
+  const name = normalizePersonName(fullNameRaw || "");
+  if (!name) return -1;
+  const key = name.toLowerCase();
+  for (let i = 0; i < rows.length; i++) {
+    const n = normalizePersonName(rows[i][EMPLOYEE_COLUMNS.fullName] || "");
+    if (n && n.toLowerCase() === key) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/** Оставляет первую строку с данным телефоном/ФИО, у остальных очищает поле (при загрузке/синхронизации). */
+function dedupeEmployeesInPlace(employeesSection) {
+  const rows = employeesSection.rows;
+  rows.forEach((row, rowIndex) => {
+    const p = normalizeUzPhone(row[EMPLOYEE_COLUMNS.phone] || "");
+    if (employeePhoneLocalCompleteNormalized(p)) {
+      const first = firstRowIndexWithSameCompletePhone(rows, p);
+      if (first !== -1 && first !== rowIndex) {
+        row[EMPLOYEE_COLUMNS.phone] = UZ_PHONE_PREFIX;
+        const isConnected = row[EMPLOYEE_COLUMNS.telegram] === "Подключен";
+        row[EMPLOYEE_COLUMNS.chatId] = isConnected ? makeChatIdFromPhone(row[EMPLOYEE_COLUMNS.phone]) : "";
+        row[EMPLOYEE_COLUMNS.activity] = isConnected ? "Активен" : "Не активен";
+      }
+    }
+    const name = normalizePersonName(row[EMPLOYEE_COLUMNS.fullName] || "");
+    if (name) {
+      const first = firstRowIndexWithSameNormalizedName(rows, name);
+      if (first !== -1 && first !== rowIndex) {
+        row[EMPLOYEE_COLUMNS.fullName] = "";
+      }
+    }
+  });
+}
+
+/** При ручном вводе: дубликат телефона или ФИО — предупреждение и сброс поля (канон — первая строка). */
+function enforceEmployeeUniquenessAfterEdit(section, rowIndex) {
+  if (section.id !== "employees") return false;
+  const rows = section.rows;
+  const row = rows[rowIndex];
+  if (!row) return false;
+  let changed = false;
+
+  const p = normalizeUzPhone(row[EMPLOYEE_COLUMNS.phone] || "");
+  if (employeePhoneLocalCompleteNormalized(p)) {
+    const first = firstRowIndexWithSameCompletePhone(rows, p);
+    if (first !== -1 && first !== rowIndex) {
+      window.alert("Этот номер телефона уже указан у другого сотрудника. Поле очищено.");
+      row[EMPLOYEE_COLUMNS.phone] = UZ_PHONE_PREFIX;
+      const isConnected = row[EMPLOYEE_COLUMNS.telegram] === "Подключен";
+      row[EMPLOYEE_COLUMNS.chatId] = isConnected ? makeChatIdFromPhone(row[EMPLOYEE_COLUMNS.phone]) : "";
+      row[EMPLOYEE_COLUMNS.activity] = isConnected ? "Активен" : "Не активен";
+      changed = true;
+    }
+  }
+
+  const name = normalizePersonName(row[EMPLOYEE_COLUMNS.fullName] || "");
+  if (name) {
+    const first = firstRowIndexWithSameNormalizedName(rows, name);
+    if (first !== -1 && first !== rowIndex) {
+      window.alert("Такое ФИО уже указано у другого сотрудника. Поле очищено.");
+      row[EMPLOYEE_COLUMNS.fullName] = "";
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
 function getEmployeeByPhone(phoneValue) {
   const employeesSection = getSectionById("employees");
   if (!employeesSection) return null;
@@ -4422,10 +4733,13 @@ function renderObjectPhotoCell(row, value, rowIndex) {
   const pkey = oid ? `obj-ph-${oid}` : "";
   const preview = pkey ? objectPhotoPreviewStore[pkey] : null;
   const fileName = String(value || "").trim();
+  const imgSrc = preview?.url ? escapeHtmlAttr(preview.url) : "";
   if (preview?.url) {
-    return `<div class="object-photo-slot" data-object-id="${escapeHtmlAttr(oid)}">
-      <img src="${preview.url}" alt="" class="object-photo-thumb" />
-      <button type="button" class="object-photo-remove" data-object-photo-remove="1" title="Удалить фото">×</button>
+    return `<div class="object-photo-slot object-photo-slot--has-img" data-object-id="${escapeHtmlAttr(oid)}">
+      <div class="object-photo-slot-visual">
+        <img src="${imgSrc}" alt="" class="object-photo-thumb" />
+        <button type="button" class="object-photo-remove" data-object-photo-remove="1" title="Удалить фото">×</button>
+      </div>
     </div>`;
   }
   if (fileName) {
@@ -4583,15 +4897,23 @@ function attachObjectPhotoHandlers(section) {
         const oid = String(row[OBJECT_COLUMNS.id] ?? rowIndex);
         const pkey = `obj-ph-${oid}`;
         const prev = objectPhotoPreviewStore[pkey];
-        if (prev?.url) URL.revokeObjectURL(prev.url);
-        row[colIndex] = file.name;
-        objectPhotoPreviewStore[pkey] = {
-          name: file.name,
-          type: file.type,
-          url: URL.createObjectURL(file)
+        if (prev?.url && String(prev.url).startsWith("blob:")) URL.revokeObjectURL(prev.url);
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = typeof reader.result === "string" ? reader.result : "";
+          if (!dataUrl.startsWith("data:")) return;
+          row[colIndex] = file.name;
+          objectPhotoPreviewStore[pkey] = {
+            name: file.name,
+            type: file.type,
+            url: dataUrl
+          };
+          saveObjectPhotoThumbsToStorage();
+          saveSectionsData();
+          renderTablePreserveScroll();
         };
-        saveSectionsData();
-        renderTablePreserveScroll();
+        reader.onerror = () => window.alert("Не удалось прочитать файл.");
+        reader.readAsDataURL(file);
       }, "image/*");
     });
   });
@@ -4609,8 +4931,9 @@ function attachObjectPhotoHandlers(section) {
       const pkey = `obj-ph-${oid}`;
       row[colIndex] = "";
       const prev = objectPhotoPreviewStore[pkey];
-      if (prev?.url) URL.revokeObjectURL(prev.url);
+      if (prev?.url && String(prev.url).startsWith("blob:")) URL.revokeObjectURL(prev.url);
       delete objectPhotoPreviewStore[pkey];
+      saveObjectPhotoThumbsToStorage();
       saveSectionsData();
       renderTablePreserveScroll();
     });
@@ -5219,6 +5542,7 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
           );
         }
         section.rows[rowIndex][colIndex] = newVal;
+        normalizeRowAfterEdit(section, rowIndex, colIndex);
       }
       cell.contentEditable = "false";
       cell.classList.remove("editing");
@@ -5386,6 +5710,7 @@ function normalizeRowAfterEdit(section, rowIndex, colIndex) {
     if (colIndex === EMPLOYEE_COLUMNS.position) {
       row[EMPLOYEE_COLUMNS.position] = String(row[EMPLOYEE_COLUMNS.position] || "").trim();
     }
+    enforceEmployeeUniquenessAfterEdit(section, rowIndex);
     return;
   }
 
@@ -5613,6 +5938,7 @@ function syncEmployeesDerivedFields() {
     row[EMPLOYEE_COLUMNS.chatId] = isConnected ? makeChatIdFromPhone(row[EMPLOYEE_COLUMNS.phone]) : "";
     row[EMPLOYEE_COLUMNS.activity] = isConnected ? "Активен" : "Не активен";
   });
+  dedupeEmployeesInPlace(employeesSection);
 }
 
 function normalizePhaseAndSectionCatalogs() {
@@ -6337,6 +6663,13 @@ function renderOtherSettingsPanel() {
               <button type="button" id="saveTelegramTokenBtn" class="secondary">Сохранить токен</button>
               <button type="button" id="testTelegramBotBtn">Проверить бота</button>
             </div>
+            <p class="other-settings-hint">После «Сохранить токен» данные уходят на сервер и вызывается <strong>регистрация webhook</strong> — бот начинает принимать обновления на вашем домене. Сотрудник открывает бота и нажимает <strong>Старт</strong>: система сохраняет его реальный Telegram ID в колонку «Chat ID» и приветствует в чате.</p>
+            <p class="other-settings-hint">Надёжная привязка: персональная ссылка <code>${escapeHtmlText(
+              String(displaySettings.telegramBotUsername || "").trim()
+                ? `https://t.me/${String(displaySettings.telegramBotUsername).trim()}?start=e_<ID>`
+                : "https://t.me/<бот>?start=e_<ID>"
+            )}</code>, где <strong>ID</strong> — значение из первой колонки сотрудника (например <code>e_3</code> в ссылке для ID 3). Если открыть бота без параметра, сопоставление идёт по <strong>имени и фамилии</strong> в профиле Telegram и ФИО в таблице (полное совпадение токенов имени).</p>
+            <p class="other-settings-hint">Поле «Chat ID» можно не заполнять вручную: оно обновится после /start. Автоподстановка из номера телефона в таблице по-прежнему не равна реальному <code>chat_id</code> для API.</p>
           </div>
         </div>
 
@@ -6637,13 +6970,31 @@ function attachOtherSettingsHandlers() {
   const copyTokenBtn = document.getElementById("copyTelegramTokenBtn");
   const saveButton = document.getElementById("saveTelegramTokenBtn");
   const testButton = document.getElementById("testTelegramBotBtn");
-  const saveToken = () => {
+  const persistTokenLocal = () => {
     if (!tokenInput) return;
     displaySettings.telegramBotToken = String(tokenInput.value || "").trim();
     saveDisplaySettings();
   };
-  saveButton?.addEventListener("click", saveToken);
-  tokenInput?.addEventListener("blur", saveToken);
+  saveButton?.addEventListener("click", async () => {
+    const reg = await flushTelegramBotTokenToServer({ silent: true });
+    if (reg.ok) {
+      window.alert(
+        `Токен и данные обновлены на сервере.${reg.webhookUrl ? `\n\nWebhook: ${reg.webhookUrl}` : ""}${reg.botUsername ? `\nБот: @${reg.botUsername}` : ""}`
+      );
+    } else {
+      window.alert(
+        `Не удалось полностью обновить сервер:\n${reg.error || "ошибка"}\n\nПроверьте вход в систему на Railway и при необходимости PUBLIC_APP_URL. Локальная копия токена в браузере сохранена.`
+      );
+    }
+  });
+  tokenInput?.addEventListener("blur", async () => {
+    if (!tokenInput) return;
+    const next = String(tokenInput.value || "").trim();
+    if (next === String(displaySettings.telegramBotToken || "").trim()) {
+      return;
+    }
+    await flushTelegramBotTokenToServer({ silent: true });
+  });
 
   const closeAcceptedInput = document.getElementById("telegramCloseAcceptedInput");
   const commitCloseAccepted = () => {
@@ -6756,12 +7107,39 @@ function attachOtherSettingsHandlers() {
     }
   });
   testButton?.addEventListener("click", async () => {
-    saveToken();
+    const flush = await flushTelegramBotTokenToServer({ silent: true });
     const token = String(displaySettings.telegramBotToken || "").trim();
     if (!token) {
       window.alert("Сначала укажите токен Telegram-бота.");
       return;
     }
+
+    let getMeJson;
+    try {
+      const r = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+      getMeJson = await r.json();
+    } catch (_) {
+      window.alert("Не удалось связаться с api.telegram.org. Проверьте сеть и блокировки.");
+      return;
+    }
+    if (!getMeJson?.ok) {
+      const desc = String(getMeJson?.description || "").trim() || "Проверьте токен в @BotFather.";
+      window.alert(`Токен отклонён Telegram API: ${desc}`);
+      return;
+    }
+
+    const botUser = getMeJson.result?.username ? `@${getMeJson.result.username}` : "";
+    if (getMeJson.result?.username) {
+      displaySettings.telegramBotUsername = String(getMeJson.result.username);
+      saveDisplaySettings();
+    }
+
+    const webhookLine =
+      flush.ok && flush.webhookUrl
+        ? `\n\nWebhook: ${flush.webhookUrl}`
+        : !flush.ok && flush.error
+          ? `\n\nСервер/webhook: ${flush.error}`
+          : "";
 
     const employeesSection = getSectionById("employees");
     const targets = (employeesSection?.rows || [])
@@ -6772,40 +7150,54 @@ function attachOtherSettingsHandlers() {
       .filter((item) => item.telegram === "Подключен" && item.chatId);
 
     if (!targets.length) {
-      window.alert("Нет сотрудников с подключенным Telegram и заполненным Chat ID.");
+      window.alert(
+        `Токен верный${botUser ? `, бот ${botUser}` : ""}.${webhookLine}\n\nЧтобы привязать Chat ID, сотрудник открывает бота и нажимает «Старт» (или персональная ссылка с параметром e_<ID>). После этого проверку отправки можно повторить.`
+      );
       return;
     }
 
     const message = "Бот работает проблем нет";
-    const results = await Promise.all(targets.map(async (target) => {
-      try {
-        const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: target.chatId,
-            text: message
-          })
-        });
-        return response.ok;
-      } catch (_) {
-        return false;
-      }
-    }));
+    const results = await Promise.all(
+      targets.map(async (target) => {
+        try {
+          const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: target.chatId,
+              text: message
+            })
+          });
+          const data = await response.json().catch(() => ({}));
+          return { ok: response.ok && data.ok === true, description: data.description };
+        } catch (_) {
+          return { ok: false, description: "" };
+        }
+      })
+    );
 
-    const successCount = results.filter(Boolean).length;
+    const successCount = results.filter((r) => r.ok).length;
     if (successCount > 0) {
-      window.alert(`Сообщение отправлено. Успешно: ${successCount} из ${targets.length}.`);
-    } else {
-      window.alert("Не удалось отправить сообщение. Проверьте токен и Chat ID.");
+      window.alert(
+        `Токен верный${botUser ? ` (${botUser})` : ""}.${webhookLine}\n\nСообщение отправлено: ${successCount} из ${targets.length}.`
+      );
+      return;
     }
+    const firstErr = results.find((r) => !r.ok && r.description);
+    window.alert(
+      firstErr?.description
+        ? `Токен верный${botUser ? ` (${botUser})` : ""}, но отправка не прошла:\n${firstErr.description}${webhookLine}\n\nПусть сотрудник нажмёт «Старт» в боте — Chat ID подставится автоматически.`
+        : `Токен верный${botUser ? ` (${botUser})` : ""}, но отправка не удалась.${webhookLine}`
+    );
   });
   initLucideIcons();
 }
 
-function saveDisplaySettings() {
+function saveDisplaySettings(opts = {}) {
   localStorage.setItem(DISPLAY_SETTINGS_KEY, JSON.stringify(displaySettings));
-  scheduleServerSync();
+  if (!opts.skipServerSync) {
+    scheduleServerSync();
+  }
 }
 
 function restoreDisplaySettings() {
@@ -6854,6 +7246,9 @@ function restoreDisplaySettings() {
     if (typeof displaySettings.telegramCloseAcceptedTemplate !== "string") {
       displaySettings.telegramCloseAcceptedTemplate =
         "Задача [ид_задачи] ([название_задачи]): закрытие подтверждено.";
+    }
+    if (typeof displaySettings.telegramBotUsername !== "string") {
+      displaySettings.telegramBotUsername = "";
     }
     if (displaySettings.tasksListPagingMode !== "pagination" && displaySettings.tasksListPagingMode !== "chunks") {
       displaySettings.tasksListPagingMode = "pagination";
@@ -7969,6 +8364,7 @@ logoutBtn.innerHTML = withLucideIcon("log-out", "Выйти");
 restoreDisplaySettings();
 restoreSectionsData();
 applyObjectsSeedIfNeeded();
+loadObjectPhotoThumbsFromStorage();
 ensureSystemRoles();
 ensureSystemDepartments();
 normalizePhaseAndSectionCatalogs();

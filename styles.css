@@ -625,6 +625,18 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   color: #314357;
 }
 
+.other-settings-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #5a6b7d;
+  max-width: 42rem;
+}
+
+.other-settings-hint code {
+  font-size: 0.95em;
+}
+
 .settings-pane-head-row,
 .other-settings-block-title-row,
 .settings-field-label-row {
@@ -3710,12 +3722,22 @@ td.object-photo-col {
   justify-content: center;
 }
 
+.object-photo-slot-visual {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  line-height: 0;
+  background: #f1f5f9;
+}
+
 .object-photo-thumb {
   width: 100%;
   max-height: 88px;
   object-fit: cover;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
+  display: block;
+  vertical-align: top;
 }
 
 .object-photo-slot--nostore .object-photo-filename-hint {
@@ -3755,7 +3777,39 @@ td.object-photo-col {
   border-style: dashed;
 }
 
-.object-photo-remove {
+.object-photo-slot--nostore .object-photo-slot-actions,
+.object-photo-slot--has-img .object-photo-remove {
+  opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .object-photo-slot--nostore .object-photo-slot-actions,
+  .object-photo-slot--has-img .object-photo-remove {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+
+  .object-photo-slot--nostore:hover .object-photo-slot-actions,
+  .object-photo-slot--nostore:focus-within .object-photo-slot-actions,
+  .object-photo-slot--has-img:hover .object-photo-remove,
+  .object-photo-slot--has-img:focus-within .object-photo-remove {
+    opacity: 1;
+  }
+}
+
+.object-photo-slot--has-img .object-photo-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  align-self: auto;
+  padding: 2px 8px;
+  font-size: 16px;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.object-photo-slot--nostore .object-photo-remove {
   align-self: flex-end;
   padding: 2px 8px;
   font-size: 16px;

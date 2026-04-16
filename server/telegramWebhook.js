@@ -1,7 +1,7 @@
 /**
- * Обработка обновлений Telegram: inline-кнопки у задачи, комментарии, фото,
- * согласование закрытия по списку подтверждающих в настройках, запись в taskHistory в payload.
- * Требует TELEGRAM_BOT_TOKEN на сервере (тот же, что в настройках приложения).
+ * Обработка обновлений Telegram: /start → привязка chat_id к сотруднику, inline-кнопки у задачи,
+ * комментарии, фото, согласование закрытия, запись в taskHistory в payload.
+ * Токен: TELEGRAM_BOT_TOKEN в окружении или displaySettings.telegramBotToken в JSON приложения (после синхронизации).
  */
 
 const STATUS_OPTIONS = ["Новый", "В процессе", "Треб. реш. рук.", "Закрыт"];
@@ -154,11 +154,6 @@ function defaultAcceptTemplate() {
 }
 
 export async function handleTelegramWebhook(req, res, pool) {
-  const token = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
-  if (!token) {
-    return res.status(503).json({ ok: false, error: "TELEGRAM_BOT_TOKEN не задан на сервере" });
-  }
-
   const secret = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
   if (secret) {
     const got = String(req.headers["x-telegram-bot-api-secret-token"] || "");
@@ -175,6 +170,12 @@ export async function handleTelegramWebhook(req, res, pool) {
   res.status(200).json({ ok: true });
 
   try {
+    const payload = await loadPayload(pool);
+    const token = resolveBotToken(payload);
+    if (!token) {
+      console.error("telegram webhook: нет токена (TELEGRAM_BOT_TOKEN или токен в настройках приложения после синхронизации)");
+      return;
+    }
     await processUpdate(update, pool, token);
   } catch (e) {
     console.error("telegram webhook", e);
@@ -193,6 +194,187 @@ async function savePayload(pool, payload) {
      ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
     [JSON.stringify(payload)]
   );
+}
+
+/** Приоритет: переменная окружения, иначе токен из настроек приложения (БД). */
+export function resolveBotToken(payload) {
+  const env = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
+  if (env) return env;
+  return String(payload?.displaySettings?.telegramBotToken || "").trim();
+}
+
+/**
+ * Регистрация webhook на публичный URL приложения (вызывается из POST /api/telegram/set-webhook).
+ */
+export async function configureTelegramWebhook(pool, baseUrl) {
+  const normalizedBase = String(baseUrl || "")
+    .trim()
+    .replace(/\/$/, "");
+  if (!normalizedBase) {
+    return {
+      ok: false,
+      error:
+        "Не задан публичный URL приложения. Укажите PUBLIC_APP_URL в переменных сервера или откройте запрос с вашего HTTPS-домена."
+    };
+  }
+  const payload = await loadPayload(pool);
+  const token = resolveBotToken(payload);
+  if (!token) {
+    return {
+      ok: false,
+      error:
+        "Нет токена бота: сохраните токен в «Прочие настройки» → Telegram и дождитесь синхронизации с сервером (или задайте TELEGRAM_BOT_TOKEN)."
+    };
+  }
+  const hookPath = "/api/telegram/webhook";
+  const url = `${normalizedBase}${hookPath}`;
+  const secret = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+  const body = { url };
+  if (secret) {
+    body.secret_token = secret;
+  }
+  const r = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const j = await r.json();
+  if (!j.ok) {
+    return { ok: false, error: j.description || "setWebhook failed", description: j.description };
+  }
+  let botUsername = "";
+  try {
+    const mr = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+    const mj = await mr.json();
+    if (mj.ok && mj.result?.username) {
+      botUsername = String(mj.result.username);
+    }
+  } catch (_) {
+    /* noop */
+  }
+  return { ok: true, webhookUrl: url, botUsername };
+}
+
+function normalizePersonName(s) {
+  return String(s ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function nameTokens(name) {
+  return normalizePersonName(name)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function scoreNameMatch(fio, displayName) {
+  const a = nameTokens(fio);
+  const b = nameTokens(displayName);
+  if (!a.length || !b.length) return 0;
+  const setA = new Set(a);
+  let hit = 0;
+  for (const t of b) {
+    if (setA.has(t)) hit += 1;
+  }
+  return hit;
+}
+
+function telegramDisplayName(from) {
+  if (!from || typeof from !== "object") return "";
+  return normalizePersonName(`${from.first_name || ""} ${from.last_name || ""}`.trim());
+}
+
+function findEmployeeByStartParam(employees, startParam) {
+  const raw = String(startParam || "").trim();
+  if (!raw) return null;
+  const rows = employees?.rows || [];
+  let id = "";
+  const m1 = raw.match(/^e[_-]?(\d+)$/i);
+  const m2 = raw.match(/^id[_-]?(\d+)$/i);
+  if (m1) id = m1[1];
+  else if (m2) id = m2[1];
+  else if (/^\d+$/.test(raw)) id = raw;
+  if (!id) return null;
+  return rows.find((row) => String(row[EMPLOYEE_COLUMNS.id] ?? "").trim() === id) || null;
+}
+
+function findEmployeeByTelegramName(employees, from) {
+  const display = telegramDisplayName(from);
+  if (!display) return null;
+  const rows = employees?.rows || [];
+  if (!rows.length) return null;
+
+  const scores = rows.map((row) => {
+    const fio = String(row[EMPLOYEE_COLUMNS.fullName] || "");
+    return { row, sc: scoreNameMatch(fio, display) };
+  });
+  let bestScore = 0;
+  for (const x of scores) {
+    if (x.sc > bestScore) bestScore = x.sc;
+  }
+  if (bestScore < 2) return null;
+  const top = scores.filter((x) => x.sc === bestScore);
+  if (top.length !== 1) return null;
+  return top[0].row;
+}
+
+function clearChatIdFromOtherEmployees(employees, chatIdStr, exceptRow) {
+  for (const row of employees.rows) {
+    if (row === exceptRow) continue;
+    if (String(row[EMPLOYEE_COLUMNS.chatId] ?? "").trim() === chatIdStr) {
+      row[EMPLOYEE_COLUMNS.chatId] = "";
+    }
+  }
+}
+
+async function handleTelegramStart(msg, pool, token) {
+  const chatId = msg.chat?.id;
+  const from = msg.from;
+  if (chatId == null || !from) return;
+
+  const text = String(msg.text || "").trim();
+  const startParam = /^\/start(?:@\w+)?(?:\s+(.+))?$/i.exec(text)?.[1]?.trim() || "";
+
+  const payload = await loadPayload(pool);
+  const employees = getEmployeesSection(payload);
+  if (!employees?.rows?.length) {
+    await tg(token, "sendMessage", {
+      chat_id: chatId,
+      text: "Справочник сотрудников в системе пуст. Обратитесь к администратору."
+    });
+    return;
+  }
+
+  let emp = findEmployeeByStartParam(employees, startParam);
+  if (!emp) {
+    emp = findEmployeeByTelegramName(employees, from);
+  }
+
+  if (!emp) {
+    const msgNo =
+      startParam.length > 0
+        ? "Не найден сотрудник по коду из ссылки. Проверьте ID или попросите у администратора новую ссылку «Подключить бота»."
+        : "Не удалось сопоставить ваш профиль Telegram с ФИО в справочнике. Попросите персональную ссылку у администратора (Прочие настройки → Telegram) или откройте бота по ссылке с параметром e_<ID>, где ID — номер строки сотрудника.";
+    await tg(token, "sendMessage", { chat_id: chatId, text: msgNo });
+    return;
+  }
+
+  const myChat = String(chatId);
+  clearChatIdFromOtherEmployees(employees, myChat, emp);
+
+  emp[EMPLOYEE_COLUMNS.chatId] = myChat;
+  emp[EMPLOYEE_COLUMNS.telegram] = "Подключен";
+  emp[EMPLOYEE_COLUMNS.activity] = "Активен";
+
+  await savePayload(pool, payload);
+
+  const name = String(emp[EMPLOYEE_COLUMNS.fullName] || "").trim() || "Сотрудник";
+  const first = String(from.first_name || "").trim();
+  await tg(token, "sendMessage", {
+    chat_id: chatId,
+    text: `Здравствуйте${first ? `, ${first}` : ""}!\n\nВы подключены к боту как «${name}». Ваш Telegram ID сохранён в системе — уведомления по задачам будут приходить сюда.`
+  });
 }
 
 async function processUpdate(update, pool, token) {
@@ -452,6 +634,11 @@ async function handleMessage(msg, pool, token) {
     clearSession(payload, chatKey);
     await savePayload(pool, payload);
     await tg(token, "sendMessage", { chat_id: chatId, text: "Действие отменено." });
+    return;
+  }
+
+  if (/^\/start(?:@\w+)?(?:\s|$)/i.test(text)) {
+    await handleTelegramStart(msg, pool, token);
     return;
   }
 

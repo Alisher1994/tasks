@@ -7,9 +7,11 @@
 
 2. Railway
    - https://railway.app → New Project → Deploy from GitHub → выберите репозиторий.
-   - В проекте: Add → Database → PostgreSQL (Railway создаст сервис БД и переменную
-     DATABASE_URL — подключите её к приложению: в сервисе приложения → Variables →
-     Reference Variable → выберите DATABASE_URL из сервиса Postgres).
+     Если «GitHub Repo not found»: Account Settings → подключите GitHub и дайте Railway
+     доступ к репозиторию (или сделайте репозиторий доступным для установленной интеграции).
+   - В проекте: + New → Database → PostgreSQL (отдельный сервис Postgres).
+   - ОБЯЗАТЕЛЬНО: сервис приложения (Node) → Variables → Add variable → Add reference
+     → сервис Postgres → DATABASE_URL. Без этого в логах: «задайте переменную DATABASE_URL».
 
 3. Переменные окружения (сервис приложения, не БД)
    - JWT_SECRET — случайная длинная строка (для подписи JWT).

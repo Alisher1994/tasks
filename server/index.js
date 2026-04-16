@@ -11,7 +11,7 @@ import bcrypt from "bcryptjs";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { randomBytes } from "crypto";
-import { handleTelegramWebhook } from "./telegramWebhook.js";
+import { configureTelegramWebhook, handleTelegramWebhook } from "./telegramWebhook.js";
 import { runMigrations } from "./migrate.js";
 import { validateAppPayload } from "./validatePayload.js";
 
@@ -67,6 +67,20 @@ function requireAdmin(req, res, next) {
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   next();
+}
+
+/** Базовый HTTPS-URL приложения для setWebhook (без завершающего /). */
+function getPublicBaseUrl(req) {
+  const envUrl = String(process.env.PUBLIC_APP_URL || "").trim().replace(/\/$/, "");
+  if (envUrl) return envUrl;
+  const railway = String(process.env.RAILWAY_PUBLIC_DOMAIN || "").trim();
+  if (railway) return `https://${railway}`;
+  const host = String(req.get("x-forwarded-host") || req.get("host") || "").trim();
+  if (host) {
+    const proto = String(req.get("x-forwarded-proto") || "").trim().split(",")[0] || "https";
+    return `${proto}://${host}`;
+  }
+  return "";
 }
 
 const loginLimiter = rateLimit({
@@ -173,6 +187,22 @@ app.get("/api/data", authMiddleware, async (_req, res) => {
 
 app.post("/api/telegram/webhook", express.json(), async (req, res) => {
   await handleTelegramWebhook(req, res, pool);
+});
+
+/** После сохранения токена в приложении: зарегистрировать webhook на этом домене. */
+app.post("/api/telegram/set-webhook", authMiddleware, async (req, res) => {
+  try {
+    const fromBody = String(req.body?.publicBaseUrl || "").trim().replace(/\/$/, "");
+    const base = fromBody || getPublicBaseUrl(req);
+    const result = await configureTelegramWebhook(pool, base);
+    if (!result.ok) {
+      return res.status(400).json({ error: result.error || result.description || "setWebhook failed" });
+    }
+    return res.json({ ok: true, webhookUrl: result.webhookUrl, botUsername: result.botUsername || "" });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
 });
 
 app.put("/api/data", authMiddleware, async (req, res) => {
