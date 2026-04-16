@@ -5,6 +5,12 @@
  */
 
 const STATUS_OPTIONS = ["Новый", "В процессе", "Треб. реш. рук.", "Закрыт"];
+const STATUS_EMOJI = {
+  Новый: "🟣",
+  "В процессе": "🟡",
+  "Треб. реш. рук.": "🔴",
+  Закрыт: "🟢"
+};
 const TASK_COLUMNS = {
   number: 0,
   object: 1,
@@ -130,6 +136,14 @@ function parseCallbackData(data) {
     action: parts[2],
     rest: parts.slice(3)
   };
+}
+
+function statusLabelWithEmoji(status) {
+  const s = String(status || "").trim();
+  if (!s) return "";
+  const emoji = STATUS_EMOJI[s] || "•";
+  const text = s === "Закрыт" ? "Закрыто" : s;
+  return `${emoji} ${text}`;
 }
 
 async function tg(token, method, body) {
@@ -515,7 +529,7 @@ async function handleCallback(q, pool, token) {
   };
 
   if (parsed.action === "sm") {
-    const keyboard = STATUS_OPTIONS.map((label, i) => [{ text: label, callback_data: cb(taskId, `ss|${i}`) }]);
+    const keyboard = STATUS_OPTIONS.map((label, i) => [{ text: statusLabelWithEmoji(label), callback_data: cb(taskId, `ss|${i}`) }]);
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
