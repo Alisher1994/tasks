@@ -917,26 +917,37 @@ function resolveEmployeeTelegramTargetsByFullNames(names) {
   return out;
 }
 
-function getFirstTaskMediaItemForTelegram(taskRow) {
+function getTaskMediaItemsForTelegram(taskRow) {
   const after = getMediaItems(taskRow[TASK_COLUMNS.mediaAfter]);
-  if (after.length) return after[0];
   const before = getMediaItems(taskRow[TASK_COLUMNS.mediaBefore]);
-  if (before.length) return before[0];
-  return "";
+  return [...after, ...before].map((x) => String(x || "").trim()).filter(Boolean);
 }
 
 function resolveTelegramSendablePhotoRef(taskRow, token) {
-  const raw = String(getFirstTaskMediaItemForTelegram(taskRow) || "").trim();
-  if (!raw) return "";
-  const directUrl = toAbsoluteMediaUrl(raw);
-  if (directUrl) return directUrl;
-  if (raw.startsWith("/")) {
-    const clean = raw.replace(/^\/+/, "");
-    return `${location.origin}/${clean}`;
+  const items = getTaskMediaItemsForTelegram(taskRow);
+  if (!items.length) return "";
+  const toSendable = (raw) => {
+    const directUrl = toAbsoluteMediaUrl(raw);
+    if (directUrl) return directUrl;
+    if (raw.startsWith("/")) {
+      const clean = raw.replace(/^\/+/, "");
+      return `${location.origin}/${clean}`;
+    }
+    if (raw.includes("/")) {
+      const clean = raw.replace(/^\/+/, "");
+      return `https://api.telegram.org/file/bot${token}/${clean}`;
+    }
+    return "";
+  };
+  for (const raw of items) {
+    const displayName = getMediaDisplayName(raw);
+    if (!mediaNameLooksLikeImage(displayName)) continue;
+    const ref = toSendable(raw);
+    if (ref) return ref;
   }
-  if (raw.includes("/")) {
-    const clean = raw.replace(/^\/+/, "");
-    return `https://api.telegram.org/file/bot${token}/${clean}`;
+  for (const raw of items) {
+    const ref = toSendable(raw);
+    if (ref) return ref;
   }
   return "";
 }
@@ -1023,7 +1034,9 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
             return {
               ...t,
               ok: fallbackResponse.ok && fallbackJson.ok === true,
-              apiDescription: fallbackJson.description || photoJson.description
+              apiDescription: fallbackJson.description || photoJson.description,
+              photoFallback: true,
+              photoError: photoJson.description || ""
             };
           }
           if (!canUseCaption) {
@@ -1042,7 +1055,8 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
             return {
               ...t,
               ok: okLong,
-              apiDescription: photoJson.description || textJson.description
+              apiDescription: photoJson.description || textJson.description,
+              photoFallback: false
             };
           }
           const kbBody = {
@@ -1060,7 +1074,8 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
           return {
             ...t,
             ok: okPhoto,
-            apiDescription: photoJson.description || kbJson.description
+            apiDescription: photoJson.description || kbJson.description,
+            photoFallback: false
           };
         }
 
@@ -1075,9 +1090,9 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
           body: JSON.stringify(msgBody)
         });
         const apiJson = await response.json().catch(() => ({}));
-        return { ...t, ok: response.ok && apiJson.ok === true, apiDescription: apiJson.description };
+        return { ...t, ok: response.ok && apiJson.ok === true, apiDescription: apiJson.description, photoFallback: false };
       } catch (_) {
-        return { ...t, ok: false };
+        return { ...t, ok: false, photoFallback: false };
       }
     })
   );
@@ -1087,6 +1102,10 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
 
   if (!suppressAlerts) {
     let msg = `Отправлено успешно: ${okCount} из ${results.length}.`;
+    const fallbackWithPhotoError = results.find((r) => r.photoFallback === true);
+    if (fallbackWithPhotoError) {
+      msg += `\n\nФото не прикрепилось: Telegram не смог загрузить файл по ссылке.${fallbackWithPhotoError.photoError ? `\nПричина Telegram: ${fallbackWithPhotoError.photoError}` : ""}`;
+    }
     if (missingNames.length) {
       msg += `\n\nБез доставки (нет подключения Telegram или Chat ID): ${missingNames.join(", ")}.`;
     }
