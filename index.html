@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Система задач</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" sizes="any" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+</head>
+<body>
+  <main class="page">
+    <section id="loginSection" class="card auth-card">
+      <img src="horizontal-v1.svg" alt="Логотип" class="login-logo" />
+      <form id="loginForm" class="auth-form">
+        <label for="phone">Номер телефона</label>
+        <input id="phone" name="phone" type="tel" placeholder="+998991234567" value="+998" inputmode="numeric" maxlength="13" autocomplete="tel" required />
+
+        <label for="password">Пароль</label>
+        <div class="password-field">
+          <input id="password" name="password" type="password" placeholder="Введите пароль" required />
+          <button id="togglePasswordBtn" type="button" class="password-toggle-btn" title="Показать пароль" aria-label="Показать пароль">
+            <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+        </div>
+
+        <button id="loginBtn" type="submit" class="with-icon"></button>
+        <p id="loginError" class="error hidden">Неверный логин или пароль</p>
+      </form>
+    </section>
+
+    <section id="appSection" class="hidden">
+      <div class="app-layout">
+        <aside class="sidebar card">
+          <div class="sidebar-header">
+            <button type="button" class="sidebar-brand" id="sidebarBrandToggle" title="Свернуть / развернуть меню" aria-label="Свернуть или развернуть меню">
+              <img src="horizontal-v1.svg" alt="" class="sidebar-logo-full" />
+              <img src="mb new logo 1.svg" alt="" class="sidebar-logo-mini" />
+            </button>
+          </div>
+          <div class="tabs sidebar-tabs" id="tabs"></div>
+          <div class="sidebar-footer">
+            <button id="logoutBtn" class="secondary with-icon sidebar-logout-btn"></button>
+          </div>
+        </aside>
+        <section class="content-panel">
+          <div id="tableContainer"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="script.js"></script>
+</body>
+</html>

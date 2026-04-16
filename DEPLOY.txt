@@ -1,0 +1,27 @@
+Развёртывание на Railway из GitHub
+==================================
+
+1. Репозиторий
+   - Загрузите папку проекта в GitHub (корень репозитория = корень этого приложения,
+     рядом должны быть package.json, server/, index.html).
+
+2. Railway
+   - https://railway.app → New Project → Deploy from GitHub → выберите репозиторий.
+   - В проекте: Add → Database → PostgreSQL (Railway создаст сервис БД и переменную
+     DATABASE_URL — подключите её к приложению: в сервисе приложения → Variables →
+     Reference Variable → выберите DATABASE_URL из сервиса Postgres).
+
+3. Переменные окружения (сервис приложения, не БД)
+   - JWT_SECRET — случайная длинная строка (для подписи JWT).
+   - ADMIN_PHONE — номер входа, формат как в приложении, напр. +998994067406
+   - ADMIN_PASSWORD — пароль для этого номера
+   - PORT задаёт Railway автоматически, не переопределяйте вручную.
+
+4. Деплой
+   - После пуша в GitHub Railway пересобирает проект (npm install, npm start).
+   - Откройте выданный URL — должна открыться страница входа, данные сохраняются в PostgreSQL.
+
+5. Локальная проверка API (нужен PostgreSQL и .env)
+   - Скопируйте DATABASE_URL в файл .env или задайте в оболочке.
+   - npm start
+   - http://localhost:3000
