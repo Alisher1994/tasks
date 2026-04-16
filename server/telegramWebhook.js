@@ -289,15 +289,42 @@ function telegramDisplayName(from) {
   return normalizePersonName(`${from.first_name || ""} ${from.last_name || ""}`.trim());
 }
 
+function normalizePhoneForMatch(raw) {
+  let digits = String(raw || "").replace(/[^\d+]/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("+")) digits = digits.slice(1);
+  digits = digits.replace(/\D/g, "");
+  if (!digits) return "";
+  /** Локальный формат Узбекистана без кода страны → приводим к 998XXXXXXXXX. */
+  if (digits.length === 9) return `998${digits}`;
+  return digits;
+}
+
+function findEmployeeByPhone(employees, phoneRaw) {
+  const rows = employees?.rows || [];
+  const phone = normalizePhoneForMatch(phoneRaw);
+  if (!phone) return null;
+  const hits = rows.filter((row) => normalizePhoneForMatch(row[EMPLOYEE_COLUMNS.phone]) === phone);
+  if (hits.length === 1) return hits[0];
+  return null;
+}
+
 function findEmployeeByStartParam(employees, startParam) {
   const raw = String(startParam || "").trim();
   if (!raw) return null;
   const rows = employees?.rows || [];
+  const byPhone = findEmployeeByPhone(employees, raw);
+  if (byPhone) return byPhone;
   let id = "";
   const m1 = raw.match(/^e[_-]?(\d+)$/i);
   const m2 = raw.match(/^id[_-]?(\d+)$/i);
+  const m3 = raw.match(/^p(?:hone)?[_-]?(.+)$/i);
   if (m1) id = m1[1];
   else if (m2) id = m2[1];
+  else if (m3) {
+    const p = findEmployeeByPhone(employees, m3[1]);
+    if (p) return p;
+  }
   else if (/^\d+$/.test(raw)) id = raw;
   if (!id) return null;
   return rows.find((row) => String(row[EMPLOYEE_COLUMNS.id] ?? "").trim() === id) || null;
@@ -344,6 +371,22 @@ function clearChatIdFromOtherEmployees(employees, chatIdStr, exceptRow) {
   }
 }
 
+async function bindEmployeeToChat({ employees, employee, chatId, from, pool, payload, token }) {
+  const myChat = String(chatId);
+  clearChatIdFromOtherEmployees(employees, myChat, employee);
+  employee[EMPLOYEE_COLUMNS.chatId] = myChat;
+  employee[EMPLOYEE_COLUMNS.telegram] = "Подключен";
+  employee[EMPLOYEE_COLUMNS.activity] = "Активен";
+  await savePayload(pool, payload);
+
+  const name = String(employee[EMPLOYEE_COLUMNS.fullName] || "").trim() || "Сотрудник";
+  const first = String(from?.first_name || "").trim();
+  await tg(token, "sendMessage", {
+    chat_id: chatId,
+    text: `Здравствуйте${first ? `, ${first}` : ""}!\n\nВы подключены к боту как «${name}». Ваш Telegram ID сохранён в системе — уведомления по задачам будут приходить сюда.`
+  });
+}
+
 async function handleTelegramStart(msg, pool, token) {
   const chatId = msg.chat?.id;
   const from = msg.from;
@@ -363,6 +406,9 @@ async function handleTelegramStart(msg, pool, token) {
   }
 
   let emp = findEmployeeByStartParam(employees, startParam);
+  if (!emp && msg.contact?.phone_number) {
+    emp = findEmployeeByPhone(employees, msg.contact.phone_number);
+  }
   if (!emp) {
     emp = findEmployeeByTelegramName(employees, from);
   }
@@ -371,26 +417,21 @@ async function handleTelegramStart(msg, pool, token) {
     const msgNo =
       startParam.length > 0
         ? "Не найден сотрудник по коду из ссылки. Проверьте ID или попросите у администратора новую ссылку «Подключить бота»."
-        : "Не удалось сопоставить ваш профиль Telegram с ФИО в справочнике. Попросите персональную ссылку у администратора (Прочие настройки → Telegram) или откройте бота по ссылке с параметром e_<ID>, где ID — номер строки сотрудника.";
+        : "Не удалось сопоставить профиль автоматически. Отправьте свой номер через кнопку «Поделиться номером» (сравнение по телефону, +/без + поддерживается) или используйте ссылку с параметром e_<ID>.";
     await tg(token, "sendMessage", { chat_id: chatId, text: msgNo });
+    await tg(token, "sendMessage", {
+      chat_id: chatId,
+      text: "Нажмите кнопку ниже и отправьте свой номер телефона:",
+      reply_markup: {
+        keyboard: [[{ text: "Поделиться номером", request_contact: true }]],
+        resize_keyboard: true,
+        one_time_keyboard: true
+      }
+    });
     return;
   }
 
-  const myChat = String(chatId);
-  clearChatIdFromOtherEmployees(employees, myChat, emp);
-
-  emp[EMPLOYEE_COLUMNS.chatId] = myChat;
-  emp[EMPLOYEE_COLUMNS.telegram] = "Подключен";
-  emp[EMPLOYEE_COLUMNS.activity] = "Активен";
-
-  await savePayload(pool, payload);
-
-  const name = String(emp[EMPLOYEE_COLUMNS.fullName] || "").trim() || "Сотрудник";
-  const first = String(from.first_name || "").trim();
-  await tg(token, "sendMessage", {
-    chat_id: chatId,
-    text: `Здравствуйте${first ? `, ${first}` : ""}!\n\nВы подключены к боту как «${name}». Ваш Telegram ID сохранён в системе — уведомления по задачам будут приходить сюда.`
-  });
+  await bindEmployeeToChat({ employees, employee: emp, chatId, from, pool, payload, token });
 }
 
 async function processUpdate(update, pool, token) {
@@ -644,6 +685,22 @@ async function handleMessage(msg, pool, token) {
   if (chatId == null) return;
   const chatKey = String(chatId);
   const text = String(msg.text || "").trim();
+
+  if (msg.contact?.phone_number) {
+    const payload = await loadPayload(pool);
+    const employees = getEmployeesSection(payload);
+    const emp = findEmployeeByPhone(employees, msg.contact.phone_number);
+    if (!emp) {
+      await tg(token, "sendMessage", {
+        chat_id: chatId,
+        text:
+          "Не найден сотрудник с таким номером в справочнике. Проверьте номер в карточке сотрудника (формат +998... или без +) и попробуйте снова."
+      });
+      return;
+    }
+    await bindEmployeeToChat({ employees, employee: emp, chatId, from: msg.from, pool, payload, token });
+    return;
+  }
 
   if (text === "/отмена" || text === "/cancel") {
     const payload = await loadPayload(pool);
