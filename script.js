@@ -639,10 +639,18 @@ function shortenHistorySnippet(s, maxLen = 100) {
 function applyTaskMessageTemplate(template, row) {
   if (!template || !row) return "";
   let out = String(template);
+  const formatTokenValue = (colKey, rawValue) => {
+    if (colKey !== "mediaBefore" && colKey !== "mediaAfter") {
+      return String(rawValue ?? "");
+    }
+    const items = getMediaItems(rawValue);
+    if (!items.length) return "Нет";
+    return `Фото приложено: ${items.length}`;
+  };
   for (const item of TASK_MESSAGE_PLACEHOLDERS) {
     const col = TASK_COLUMNS[item.col];
     if (col === undefined) continue;
-    const val = String(row[col] ?? "");
+    const val = formatTokenValue(item.col, row[col]);
     out = out.split(item.token).join(val);
   }
   return out;
