@@ -1965,6 +1965,23 @@ button.task-card-tab.is-active {
   color: #2a3647;
 }
 
+.task-read-state {
+  font-weight: 600;
+}
+
+.task-read-state.is-read {
+  color: #1d8f49;
+}
+
+.task-read-state.is-unread {
+  color: #c62828;
+}
+
+.task-read-time {
+  color: #64748b;
+  font-size: 12px;
+}
+
 .gallery-block {
   margin-top: 10px;
 }

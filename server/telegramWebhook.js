@@ -29,7 +29,8 @@ const TASK_COLUMNS = {
   dueDate: 14,
   closedDate: 15,
   mediaBefore: 16,
-  mediaAfter: 17
+  mediaAfter: 17,
+  readState: 18
 };
 const EMPLOYEE_COLUMNS = {
   id: 0,
@@ -259,6 +260,52 @@ function shortTaskCaption(row) {
   const title = String(row[TASK_COLUMNS.task] ?? "").trim();
   const st = String(row[TASK_COLUMNS.status] ?? "").trim();
   return `№ ${num}${title ? `: ${title}` : ""}\nСтатус: ${st || "—"}`;
+}
+
+function formatRuDateTime(dt) {
+  try {
+    return new Intl.DateTimeFormat("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(dt);
+  } catch (_) {
+    return String(dt || "");
+  }
+}
+
+function composeReadStateValue(isRead, whenText = "—") {
+  return `${isRead ? "Прочитано" : "Не прочитано"}\n${String(whenText || "—").trim() || "—"}`;
+}
+
+function isAssignedEmployeeReader(payload, row, chatId) {
+  const employees = getEmployeesSection(payload);
+  const assignedName = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
+  if (!assignedName) return false;
+  const assignedEmp = findEmployeeByFullName(employees, assignedName);
+  if (!assignedEmp) return false;
+  const assignedChat = String(assignedEmp[EMPLOYEE_COLUMNS.chatId] || "").trim();
+  return assignedChat && assignedChat === String(chatId || "").trim();
+}
+
+function buildFullTaskMessage(row) {
+  const lines = [];
+  lines.push(`№ ${String(row[TASK_COLUMNS.number] || "").trim() || "—"}: ${String(row[TASK_COLUMNS.task] || "").trim() || "—"}`);
+  lines.push(`Объект: ${String(row[TASK_COLUMNS.object] || "").trim() || "—"}`);
+  lines.push(`Статус: ${String(row[TASK_COLUMNS.status] || "").trim() || "—"}`);
+  lines.push(`Приоритет: ${String(row[TASK_COLUMNS.priority] || "").trim() || "—"}`);
+  lines.push(`Фаза: ${String(row[TASK_COLUMNS.phase] || "").trim() || "—"}`);
+  lines.push(`Раздел: ${String(row[TASK_COLUMNS.phaseSection] || "").trim() || "—"}`);
+  lines.push(`Подраздел: ${String(row[TASK_COLUMNS.phaseSubsection] || "").trim() || "—"}`);
+  lines.push(`Исполнитель: ${String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—"}`);
+  lines.push(`Ответственный: ${String(row[TASK_COLUMNS.responsible] || "").trim() || "—"}`);
+  lines.push(`Срок: ${String(row[TASK_COLUMNS.dueDate] || "").trim() || "—"}`);
+  const note = String(row[TASK_COLUMNS.note] || "").trim();
+  if (note) lines.push(`Примечание: ${note}`);
+  return lines.join("\n");
 }
 
 function taskCaptionWithPlan(row) {
@@ -675,6 +722,25 @@ async function handleCallback(q, pool, token) {
   const answerOk = async (text) => {
     await tg(token, "answerCallbackQuery", { callback_query_id: q.id, text: text || "", show_alert: Boolean(text && text.length > 200) });
   };
+
+  if (parsed.action === "rd") {
+    const nowText = formatRuDateTime(new Date());
+    const canMarkRead = isAssignedEmployeeReader(payload, row, chatId);
+    if (canMarkRead) {
+      row[TASK_COLUMNS.readState] = composeReadStateValue(true, nowText);
+      appendTaskHistory(payload, taskId, empName, `Telegram: задача прочитана (${nowText})`);
+    }
+    setLastTaskContext(payload, chatId, taskId, messageId);
+    await savePayload(pool, payload);
+    await tg(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: `${buildFullTaskMessage(row)}\n\nВыберите действие по задаче:`,
+      reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+    });
+    await answerOk(canMarkRead ? "Задача отмечена как прочитанная" : "");
+    return;
+  }
 
   if (parsed.action === "sm") {
     setLastTaskContext(payload, chatId, taskId, messageId);

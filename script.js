@@ -65,7 +65,8 @@ const TASK_COLUMNS = {
   dueDate: 14,
   closedDate: 15,
   mediaBefore: 16,
-  mediaAfter: 17
+  mediaAfter: 17,
+  readState: 18
 };
 const OBJECT_COLUMNS = {
   id: 0,
@@ -881,9 +882,24 @@ function buildTelegramInlineKeyboardForTask(taskNumber) {
   };
 }
 
+function buildTelegramReadInlineKeyboardForTask(taskNumber) {
+  const n = String(taskNumber ?? "")
+    .trim()
+    .replace(/\|/g, "·")
+    .slice(0, 48);
+  const makeCb = (code) => {
+    let s = `t|${n}|${code}`;
+    if (s.length > 64) s = s.slice(0, 64);
+    return s;
+  };
+  return {
+    inline_keyboard: [[{ text: "📖 Прочитать", callback_data: makeCb("rd") }]]
+  };
+}
+
 /** Пример строки задачи для предпросмотра шаблонов в настройках (не влияет на данные). */
 function buildDemoTaskRowForPreview(status) {
-  const row = new Array(18).fill("");
+  const row = new Array(19).fill("");
   const st = String(status || "").trim() || "Новый";
   row[TASK_COLUMNS.number] = "42";
   row[TASK_COLUMNS.object] = "Офис Центр";
@@ -903,7 +919,25 @@ function buildDemoTaskRowForPreview(status) {
   row[TASK_COLUMNS.closedDate] = st === "Закрыт" ? "16.04.2026" : "";
   row[TASK_COLUMNS.mediaBefore] = "";
   row[TASK_COLUMNS.mediaAfter] = "";
+  row[TASK_COLUMNS.readState] = "Не прочитано\n—";
   return row;
+}
+
+function getTaskReadStateParts(value) {
+  const raw = String(value || "").trim();
+  const lines = raw.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  const first = String(lines[0] || "").trim();
+  const second = String(lines[1] || "—").trim() || "—";
+  const isRead = first.toLowerCase().startsWith("прочитано");
+  return {
+    isRead,
+    statusText: isRead ? "Прочитано" : "Не прочитано",
+    whenText: second
+  };
+}
+
+function composeTaskReadState(isRead, whenText = "—") {
+  return `${isRead ? "Прочитано" : "Не прочитано"}\n${String(whenText || "—").trim() || "—"}`;
 }
 
 function formatTelegramPreviewHtml(text) {
@@ -1211,8 +1245,9 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
     return { ok: false, reason: "no_targets", message: msg, missingNames };
   }
 
-  const replyMarkup = options.skipInlineKeyboard ? undefined : buildTelegramInlineKeyboardForTask(taskRow[TASK_COLUMNS.number]);
+  const replyMarkup = options.skipInlineKeyboard ? undefined : buildTelegramReadInlineKeyboardForTask(taskRow[TASK_COLUMNS.number]);
   const photoRefs = resolveTelegramSendablePhotoRefs(taskRow, token);
+  const shortText = `У вас есть задача №${String(taskRow[TASK_COLUMNS.number] || "").trim() || "—"}.\nЧтобы прочитать полное содержание, нажмите «📖 Прочитать».`;
   const results = await Promise.all(
     targets.map(async (t) => {
       try {
@@ -1260,7 +1295,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
           if (!photosOk) {
             const fallbackBody = {
               chat_id: t.chatId,
-              text,
+              text: shortText,
               ...(replyMarkup ? { reply_markup: replyMarkup } : {})
             };
             const fallbackResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -1281,7 +1316,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
 
           const msgBody = {
             chat_id: t.chatId,
-            text,
+            text: shortText,
             ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
             ...(firstMessageId ? { reply_to_message_id: firstMessageId, allow_sending_without_reply: true } : {})
           };
@@ -1302,7 +1337,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
 
         const msgBody = {
           chat_id: t.chatId,
-          text,
+          text: shortText,
           ...(replyMarkup ? { reply_markup: replyMarkup } : {})
         };
         const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -1326,6 +1361,10 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
 
   const okCount = results.filter((r) => r.ok).length;
   const ok = okCount > 0;
+  if (ok && taskRow) {
+    taskRow[TASK_COLUMNS.readState] = composeTaskReadState(false, "—");
+    saveSectionsData();
+  }
 
   if (!suppressAlerts) {
     let msg = `Отправлено успешно: ${okCount} из ${results.length}.`;
@@ -1742,7 +1781,8 @@ let sections = [
       "Срок устранения",
       "Дата устранения",
       "Медиа до (5)",
-      "Медиа после (5)"
+      "Медиа после (5)",
+      "Ознакомление"
     ],
     rows: [
       [
@@ -1763,7 +1803,8 @@ let sections = [
         "20.04.2026",
         "",
         "",
-        ""
+        "",
+        "Не прочитано\n—"
       ],
       [
         "2",
@@ -1783,7 +1824,8 @@ let sections = [
         "24.04.2026",
         "",
         "",
-        ""
+        "",
+        "Не прочитано\n—"
       ],
       [
         "3",
@@ -1803,7 +1845,8 @@ let sections = [
         "14.04.2026",
         "14.04.2026",
         "",
-        ""
+        "",
+        "Не прочитано\n—"
       ]
     ]
   },
@@ -5240,6 +5283,10 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
   }
   if (section.id !== "tasks") {
     return value;
+  }
+  if (colIndex === TASK_COLUMNS.readState) {
+    const rs = getTaskReadStateParts(value);
+    return `<span class="task-read-state ${rs.isRead ? "is-read" : "is-unread"}">${escapeHtmlText(rs.statusText)}</span><br><span class="task-read-time">${escapeHtmlText(rs.whenText)}</span>`;
   }
 
   if (colIndex === TASK_COLUMNS.status) {
@@ -8831,6 +8878,7 @@ function addEmptyRow(section) {
     row[TASK_COLUMNS.status] = "Новый";
     row[TASK_COLUMNS.priority] = "Средний";
     row[TASK_COLUMNS.addedDate] = getTodayRuDate();
+    row[TASK_COLUMNS.readState] = composeTaskReadState(false, "—");
   }
   if (section.id === "employees") {
     row[EMPLOYEE_COLUMNS.department] = String(getSectionById("departments")?.rows?.[0]?.[1] || "");
@@ -9009,6 +9057,9 @@ function migrateRowForSection(baseSection, row) {
     // Старый формат задач без колонки «Исполнитель».
     if (source.length === 17) {
       source.splice(TASK_COLUMNS.assignedResponsible, 0, "");
+    }
+    if (source.length === 18) {
+      source.push("Не прочитано\n—");
     }
   }
 
