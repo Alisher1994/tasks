@@ -116,11 +116,12 @@ function mainKeyboard(taskNumber) {
 function findEmployeeByFullName(empSection, fullName) {
   const want = String(fullName || "")
     .trim()
-    .replace(/\s+/g, " ");
+    .replace(/\s+/g, " ")
+    .toLowerCase();
   if (!want) return null;
   const rows = empSection?.rows || [];
   return (
-    rows.find((row) => String(row[EMPLOYEE_COLUMNS.fullName] || "").trim().replace(/\s+/g, " ") === want) || null
+    rows.find((row) => String(row[EMPLOYEE_COLUMNS.fullName] || "").trim().replace(/\s+/g, " ").toLowerCase() === want) || null
   );
 }
 
@@ -283,12 +284,30 @@ function composeReadStateValue(isRead, whenText = "—") {
 
 function isAssignedEmployeeReader(payload, row, chatId) {
   const employees = getEmployeesSection(payload);
+  const clickChat = String(chatId || "").trim();
+  const clickEmp = findEmployeeByChatId(employees, clickChat);
+  if (!clickEmp) return false;
+  if (String(clickEmp[EMPLOYEE_COLUMNS.telegram] || "").trim() !== "Подключен") return false;
+
+  const clickName = String(clickEmp[EMPLOYEE_COLUMNS.fullName] || "").trim();
   const assignedName = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
-  if (!assignedName) return false;
-  const assignedEmp = findEmployeeByFullName(employees, assignedName);
-  if (!assignedEmp) return false;
+  const responsibleName = String(row[TASK_COLUMNS.responsible] || "").trim();
+
+  // Строгий путь: исполнитель или ответственный по задаче.
+  if (assignedName && findEmployeeByFullName(employees, assignedName) === clickEmp) return true;
+  if (responsibleName && findEmployeeByFullName(employees, responsibleName) === clickEmp) return true;
+
+  // Фолбэк: если исполнитель не сопоставился со справочником (например, старые/шаблонные ФИО),
+  // считаем прочтение по факту нажатия у подключённого сотрудника, чтобы не блокировать процесс.
+  const assignedEmp = assignedName ? findEmployeeByFullName(employees, assignedName) : null;
+  if (!assignedEmp) return true;
+
+  // Если у исполнителя не заполнен/неверен chat_id, также разрешаем отметку текущему подключённому сотруднику.
   const assignedChat = String(assignedEmp[EMPLOYEE_COLUMNS.chatId] || "").trim();
-  return assignedChat && assignedChat === String(chatId || "").trim();
+  if (!assignedChat) return true;
+
+  // Иначе только сам исполнитель.
+  return assignedChat === clickChat;
 }
 
 function buildFullTaskMessage(row) {
