@@ -7780,7 +7780,7 @@ function buildMediaGallery(value, taskId, colIndex) {
       }
 
       const slotKey = getMediaSlotKey(taskId, colIndex, slotIndex);
-      const preview = mediaPreviewStore[slotKey];
+      const preview = resolveMediaPreviewForSlot(name, mediaPreviewStore[slotKey]);
       if (preview && String(preview.type || "").startsWith("image/")) {
         return `
           <figure class="gallery-slot has-image" data-col-index="${colIndex}" data-slot-index="${slotIndex}">
@@ -7809,7 +7809,7 @@ function buildMediaGallery(value, taskId, colIndex) {
 function buildDraftGallery(items, previewMap, kind) {
   const slots = Array.from({ length: 5 }, (_, i) => items[i] || "");
   return slots.map((name, slotIndex) => {
-    const preview = previewMap[`${kind}-${slotIndex}`];
+    const preview = resolveMediaPreviewForSlot(name, previewMap[`${kind}-${slotIndex}`]);
     if (!name) {
       return `
         <div class="gallery-slot empty" data-kind="${kind}" data-slot-index="${slotIndex}">
@@ -7936,6 +7936,30 @@ function removeMediaSlot(section, rowIndex, taskId, colIndex, slotIndex) {
   setMediaItems(section, rowIndex, colIndex, items);
   const slotKey = getMediaSlotKey(taskId, colIndex, slotIndex);
   delete mediaPreviewStore[slotKey];
+}
+
+function mediaNameLooksLikeImage(name) {
+  const n = String(name || "").trim().toLowerCase();
+  if (!n) return false;
+  return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(n);
+}
+
+function buildTelegramMediaPreviewUrl(storedName) {
+  const token = String(displaySettings.telegramBotToken || "").trim();
+  const p = String(storedName || "").trim().replace(/^\/+/, "");
+  if (!token || !p || !p.includes("/")) return "";
+  return `https://api.telegram.org/file/bot${token}/${p}`;
+}
+
+function resolveMediaPreviewForSlot(storedName, preview) {
+  if (preview && String(preview.type || "").startsWith("image/") && String(preview.url || "").trim()) {
+    return preview;
+  }
+  const name = String(storedName || "").trim();
+  if (!mediaNameLooksLikeImage(name)) return preview || null;
+  const tgUrl = buildTelegramMediaPreviewUrl(name);
+  if (!tgUrl) return preview || null;
+  return { name, type: "image/telegram", url: tgUrl };
 }
 
 function renderStatusStepper(currentStatus) {

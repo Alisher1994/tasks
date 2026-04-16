@@ -169,13 +169,14 @@ async function addTelegramPhotoToTaskMediaAfter(row, token, fileId) {
   if (!fr?.ok || !fr?.result) return null;
   const filePath = String(fr.result.file_path || "").trim();
   const fileName = pickTelegramPhotoFileName(filePath, fileId);
+  const storedValue = filePath || fileName;
   const items = splitMediaItems(row[TASK_COLUMNS.mediaAfter]);
-  if (!items.includes(fileName)) {
+  if (!items.includes(storedValue)) {
     if (items.length >= 5) items.shift();
-    items.push(fileName);
+    items.push(storedValue);
     row[TASK_COLUMNS.mediaAfter] = joinMediaItems(items);
   }
-  return { fileName, filePath };
+  return { fileName, filePath, storedValue };
 }
 
 function shortTaskCaption(row) {
