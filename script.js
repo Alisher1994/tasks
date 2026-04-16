@@ -933,6 +933,9 @@ function resolveTelegramSendablePhotoRef(taskRow, token) {
     const clean = raw.replace(/^\/+/, "");
     return `https://api.telegram.org/file/bot${token}/${clean}`;
   }
+  if (/^[\w.-]+\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(raw)) {
+    return `${location.origin}/media/${encodeURIComponent(raw)}`;
+  }
   return "";
 }
 
