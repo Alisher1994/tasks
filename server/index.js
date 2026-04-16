@@ -501,13 +501,27 @@ app.post("/api/media/upload", authMiddleware, async (req, res) => {
 
 app.put("/api/data", authMiddleware, async (req, res) => {
   try {
-    const data = req.body?.data;
-    if (data === undefined) {
+    const incomingData = req.body?.data;
+    if (incomingData === undefined) {
       return res.status(400).json({ error: "Поле data обязательно" });
     }
-    const v = validateAppPayload(data);
+    const v = validateAppPayload(incomingData);
     if (!v.ok) {
       return res.status(400).json({ error: v.error || "Некорректные данные" });
+    }
+    const { rows: existingRows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
+    const existingPayload = existingRows[0]?.payload && typeof existingRows[0].payload === "object"
+      ? existingRows[0].payload
+      : {};
+    const data = typeof incomingData === "object" && incomingData ? { ...incomingData } : incomingData;
+    // Служебные поля Telegram живут на сервере и не должны теряться при клиентском sync /api/data.
+    if (data && typeof data === "object") {
+      if (existingPayload.telegramSessions && typeof data.telegramSessions !== "object") {
+        data.telegramSessions = existingPayload.telegramSessions;
+      }
+      if (existingPayload.telegramCloseRequests && typeof data.telegramCloseRequests !== "object") {
+        data.telegramCloseRequests = existingPayload.telegramCloseRequests;
+      }
     }
     await pool.query(
       `INSERT INTO app_state (id, payload, updated_at)
