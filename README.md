@@ -29,6 +29,7 @@ npm start
 5. В тех же **Variables** приложения добавьте вручную:
    - **`JWT_SECRET`** — длинная случайная строка (обязательно в production, иначе сервер не стартует);
    - **`ADMIN_PHONE`**, **`ADMIN_PASSWORD`** — первый администратор при первом запуске;
+   - **`CLOUDINARY_CLOUD_NAME`**, **`CLOUDINARY_API_KEY`**, **`CLOUDINARY_API_SECRET`** — постоянное хранилище фото задач (рекомендуется, чтобы медиа не терялись при деплоях);
    - при необходимости: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `PUBLIC_APP_URL` (если домен не подставляется автоматически при вызове регистрации webhook).
 6. Команда старта: **`npm start`** (уже в `package.json`). **PORT** задавать не нужно — задаёт Railway.
 
@@ -51,6 +52,7 @@ npm start
 | `GET` | `/api/data` | Снимок данных приложения (Bearer) |
 | `PUT` | `/api/data` | Сохранение снимка (Bearer), тело `{ data: { ... } }` |
 | `POST` | `/api/telegram/set-webhook` | Регистрация webhook бота на текущем домене (Bearer); после сохранения токена в приложении |
+| `POST` | `/api/media/upload` | Загрузка медиа в Cloudinary (Bearer), тело `{ dataUrl, fileName }` |
 | `GET` | `/api/admin/users` | Список пользователей (**admin**) |
 | `POST` | `/api/admin/users` | Создать пользователя (**admin**), `{ phone, password, displayName?, role? }` |
 | `DELETE` | `/api/admin/users/:id` | Удалить пользователя (**admin**) |

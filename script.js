@@ -1002,6 +1002,25 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
             body: JSON.stringify(photoBody)
           });
           const photoJson = await photoResponse.json().catch(() => ({}));
+          if (!(photoResponse.ok && photoJson.ok === true)) {
+            // URL/файл может быть недоступен Telegram (например локальный/непубличный источник) — шлём текст без фото.
+            const fallbackBody = {
+              chat_id: t.chatId,
+              text,
+              ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+            };
+            const fallbackResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(fallbackBody)
+            });
+            const fallbackJson = await fallbackResponse.json().catch(() => ({}));
+            return {
+              ...t,
+              ok: fallbackResponse.ok && fallbackJson.ok === true,
+              apiDescription: fallbackJson.description || photoJson.description
+            };
+          }
           if (!canUseCaption) {
             const msgBody = {
               chat_id: t.chatId,
@@ -5026,6 +5045,51 @@ function getMediaSlotKey(taskId, colIndex, slotIndex) {
   return `${taskId}-${colIndex}-${slotIndex}`;
 }
 
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(new Error("read_failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadTaskMediaToServer(file) {
+  if (!isHostedRuntime() || !getAuthToken()) return null;
+  const dataUrl = await readFileAsDataUrl(file);
+  if (!dataUrl.startsWith("data:")) return null;
+  const r = await fetch("/api/media/upload", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getAuthToken()}`
+    },
+    body: JSON.stringify({
+      dataUrl,
+      fileName: String(file.name || "media")
+    })
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j?.url) {
+    throw new Error(String(j?.error || `Ошибка ${r.status}`));
+  }
+  return String(j.url);
+}
+
+async function resolveStoredMediaFromFile(file) {
+  const uploadedUrl = await uploadTaskMediaToServer(file).catch(() => "");
+  if (uploadedUrl) {
+    return {
+      stored: uploadedUrl,
+      preview: { name: file.name, type: file.type, url: uploadedUrl }
+    };
+  }
+  return {
+    stored: file.name || `media-${Date.now()}.png`,
+    preview: { name: file.name, type: file.type, url: URL.createObjectURL(file) }
+  };
+}
+
 function attachMediaSlotHandlers(section) {
   const mediaCells = Array.from(document.querySelectorAll(".media-col.editable-cell"));
   if (!mediaCells.length) return;
@@ -5055,17 +5119,18 @@ function attachMediaSlotHandlers(section) {
           return;
         }
 
-        pickFile((file) => {
+        pickFile(async (file) => {
           if (!file) return;
-          const fileName = file.name || "";
-          if (!fileName) return;
           const nextItems = getMediaItems(section.rows[rowIndex][colIndex]);
-          nextItems[slotIndex] = fileName;
+          const resolved = await resolveStoredMediaFromFile(file).catch((e) => {
+            window.alert(`Не удалось загрузить медиа: ${String(e?.message || e)}`);
+            return null;
+          });
+          if (!resolved) return;
+          nextItems[slotIndex] = resolved.stored;
           setMediaItems(section, rowIndex, colIndex, nextItems);
           mediaPreviewStore[slotKey] = {
-            name: file.name,
-            type: file.type,
-            url: URL.createObjectURL(file)
+            ...resolved.preview
           };
           renderTablePreserveScroll();
         });
@@ -7759,9 +7824,10 @@ function openTaskDetailsModal(section, row, rowIndex) {
         event.preventDefault();
         event.stopPropagation();
         setActiveMediaSlot(button);
-        pickFile((file) => {
+        pickFile(async (file) => {
           if (!file) return;
-          upsertDraftMediaSlot(draftState, activeMediaTarget.kind, activeMediaTarget.slotIndex, file);
+          const ok = await upsertDraftMediaSlot(draftState, activeMediaTarget.kind, activeMediaTarget.slotIndex, file);
+          if (!ok) return;
           isDirty = true;
           refreshModalGalleries();
         });
@@ -7799,7 +7865,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
 
   bindGalleryControls();
 
-  const onPaste = (event) => {
+  const onPaste = async (event) => {
     if (!document.body.contains(modal)) return;
     if (!activeMediaTarget) return;
     const clipboardItems = event.clipboardData?.items || [];
@@ -7808,7 +7874,8 @@ function openTaskDetailsModal(section, row, rowIndex) {
     const file = imageItem.getAsFile();
     if (!file) return;
     event.preventDefault();
-    upsertDraftMediaSlot(draftState, activeMediaTarget.kind, activeMediaTarget.slotIndex, file);
+    const ok = await upsertDraftMediaSlot(draftState, activeMediaTarget.kind, activeMediaTarget.slotIndex, file);
+    if (!ok) return;
     isDirty = true;
     refreshModalGalleries();
   };
@@ -7928,14 +7995,18 @@ function buildDraftGallery(items, previewMap, kind) {
   }).join("");
 }
 
-function upsertDraftMediaSlot(draftState, kind, slotIndex, file) {
+async function upsertDraftMediaSlot(draftState, kind, slotIndex, file) {
   const arr = kind === "after" ? draftState.after : draftState.before;
-  arr[slotIndex] = file.name || `media-${Date.now()}.png`;
+  const resolved = await resolveStoredMediaFromFile(file).catch((e) => {
+    window.alert(`Не удалось загрузить медиа: ${String(e?.message || e)}`);
+    return null;
+  });
+  if (!resolved) return false;
+  arr[slotIndex] = resolved.stored;
   draftState.preview[`${kind}-${slotIndex}`] = {
-    name: file.name,
-    type: file.type,
-    url: URL.createObjectURL(file)
+    ...resolved.preview
   };
+  return true;
 }
 
 function removeDraftMediaSlot(draftState, kind, slotIndex) {
