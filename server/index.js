@@ -198,7 +198,12 @@ app.post("/api/telegram/set-webhook", authMiddleware, async (req, res) => {
     if (!result.ok) {
       return res.status(400).json({ error: result.error || result.description || "setWebhook failed" });
     }
-    return res.json({ ok: true, webhookUrl: result.webhookUrl, botUsername: result.botUsername || "" });
+    return res.json({
+      ok: true,
+      webhookUrl: result.webhookUrl,
+      botUsername: result.botUsername || "",
+      botDisplayName: result.botDisplayName || ""
+    });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: "Ошибка сервера" });

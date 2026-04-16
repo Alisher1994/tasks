@@ -637,6 +637,29 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   font-size: 0.95em;
 }
 
+.other-settings-hint--tight {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.other-settings-readonly-input,
+.telegram-admin-chat-input {
+  width: 100%;
+  max-width: 28rem;
+  box-sizing: border-box;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-family: inherit;
+}
+
+.other-settings-readonly-input {
+  background: #eef2f7;
+  color: #273549;
+  cursor: default;
+}
+
 .settings-pane-head-row,
 .other-settings-block-title-row,
 .settings-field-label-row {

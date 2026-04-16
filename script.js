@@ -289,10 +289,60 @@ async function pushAppToServerImmediate() {
   return r.ok;
 }
 
+function telegramBotDisplayNameFromGetMeResult(result) {
+  if (!result || typeof result !== "object") return "";
+  const fn = String(result.first_name || "").trim();
+  const ln = String(result.last_name || "").trim();
+  return [fn, ln].filter(Boolean).join(" ").trim();
+}
+
+function updateTelegramBotProfileReadonlyDom() {
+  const uEl = document.getElementById("telegramBotUsernameReadonly");
+  const nEl = document.getElementById("telegramBotDisplayNameReadonly");
+  const u = String(displaySettings.telegramBotUsername || "").trim();
+  const n = String(displaySettings.telegramBotDisplayName || "").trim();
+  if (uEl) uEl.value = u ? `@${u}` : "";
+  if (nEl) nEl.value = n || "";
+}
+
+/**
+ * getMe по токену → displaySettings и поля только для чтения (ник и имя бота в Telegram).
+ * @returns {Promise<{ ok: boolean, soft?: boolean, description?: string }>}
+ */
+async function refreshTelegramBotProfileFromToken(token) {
+  const tok = String(token || "").trim();
+  if (!tok) {
+    displaySettings.telegramBotUsername = "";
+    displaySettings.telegramBotDisplayName = "";
+    updateTelegramBotProfileReadonlyDom();
+    return { ok: false };
+  }
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${tok}/getMe`);
+    const j = await r.json().catch(() => ({}));
+    if (!j?.ok) {
+      displaySettings.telegramBotUsername = "";
+      displaySettings.telegramBotDisplayName = "";
+      saveDisplaySettings({ skipServerSync: true });
+      updateTelegramBotProfileReadonlyDom();
+      return { ok: false, description: String(j?.description || "").trim() };
+    }
+    const res = j.result;
+    displaySettings.telegramBotUsername = res?.username ? String(res.username) : "";
+    displaySettings.telegramBotDisplayName = telegramBotDisplayNameFromGetMeResult(res);
+    saveDisplaySettings({ skipServerSync: true });
+    updateTelegramBotProfileReadonlyDom();
+    return { ok: true };
+  } catch (_) {
+    updateTelegramBotProfileReadonlyDom();
+    return { ok: false, soft: true };
+  }
+}
+
 /**
  * Сохраняет токен в БД и вызывает setWebhook на текущем домене (нужен вход в приложение).
  * @param {{ skipPush?: boolean }} [options] — если skipPush, PUT /api/data уже выполнен вызывающим кодом.
- * @returns {Promise<{ ok: boolean, webhookUrl?: string, botUsername?: string, error?: string }>}
+ * @returns {Promise<{ ok: boolean, webhookUrl?: string, botUsername?: string, botDisplayName?: string, error?: string }>}
  */
 async function registerTelegramWebhookOnServer(options = {}) {
   const skipPush = Boolean(options.skipPush);
@@ -307,7 +357,12 @@ async function registerTelegramWebhookOnServer(options = {}) {
   }
   const botTok = String(displaySettings.telegramBotToken || "").trim();
   if (!botTok) {
-    return { ok: true, webhookUrl: "", botUsername: displaySettings.telegramBotUsername || "" };
+    return {
+      ok: true,
+      webhookUrl: "",
+      botUsername: displaySettings.telegramBotUsername || "",
+      botDisplayName: displaySettings.telegramBotDisplayName || ""
+    };
   }
   try {
     const r = await fetch("/api/telegram/set-webhook", {
@@ -324,9 +379,16 @@ async function registerTelegramWebhookOnServer(options = {}) {
     }
     if (j.botUsername) {
       displaySettings.telegramBotUsername = String(j.botUsername);
-      saveDisplaySettings();
     }
-    return { ok: true, webhookUrl: j.webhookUrl, botUsername: j.botUsername };
+    if (typeof j.botDisplayName === "string") {
+      displaySettings.telegramBotDisplayName = String(j.botDisplayName).trim();
+    }
+    return {
+      ok: true,
+      webhookUrl: j.webhookUrl,
+      botUsername: j.botUsername,
+      botDisplayName: j.botDisplayName
+    };
   } catch (e) {
     return { ok: false, error: String(e?.message || e) };
   }
@@ -338,9 +400,6 @@ async function registerTelegramWebhookOnServer(options = {}) {
  */
 async function flushTelegramBotTokenToServer(options = {}) {
   const silent = Boolean(options.silent);
-  if (!isHostedRuntime() || !getAuthToken()) {
-    return { ok: false, error: "Нет входа в систему на сервере — токен только в браузере." };
-  }
   clearTimeout(serverSyncTimer);
   serverSyncTimer = null;
   const inp = document.getElementById("telegramBotTokenInput");
@@ -348,15 +407,37 @@ async function flushTelegramBotTokenToServer(options = {}) {
     displaySettings.telegramBotToken = String(inp.value || "").trim();
   }
   saveDisplaySettings({ skipServerSync: true });
+  if (!isHostedRuntime() || !getAuthToken()) {
+    const tokLocal = String(displaySettings.telegramBotToken || "").trim();
+    if (tokLocal) {
+      await refreshTelegramBotProfileFromToken(tokLocal);
+    } else {
+      displaySettings.telegramBotUsername = "";
+      displaySettings.telegramBotDisplayName = "";
+      updateTelegramBotProfileReadonlyDom();
+    }
+    saveDisplaySettings();
+    return { ok: false, error: "Нет входа в систему на сервере — токен только в браузере." };
+  }
   const synced = await pushAppToServerImmediate();
   if (!synced) {
     saveDisplaySettings();
     return { ok: false, error: "Не удалось сохранить данные на сервер." };
   }
   const tok = String(displaySettings.telegramBotToken || "").trim();
-  let reg = { ok: true, webhookUrl: "", botUsername: displaySettings.telegramBotUsername || "" };
+  let reg = {
+    ok: true,
+    webhookUrl: "",
+    botUsername: displaySettings.telegramBotUsername || "",
+    botDisplayName: displaySettings.telegramBotDisplayName || ""
+  };
   if (tok) {
     reg = await registerTelegramWebhookOnServer({ skipPush: true });
+    await refreshTelegramBotProfileFromToken(tok);
+  } else {
+    displaySettings.telegramBotUsername = "";
+    displaySettings.telegramBotDisplayName = "";
+    updateTelegramBotProfileReadonlyDom();
   }
   saveDisplaySettings();
   if (!silent && !reg.ok && reg.error) {
@@ -1550,8 +1631,12 @@ let displaySettings = {
   highlightClosed: false,
   highlightNeedDecision: false,
   telegramBotToken: "",
-  /** @type {string} username бота без @ — подставляется после setWebhook */
+  /** @type {string} username бота без @ — подставляется после setWebhook / getMe */
   telegramBotUsername: "",
+  /** Имя (и фамилия) бота в Telegram из getMe — только для отображения */
+  telegramBotDisplayName: "",
+  /** Числовой chat_id админа: проверочное сообщение «Проверить бота» уходит только сюда */
+  telegramAdminChatId: "",
   /** Пустая строка = часовой пояс браузера */
   serverTimezone: "",
   dateDisplayFormat: "DMY_DOT",
@@ -6737,11 +6822,18 @@ function renderOtherSettingsPanel() {
             <h4>Бот</h4>
             <label class="settings-field-label" for="telegramBotTokenInput">Токен бота</label>
             <div class="token-field">
-              <input id="telegramBotTokenInput" type="text" value="${escapeHtmlText(String(displaySettings.telegramBotToken || ""))}" placeholder="Введите токен Telegram бота" />
+              <input id="telegramBotTokenInput" type="text" value="${escapeHtmlText(String(displaySettings.telegramBotToken || ""))}" placeholder="Введите токен Telegram бота" autocomplete="off" />
               <button type="button" id="copyTelegramTokenBtn" class="token-copy-btn" title="Скопировать токен" aria-label="Скопировать токен">
                 <i data-lucide="copy" class="lucide-icon" aria-hidden="true"></i>
               </button>
             </div>
+            <label class="settings-field-label" for="telegramBotUsernameReadonly">Ник бота в Telegram</label>
+            <input id="telegramBotUsernameReadonly" type="text" class="other-settings-readonly-input" readonly tabindex="-1" aria-readonly="true" value="" />
+            <label class="settings-field-label" for="telegramBotDisplayNameReadonly">Название бота</label>
+            <input id="telegramBotDisplayNameReadonly" type="text" class="other-settings-readonly-input" readonly tabindex="-1" aria-readonly="true" value="" />
+            <label class="settings-field-label" for="telegramAdminChatIdInput">Chat ID администратора</label>
+            <input id="telegramAdminChatIdInput" type="text" inputmode="numeric" class="telegram-admin-chat-input" value="${escapeHtmlText(String(displaySettings.telegramAdminChatId || ""))}" placeholder="Ваш числовой Telegram ID" autocomplete="off" />
+            <p class="other-settings-hint other-settings-hint--tight">Например из @userinfobot. Кнопка «Проверить бота» отправляет тест <strong>только</strong> в этот чат, а не всем сотрудникам с подключённым Telegram.</p>
             <div class="other-settings-actions">
               <button type="button" id="saveTelegramTokenBtn" class="secondary">Сохранить токен</button>
               <button type="button" id="testTelegramBotBtn">Проверить бота</button>
@@ -7061,8 +7153,9 @@ function attachOtherSettingsHandlers() {
   saveButton?.addEventListener("click", async () => {
     const reg = await flushTelegramBotTokenToServer({ silent: true });
     if (reg.ok) {
+      const dn = String(displaySettings.telegramBotDisplayName || "").trim();
       window.alert(
-        `Токен и данные обновлены на сервере.${reg.webhookUrl ? `\n\nWebhook: ${reg.webhookUrl}` : ""}${reg.botUsername ? `\nБот: @${reg.botUsername}` : ""}`
+        `Токен и данные обновлены на сервере.${reg.webhookUrl ? `\n\nWebhook: ${reg.webhookUrl}` : ""}${displaySettings.telegramBotUsername ? `\nБот: @${String(displaySettings.telegramBotUsername).trim()}` : ""}${dn ? `\nНазвание в Telegram: ${dn}` : ""}`
       );
     } else {
       window.alert(
@@ -7078,6 +7171,27 @@ function attachOtherSettingsHandlers() {
     }
     await flushTelegramBotTokenToServer({ silent: true });
   });
+
+  let telegramTokenProfileTimer = null;
+  tokenInput?.addEventListener("input", () => {
+    clearTimeout(telegramTokenProfileTimer);
+    telegramTokenProfileTimer = setTimeout(async () => {
+      if (!tokenInput) return;
+      const t = String(tokenInput.value || "").trim();
+      if (!t || t.length < 40 || !/^\d+:[A-Za-z0-9_-]+$/.test(t)) return;
+      await refreshTelegramBotProfileFromToken(t);
+      saveDisplaySettings();
+    }, 450);
+  });
+
+  const adminChatInput = document.getElementById("telegramAdminChatIdInput");
+  const commitAdminChatId = () => {
+    if (!adminChatInput) return;
+    displaySettings.telegramAdminChatId = String(adminChatInput.value || "").trim();
+    saveDisplaySettings();
+  };
+  adminChatInput?.addEventListener("change", commitAdminChatId);
+  adminChatInput?.addEventListener("blur", commitAdminChatId);
 
   const closeAcceptedInput = document.getElementById("telegramCloseAcceptedInput");
   const commitCloseAccepted = () => {
@@ -7197,26 +7311,30 @@ function attachOtherSettingsHandlers() {
       return;
     }
 
-    let getMeJson;
-    try {
-      const r = await fetch(`https://api.telegram.org/bot${token}/getMe`);
-      getMeJson = await r.json();
-    } catch (_) {
+    const adminChatRaw = String(displaySettings.telegramAdminChatId || "").trim();
+    if (!adminChatRaw) {
+      window.alert(
+        "Укажите Chat ID администратора в поле выше. Проверочное сообщение отправляется только туда, а не сотрудникам из справочника."
+      );
+      return;
+    }
+    if (!/^-?\d+$/.test(adminChatRaw)) {
+      window.alert("Chat ID должен быть целым числом (например ID из @userinfobot). Для супергрупп допускается отрицательное значение.");
+      return;
+    }
+    const prof = await refreshTelegramBotProfileFromToken(token);
+    if (!prof.ok && prof.soft) {
       window.alert("Не удалось связаться с api.telegram.org. Проверьте сеть и блокировки.");
       return;
     }
-    if (!getMeJson?.ok) {
-      const desc = String(getMeJson?.description || "").trim() || "Проверьте токен в @BotFather.";
+    if (!prof.ok) {
+      const desc = String(prof.description || "").trim() || "Проверьте токен в @BotFather.";
       window.alert(`Токен отклонён Telegram API: ${desc}`);
       return;
     }
+    saveDisplaySettings();
 
-    const botUser = getMeJson.result?.username ? `@${getMeJson.result.username}` : "";
-    if (getMeJson.result?.username) {
-      displaySettings.telegramBotUsername = String(getMeJson.result.username);
-      saveDisplaySettings();
-    }
-
+    const botUser = displaySettings.telegramBotUsername ? `@${String(displaySettings.telegramBotUsername).trim()}` : "";
     const webhookLine =
       flush.ok && flush.webhookUrl
         ? `\n\nWebhook: ${flush.webhookUrl}`
@@ -7224,55 +7342,39 @@ function attachOtherSettingsHandlers() {
           ? `\n\nСервер/webhook: ${flush.error}`
           : "";
 
-    const employeesSection = getSectionById("employees");
-    const targets = (employeesSection?.rows || [])
-      .map((row) => ({
-        telegram: String(row[EMPLOYEE_COLUMNS.telegram] || ""),
-        chatId: String(row[EMPLOYEE_COLUMNS.chatId] || "").trim()
-      }))
-      .filter((item) => item.telegram === "Подключен" && item.chatId);
+    const message = "Бот работает, проблем нет";
+    let sendOk = false;
+    let sendDesc = "";
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: adminChatRaw,
+          text: message
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      sendOk = response.ok && data.ok === true;
+      sendDesc = String(data.description || "").trim();
+    } catch (_) {
+      sendOk = false;
+    }
 
-    if (!targets.length) {
+    if (sendOk) {
       window.alert(
-        `Токен верный${botUser ? `, бот ${botUser}` : ""}.${webhookLine}\n\nЧтобы привязать Chat ID, сотрудник открывает бота и нажимает «Старт» (или персональная ссылка с параметром e_<ID>). После этого проверку отправки можно повторить.`
+        `Токен верный${botUser ? `, бот ${botUser}` : ""}.${webhookLine}\n\nТестовое сообщение отправлено в чат администратора (Chat ID ${adminChatRaw}).`
       );
       return;
     }
-
-    const message = "Бот работает проблем нет";
-    const results = await Promise.all(
-      targets.map(async (target) => {
-        try {
-          const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: target.chatId,
-              text: message
-            })
-          });
-          const data = await response.json().catch(() => ({}));
-          return { ok: response.ok && data.ok === true, description: data.description };
-        } catch (_) {
-          return { ok: false, description: "" };
-        }
-      })
-    );
-
-    const successCount = results.filter((r) => r.ok).length;
-    if (successCount > 0) {
-      window.alert(
-        `Токен верный${botUser ? ` (${botUser})` : ""}.${webhookLine}\n\nСообщение отправлено: ${successCount} из ${targets.length}.`
-      );
-      return;
-    }
-    const firstErr = results.find((r) => !r.ok && r.description);
     window.alert(
-      firstErr?.description
-        ? `Токен верный${botUser ? ` (${botUser})` : ""}, но отправка не прошла:\n${firstErr.description}${webhookLine}\n\nПусть сотрудник нажмёт «Старт» в боте — Chat ID подставится автоматически.`
+      sendDesc
+        ? `Токен верный${botUser ? ` (${botUser})` : ""}, но отправка администратору не прошла:\n${sendDesc}${webhookLine}\n\nПроверьте Chat ID и что вы уже писали боту / нажали «Старт» в его чате.`
         : `Токен верный${botUser ? ` (${botUser})` : ""}, но отправка не удалась.${webhookLine}`
     );
   });
+
+  updateTelegramBotProfileReadonlyDom();
   initLucideIcons();
 }
 
@@ -7332,6 +7434,12 @@ function restoreDisplaySettings() {
     }
     if (typeof displaySettings.telegramBotUsername !== "string") {
       displaySettings.telegramBotUsername = "";
+    }
+    if (typeof displaySettings.telegramBotDisplayName !== "string") {
+      displaySettings.telegramBotDisplayName = "";
+    }
+    if (typeof displaySettings.telegramAdminChatId !== "string") {
+      displaySettings.telegramAdminChatId = "";
     }
     if (displaySettings.tasksListPagingMode !== "pagination" && displaySettings.tasksListPagingMode !== "chunks") {
       displaySettings.tasksListPagingMode = "pagination";

@@ -243,16 +243,20 @@ export async function configureTelegramWebhook(pool, baseUrl) {
     return { ok: false, error: j.description || "setWebhook failed", description: j.description };
   }
   let botUsername = "";
+  let botDisplayName = "";
   try {
     const mr = await fetch(`https://api.telegram.org/bot${token}/getMe`);
     const mj = await mr.json();
-    if (mj.ok && mj.result?.username) {
-      botUsername = String(mj.result.username);
+    if (mj.ok && mj.result && typeof mj.result === "object") {
+      if (mj.result.username) botUsername = String(mj.result.username);
+      const fn = String(mj.result.first_name || "").trim();
+      const ln = String(mj.result.last_name || "").trim();
+      botDisplayName = [fn, ln].filter(Boolean).join(" ").trim();
     }
   } catch (_) {
     /* noop */
   }
-  return { ok: true, webhookUrl: url, botUsername };
+  return { ok: true, webhookUrl: url, botUsername, botDisplayName };
 }
 
 function normalizePersonName(s) {
