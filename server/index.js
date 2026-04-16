@@ -357,6 +357,7 @@ app.post("/api/telegram/send-photo-proxy", authMiddleware, async (req, res) => {
     const token = String(req.body?.token || "").trim();
     const photoRefRaw = String(req.body?.photoRef || "").trim();
     const caption = String(req.body?.caption || "");
+    const replyMarkup = req.body?.replyMarkup && typeof req.body.replyMarkup === "object" ? req.body.replyMarkup : null;
     if (!chatId) return res.status(400).json({ error: "chatId обязателен" });
     if (!token) return res.status(400).json({ error: "token обязателен" });
     const photoRef = resolveServerSidePhotoRef(photoRefRaw, req, token);
@@ -382,6 +383,9 @@ app.post("/api/telegram/send-photo-proxy", authMiddleware, async (req, res) => {
     form.append("photo", blob, fileNameFromUrlOrFallback(photoRef));
     if (caption && caption.length <= 1024) {
       form.append("caption", caption);
+    }
+    if (replyMarkup) {
+      form.append("reply_markup", JSON.stringify(replyMarkup));
     }
 
     const tgResp = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {

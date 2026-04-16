@@ -976,9 +976,9 @@ function getTaskMediaItemsForTelegram(taskRow) {
   return [...before].map((x) => String(x || "").trim()).filter(Boolean);
 }
 
-function resolveTelegramSendablePhotoRef(taskRow, token) {
+function resolveTelegramSendablePhotoRefs(taskRow, token) {
   const items = getTaskMediaItemsForTelegram(taskRow);
-  if (!items.length) return "";
+  if (!items.length) return [];
   const toSendable = (raw) => {
     const directUrl = toAbsoluteMediaUrl(raw);
     if (directUrl) return directUrl;
@@ -992,17 +992,14 @@ function resolveTelegramSendablePhotoRef(taskRow, token) {
     }
     return "";
   };
+  const refs = [];
   for (const raw of items) {
     const displayName = getMediaDisplayName(raw);
     if (!mediaNameLooksLikeImage(displayName)) continue;
     const ref = toSendable(raw);
-    if (ref) return ref;
+    if (ref) refs.push(ref);
   }
-  for (const raw of items) {
-    const ref = toSendable(raw);
-    if (ref) return ref;
-  }
-  return "";
+  return refs.slice(0, 5);
 }
 
 async function precheckPhotoRefForTelegram(photoRef) {
@@ -1025,7 +1022,7 @@ async function precheckPhotoRefForTelegram(photoRef) {
   }
 }
 
-async function sendTelegramPhotoViaServerProxy({ chatId, token, photoRef, caption }) {
+async function sendTelegramPhotoViaServerProxy({ chatId, token, photoRef, caption, replyMarkup }) {
   if (!isHostedRuntime() || !getAuthToken()) {
     return { ok: false, description: "proxy_unavailable" };
   }
@@ -1040,7 +1037,8 @@ async function sendTelegramPhotoViaServerProxy({ chatId, token, photoRef, captio
         chatId: String(chatId || "").trim(),
         token: String(token || "").trim(),
         photoRef: String(photoRef || "").trim(),
-        caption: String(caption || "")
+        caption: String(caption || ""),
+        replyMarkup: replyMarkup || null
       })
     });
     const j = await r.json().catch(() => ({}));
@@ -1102,38 +1100,45 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
   }
 
   const replyMarkup = options.skipInlineKeyboard ? undefined : buildTelegramInlineKeyboardForTask(taskRow[TASK_COLUMNS.number]);
-  const photoRef = resolveTelegramSendablePhotoRef(taskRow, token);
+  const photoRefs = resolveTelegramSendablePhotoRefs(taskRow, token);
   const results = await Promise.all(
     targets.map(async (t) => {
       try {
-        if (photoRef) {
+        if (photoRefs.length) {
           const canUseCaption = text.length <= 1024;
-          let photoOk = false;
-          let photoDescription = "";
-          if (isHostedRuntime() && getAuthToken()) {
-            const proxy = await sendTelegramPhotoViaServerProxy({
-              chatId: t.chatId,
-              token,
-              photoRef,
-              caption: canUseCaption ? text : ""
-            });
-            photoOk = proxy.ok === true;
-            photoDescription = proxy.description || "";
-          } else {
-            const photoResponse = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+          const firstRef = photoRefs[0];
+          const extraRefs = photoRefs.slice(1);
+
+          const sendSinglePhoto = async (ref, { captionText = "", withKeyboard = false } = {}) => {
+            if (isHostedRuntime() && getAuthToken()) {
+              const proxy = await sendTelegramPhotoViaServerProxy({
+                chatId: t.chatId,
+                token,
+                photoRef: ref,
+                caption: captionText,
+                replyMarkup: withKeyboard ? replyMarkup : undefined
+              });
+              return { ok: proxy.ok === true, description: proxy.description || "" };
+            }
+            const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 chat_id: t.chatId,
-                photo: photoRef,
-                ...(canUseCaption ? { caption: text } : {})
+                photo: ref,
+                ...(captionText ? { caption: captionText } : {}),
+                ...((withKeyboard && replyMarkup) ? { reply_markup: replyMarkup } : {})
               })
             });
-            const photoJson = await photoResponse.json().catch(() => ({}));
-            photoOk = photoResponse.ok && photoJson.ok === true;
-            photoDescription = String(photoJson.description || "");
-          }
-          if (!photoOk) {
+            const j = await r.json().catch(() => ({}));
+            return { ok: r.ok && j.ok === true, description: String(j.description || "") };
+          };
+
+          const firstPhoto = await sendSinglePhoto(firstRef, {
+            captionText: canUseCaption ? text : "",
+            withKeyboard: Boolean(replyMarkup)
+          });
+          if (!firstPhoto.ok) {
             // URL/файл может быть недоступен Telegram (например локальный/непубличный источник) — шлём текст без фото.
             const fallbackBody = {
               chat_id: t.chatId,
@@ -1149,17 +1154,31 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
             return {
               ...t,
               ok: fallbackResponse.ok && fallbackJson.ok === true,
-              apiDescription: fallbackJson.description || photoDescription,
+              apiDescription: fallbackJson.description || firstPhoto.description,
               photoFallback: true,
-              photoError: photoDescription || "",
+              photoError: firstPhoto.description || "",
               photoMode: "server_proxy"
             };
           }
+
+          for (const ref of extraRefs) {
+            const extraPhoto = await sendSinglePhoto(ref, { captionText: "", withKeyboard: false });
+            if (!extraPhoto.ok) {
+              return {
+                ...t,
+                ok: false,
+                apiDescription: extraPhoto.description || "Не удалось отправить одно из фото",
+                photoFallback: true,
+                photoError: extraPhoto.description || "",
+                photoMode: "server_proxy"
+              };
+            }
+          }
+
           if (!canUseCaption) {
             const msgBody = {
               chat_id: t.chatId,
-              text,
-              ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+              text
             };
             const textResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
               method: "POST",
@@ -1167,31 +1186,20 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
               body: JSON.stringify(msgBody)
             });
             const textJson = await textResponse.json().catch(() => ({}));
-            const okLong = photoResponse.ok && photoJson.ok === true && textResponse.ok && textJson.ok === true;
+            const okLong = textResponse.ok && textJson.ok === true;
             return {
               ...t,
               ok: okLong,
-              apiDescription: photoDescription || textJson.description,
+              apiDescription: textJson.description,
               photoFallback: false,
               photoMode: "server_proxy"
             };
           }
-          const kbBody = {
-            chat_id: t.chatId,
-            text: "Действия по задаче:",
-            ...(replyMarkup ? { reply_markup: replyMarkup } : {})
-          };
-          const kbResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(kbBody)
-          });
-          const kbJson = await kbResponse.json().catch(() => ({}));
-          const okPhoto = photoResponse.ok && photoJson.ok === true && kbResponse.ok && kbJson.ok === true;
+
           return {
             ...t,
-            ok: okPhoto,
-            apiDescription: photoDescription || kbJson.description,
+            ok: true,
+            apiDescription: "",
             photoFallback: false,
             photoMode: "server_proxy"
           };
