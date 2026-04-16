@@ -560,7 +560,9 @@ function startRemoteAutoPull() {
   if (!isHostedRuntime() || !getAuthToken()) return;
   remotePullTimer = setInterval(() => {
     if (document.hidden) return;
-    if (activeSectionId === "report") return;
+    // Авто-подтягивание с сервера только на экране «Задачи»,
+    // чтобы не сбивало ввод/редактирование в настройках и справочниках.
+    if (activeSectionId !== "tasks") return;
     if (isUserEditingNow()) return;
     if (hasUnsyncedLocalChanges) return;
     if (serverPushInFlight) return;
