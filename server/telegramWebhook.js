@@ -784,12 +784,29 @@ async function handleMessage(msg, pool, token) {
   const taskId = String(row[TASK_COLUMNS.number] ?? "").trim();
 
   if (sess.expect === "comment" && text) {
-    appendTaskHistory(payload, taskId, empName, `Telegram: комментарий — ${text.slice(0, 2000)}`);
+    const prevPlan = String(row[TASK_COLUMNS.plan] || "").trim();
+    const nextPlan = String(text || "").trim().slice(0, 4000);
+    row[TASK_COLUMNS.plan] = nextPlan;
+    if (prevPlan) {
+      appendTaskHistory(
+        payload,
+        taskId,
+        empName,
+        `Telegram: обновлён «План решения (коммент сотрудника)»\nБыло: ${prevPlan.slice(0, 2000)}\nСтало: ${nextPlan.slice(0, 2000)}`
+      );
+    } else {
+      appendTaskHistory(
+        payload,
+        taskId,
+        empName,
+        `Telegram: заполнен «План решения (коммент сотрудника)» — ${nextPlan.slice(0, 2000)}`
+      );
+    }
     clearSession(payload, chatKey);
     await savePayload(pool, payload);
     await tg(token, "sendMessage", {
       chat_id: chatId,
-      text: `Комментарий сохранён в истории задачи №${taskId}.`,
+      text: `Комментарий сохранён в поле «План решения (коммент сотрудника)» задачи №${taskId}.`,
       reply_markup: { inline_keyboard: mainKeyboard(taskId) }
     });
     return;
