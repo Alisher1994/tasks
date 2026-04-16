@@ -247,8 +247,11 @@ function buildAppPayload() {
 
 let serverSyncTimer = null;
 let remotePullTimer = null;
+let hasUnsyncedLocalChanges = false;
+let serverPushInFlight = false;
 function scheduleServerSync() {
   if (!isHostedRuntime() || !getAuthToken()) return;
+  hasUnsyncedLocalChanges = true;
   clearTimeout(serverSyncTimer);
   serverSyncTimer = setTimeout(() => {
     pushAppToServer().catch(() => {});
@@ -257,37 +260,55 @@ function scheduleServerSync() {
 
 async function pushAppToServer() {
   if (!isHostedRuntime() || !getAuthToken()) return;
-  const data = buildAppPayload();
-  const r = await fetch("/api/data", {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getAuthToken()}`
-    },
-    body: JSON.stringify({ data })
-  });
-  if (r.status === 401) {
-    setAuthToken("");
+  serverPushInFlight = true;
+  try {
+    const data = buildAppPayload();
+    const r = await fetch("/api/data", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({ data })
+    });
+    if (r.status === 401) {
+      setAuthToken("");
+      return;
+    }
+    if (r.ok) {
+      hasUnsyncedLocalChanges = false;
+    }
+  } finally {
+    serverPushInFlight = false;
   }
 }
 
 /** Немедленная синхронизация с сервером (без debounce), например перед регистрацией Telegram webhook. */
 async function pushAppToServerImmediate() {
   if (!isHostedRuntime() || !getAuthToken()) return false;
-  const data = buildAppPayload();
-  const r = await fetch("/api/data", {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getAuthToken()}`
-    },
-    body: JSON.stringify({ data })
-  });
-  if (r.status === 401) {
-    setAuthToken("");
-    return false;
+  hasUnsyncedLocalChanges = true;
+  serverPushInFlight = true;
+  try {
+    const data = buildAppPayload();
+    const r = await fetch("/api/data", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({ data })
+    });
+    if (r.status === 401) {
+      setAuthToken("");
+      return false;
+    }
+    if (r.ok) {
+      hasUnsyncedLocalChanges = false;
+    }
+    return r.ok;
+  } finally {
+    serverPushInFlight = false;
   }
-  return r.ok;
 }
 
 function telegramBotDisplayNameFromGetMeResult(result) {
@@ -539,6 +560,8 @@ function startRemoteAutoPull() {
   remotePullTimer = setInterval(() => {
     if (document.hidden) return;
     if (isUserEditingNow()) return;
+    if (hasUnsyncedLocalChanges) return;
+    if (serverPushInFlight) return;
     pullRemoteAppState({ rerender: true }).catch(() => {});
   }, 8000);
 }
@@ -8915,6 +8938,8 @@ function clearSession() {
   localStorage.removeItem(SESSION_STORAGE_KEY);
   setAuthToken("");
   stopRemoteAutoPull();
+  hasUnsyncedLocalChanges = false;
+  serverPushInFlight = false;
 }
 
 function restoreSession() {
