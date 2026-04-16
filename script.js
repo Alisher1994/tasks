@@ -246,6 +246,7 @@ function buildAppPayload() {
 }
 
 let serverSyncTimer = null;
+let remotePullTimer = null;
 function scheduleServerSync() {
   if (!isHostedRuntime() || !getAuthToken()) return;
   clearTimeout(serverSyncTimer);
@@ -446,21 +447,24 @@ async function flushTelegramBotTokenToServer(options = {}) {
   return reg;
 }
 
-async function pullRemoteAppState() {
+async function pullRemoteAppState(options = {}) {
+  const rerender = Boolean(options.rerender);
   if (!isHostedRuntime() || !getAuthToken()) return;
   const r = await fetch("/api/data", {
     headers: { Authorization: `Bearer ${getAuthToken()}` }
   });
   if (r.status === 401) {
     setAuthToken("");
+    stopRemoteAutoPull();
     return;
   }
   if (!r.ok) return;
   const json = await r.json();
-  applyServerBundle(json.data);
+  applyServerBundle(json.data, { rerender });
 }
 
-function applyServerBundle(data) {
+function applyServerBundle(data, options = {}) {
+  const rerender = Boolean(options.rerender);
   if (!data || typeof data !== "object") return;
   if (data.displaySettings && typeof data.displaySettings === "object") {
     try {
@@ -515,6 +519,33 @@ function applyServerBundle(data) {
       /* noop */
     }
   }
+  if (rerender) {
+    renderTablePreserveScroll();
+  }
+}
+
+function isUserEditingNow() {
+  const el = document.activeElement;
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  const tag = String(el.tagName || "").toUpperCase();
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+function startRemoteAutoPull() {
+  clearInterval(remotePullTimer);
+  remotePullTimer = null;
+  if (!isHostedRuntime() || !getAuthToken()) return;
+  remotePullTimer = setInterval(() => {
+    if (document.hidden) return;
+    if (isUserEditingNow()) return;
+    pullRemoteAppState({ rerender: true }).catch(() => {});
+  }, 8000);
+}
+
+function stopRemoteAutoPull() {
+  clearInterval(remotePullTimer);
+  remotePullTimer = null;
 }
 
 function escapeHtmlText(s) {
@@ -952,6 +983,26 @@ function resolveTelegramSendablePhotoRef(taskRow, token) {
   return "";
 }
 
+async function precheckPhotoRefForTelegram(photoRef) {
+  const ref = String(photoRef || "").trim();
+  if (!ref) return { ok: false, ref: "" };
+  try {
+    const u = new URL(ref, location.origin);
+    if (u.origin !== location.origin) return { ok: true, ref };
+    const r = await fetch(u.toString(), { method: "HEAD", cache: "no-store" });
+    if (!r.ok) {
+      return { ok: false, ref: "", reason: `HTTP ${r.status}` };
+    }
+    const ct = String(r.headers.get("content-type") || "").toLowerCase();
+    if (ct && !ct.startsWith("image/")) {
+      return { ok: false, ref: "", reason: `content-type: ${ct}` };
+    }
+    return { ok: true, ref: u.toString() };
+  } catch (_) {
+    return { ok: true, ref };
+  }
+}
+
 /**
  * Отправка текста задачи в Telegram по шаблону текущего статуса.
  * @returns {Promise<{ ok: boolean, reason?: string, okCount?: number, total?: number, missingNames?: string[] }>}
@@ -1001,7 +1052,9 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
   }
 
   const replyMarkup = options.skipInlineKeyboard ? undefined : buildTelegramInlineKeyboardForTask(taskRow[TASK_COLUMNS.number]);
-  const photoRef = resolveTelegramSendablePhotoRef(taskRow, token);
+  const rawPhotoRef = resolveTelegramSendablePhotoRef(taskRow, token);
+  const prechecked = await precheckPhotoRefForTelegram(rawPhotoRef);
+  const photoRef = prechecked.ok ? prechecked.ref : "";
   const results = await Promise.all(
     targets.map(async (t) => {
       try {
@@ -1102,6 +1155,9 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
 
   if (!suppressAlerts) {
     let msg = `Отправлено успешно: ${okCount} из ${results.length}.`;
+    if (rawPhotoRef && !photoRef) {
+      msg += `\n\nФото пропущено до отправки: ссылка недоступна или ведет не на изображение (${prechecked.reason || "неизвестная причина"}).`;
+    }
     const fallbackWithPhotoError = results.find((r) => r.photoFallback === true);
     if (fallbackWithPhotoError) {
       msg += `\n\nФото не прикрепилось: Telegram не смог загрузить файл по ссылке.${fallbackWithPhotoError.photoError ? `\nПричина Telegram: ${fallbackWithPhotoError.photoError}` : ""}`;
@@ -8421,6 +8477,7 @@ function showApp(userName) {
   appSection.classList.remove("hidden");
   renderSidebarMenu();
   renderTable();
+  startRemoteAutoPull();
 }
 
 function showLogin() {
@@ -8446,6 +8503,7 @@ function showLogin() {
   }
   activeSectionId = "tasks";
   isSettingsOpen = false;
+  stopRemoteAutoPull();
 }
 
 function togglePasswordVisibility() {
@@ -8810,6 +8868,7 @@ function saveSession(userName) {
 function clearSession() {
   localStorage.removeItem(SESSION_STORAGE_KEY);
   setAuthToken("");
+  stopRemoteAutoPull();
 }
 
 function restoreSession() {
