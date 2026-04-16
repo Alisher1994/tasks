@@ -764,6 +764,72 @@ function getDepartmentHeadNameByEmployeeName(employeeFullName) {
   return headName || "";
 }
 
+function getEmployeeRowsByDisplayName(fullName) {
+  const want = normalizePersonName(fullName);
+  if (!want) return [];
+  const rows = getSectionById("employees")?.rows || [];
+  return rows.filter((r) => normalizePersonName(r[EMPLOYEE_COLUMNS.fullName]) === want);
+}
+
+function employeeHasTelegramBinding(row) {
+  if (!row) return false;
+  const connected = String(row[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен";
+  const chat = String(row[EMPLOYEE_COLUMNS.chatId] || "").trim();
+  return connected && Boolean(chat);
+}
+
+function collectTaskCloseApproverNames(taskRow) {
+  const approvers = new Map();
+  const add = (name, reason) => {
+    const n = normalizePersonName(name);
+    if (!n) return;
+    if (!approvers.has(n)) approvers.set(n, new Set());
+    approvers.get(n).add(reason);
+  };
+
+  // 1) Руководитель отдела исполнителя.
+  const headName = getDepartmentHeadNameByEmployeeName(taskRow[TASK_COLUMNS.assignedResponsible]);
+  if (headName) {
+    const headRows = getEmployeeRowsByDisplayName(headName);
+    if (headRows.some((r) => employeeHasTelegramBinding(r))) {
+      add(headName, "руководитель отдела");
+    }
+  }
+
+  // 2) Админ и директор (по должности), если подключены в Telegram.
+  const alwaysPositions = new Set(["Администратор", "Генеральный директор"]);
+  const allEmployees = getSectionById("employees")?.rows || [];
+  for (const row of allEmployees) {
+    const pos = String(row[EMPLOYEE_COLUMNS.position] || "").trim();
+    if (!alwaysPositions.has(pos)) continue;
+    if (!employeeHasTelegramBinding(row)) continue;
+    add(row[EMPLOYEE_COLUMNS.fullName], pos.toLowerCase());
+  }
+
+  // 3) Глобальные согласующие из настроек (пересечение: дубликаты + разрешено подтверждать).
+  const dupIds = new Set(
+    Array.isArray(displaySettings.telegramGlobalDuplicateRecipientIds)
+      ? displaySettings.telegramGlobalDuplicateRecipientIds.map((x) => String(x).trim()).filter(Boolean)
+      : []
+  );
+  const allowIds = new Set(
+    Array.isArray(displaySettings.telegramCloseConfirmAllowedIds)
+      ? displaySettings.telegramCloseConfirmAllowedIds.map((x) => String(x).trim()).filter(Boolean)
+      : []
+  );
+  for (const row of allEmployees) {
+    const id = String(row[EMPLOYEE_COLUMNS.id] ?? "").trim();
+    if (!id || !dupIds.has(id) || !allowIds.has(id)) continue;
+    if (!employeeHasTelegramBinding(row)) continue;
+    add(row[EMPLOYEE_COLUMNS.fullName], "глобальный согласующий");
+  }
+
+  return Array.from(approvers.entries()).map(([name, reasons]) => ({
+    name,
+    reason: Array.from(reasons).join(", ")
+  }));
+}
+
 /**
  * Имена получателей: исполнитель и контролирующий (все из списка ответственных по задаче получают сообщение).
  * Дублирование РП↔ЗРП только если в этих полях указан РП или ЗРП с карточки объекта задачи (остальные ФИО не вызывают эту пару).
@@ -8016,6 +8082,12 @@ function openTaskDetailsModal(section, row, rowIndex) {
     .join("");
 
   const statusStepper = renderStatusStepper(row[TASK_COLUMNS.status]);
+  const closeApprovers = collectTaskCloseApproverNames(row);
+  const closeApproversHtml = closeApprovers.length
+    ? closeApprovers
+      .map((x) => `<span class="close-approver-chip" title="${escapeHtmlAttr(x.reason)}">${escapeHtmlText(x.name)}</span>`)
+      .join("")
+    : '<span class="close-approver-empty">Не определены (проверьте руководителя отдела и Telegram-подключение).</span>';
   const beforeGallery = buildDraftGallery(draftState.before, draftState.preview, "before");
   const afterGallery = buildDraftGallery(draftState.after, draftState.preview, "after");
 
@@ -8045,6 +8117,10 @@ function openTaskDetailsModal(section, row, rowIndex) {
       </div>
       <div class="task-card-panel" data-task-panel="main">
         ${statusStepper}
+        <div class="close-approvers-box">
+          <div class="close-approvers-title">Кто согласует закрытие</div>
+          <div class="close-approvers-list">${closeApproversHtml}</div>
+        </div>
         <div class="details-grid">${details}</div>
         <div class="gallery-block">
           <h4>Медиа до</h4>
