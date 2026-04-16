@@ -154,7 +154,15 @@ app.use(
 );
 
 app.use("/api/", apiLimiter);
-app.use("/media", express.static(MEDIA_STORAGE_PATH, { index: false, maxAge: "30d", immutable: true }));
+app.use(
+  "/media",
+  express.static(MEDIA_STORAGE_PATH, {
+    index: false,
+    maxAge: "30d",
+    immutable: true,
+    fallthrough: false
+  })
+);
 
 app.use(express.json({ limit: "50mb" }));
 
