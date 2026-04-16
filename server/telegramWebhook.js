@@ -111,6 +111,11 @@ function mainKeyboard(taskNumber) {
   ];
 }
 
+function backOnlyKeyboard(taskNumber) {
+  const n = encodeTaskNum(taskNumber);
+  return [[{ text: "⬅️ Назад", callback_data: cb(n, "bk") }]];
+}
+
 function encodeTaskNum(num) {
   return String(num ?? "")
     .trim()
@@ -618,6 +623,7 @@ async function handleCallback(q, pool, token) {
   if (parsed.action === "sm") {
     setLastTaskContext(payload, chatId, taskId, messageId);
     const keyboard = STATUS_OPTIONS.map((label, i) => [{ text: statusLabelWithEmoji(label), callback_data: cb(taskId, `ss|${i}`) }]);
+    keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "bk") }]);
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
@@ -689,7 +695,7 @@ async function handleCallback(q, pool, token) {
       chat_id: chatId,
       message_id: messageId,
       text: `${taskCaptionWithPlan(row)}\n\nНапишите комментарий одним сообщением ниже (или /отмена).`,
-      reply_markup: { inline_keyboard: [] }
+      reply_markup: { inline_keyboard: backOnlyKeyboard(taskId) }
     });
     await answerOk();
     return;
@@ -704,7 +710,21 @@ async function handleCallback(q, pool, token) {
       chat_id: chatId,
       message_id: messageId,
       text: `${taskCaptionWithPlan(row)}\n\nПришлите фото одним сообщением (или /отмена).`,
-      reply_markup: { inline_keyboard: [] }
+      reply_markup: { inline_keyboard: backOnlyKeyboard(taskId) }
+    });
+    await answerOk();
+    return;
+  }
+
+  if (parsed.action === "bk") {
+    clearSession(payload, String(chatId));
+    setLastTaskContext(payload, chatId, taskId, messageId);
+    await savePayload(pool, payload);
+    await tg(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: `${taskCaptionWithPlan(row)}\n\nВыберите действие по задаче:`,
+      reply_markup: { inline_keyboard: mainKeyboard(taskId) }
     });
     await answerOk();
     return;
@@ -851,8 +871,35 @@ async function handleMessage(msg, pool, token) {
 
   if (text === "/отмена" || text === "/cancel") {
     const payload = await loadPayload(pool);
+    const sess = payload.telegramSessions?.[chatKey];
+    const last = payload.telegramLastTaskByChat?.[chatKey];
     clearSession(payload, chatKey);
     await savePayload(pool, payload);
+    await safeDeleteMessage(token, chatId, messageId);
+
+    const taskId = String(sess?.taskId || last?.taskId || "").trim();
+    const promptMessageId = Number(sess?.promptMessageId || last?.promptMessageId) || null;
+    if (taskId) {
+      const tasks = getTasksSection(payload);
+      const row = findTaskRow(tasks, taskId);
+      if (row && promptMessageId) {
+        const edited = await tg(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: promptMessageId,
+          text: `${taskCaptionWithPlan(row)}\n\nДействие отменено.`,
+          reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+        });
+        if (edited?.ok) return;
+      }
+      if (row) {
+        await tg(token, "sendMessage", {
+          chat_id: chatId,
+          text: `${taskCaptionWithPlan(row)}\n\nДействие отменено.`,
+          reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+        });
+        return;
+      }
+    }
     await tg(token, "sendMessage", { chat_id: chatId, text: "Действие отменено." });
     return;
   }
