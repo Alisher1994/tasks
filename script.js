@@ -949,9 +949,8 @@ function resolveEmployeeTelegramTargetsByFullNames(names) {
 }
 
 function getTaskMediaItemsForTelegram(taskRow) {
-  const after = getMediaItems(taskRow[TASK_COLUMNS.mediaAfter]);
   const before = getMediaItems(taskRow[TASK_COLUMNS.mediaBefore]);
-  return [...after, ...before].map((x) => String(x || "").trim()).filter(Boolean);
+  return [...before].map((x) => String(x || "").trim()).filter(Boolean);
 }
 
 function resolveTelegramSendablePhotoRef(taskRow, token) {
