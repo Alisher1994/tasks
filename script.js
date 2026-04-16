@@ -559,6 +559,7 @@ function startRemoteAutoPull() {
   if (!isHostedRuntime() || !getAuthToken()) return;
   remotePullTimer = setInterval(() => {
     if (document.hidden) return;
+    if (activeSectionId === "report") return;
     if (isUserEditingNow()) return;
     if (hasUnsyncedLocalChanges) return;
     if (serverPushInFlight) return;
