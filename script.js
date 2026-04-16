@@ -917,6 +917,25 @@ function resolveEmployeeTelegramTargetsByFullNames(names) {
   return out;
 }
 
+function getFirstTaskMediaItemForTelegram(taskRow) {
+  const after = getMediaItems(taskRow[TASK_COLUMNS.mediaAfter]);
+  if (after.length) return after[0];
+  const before = getMediaItems(taskRow[TASK_COLUMNS.mediaBefore]);
+  if (before.length) return before[0];
+  return "";
+}
+
+function resolveTelegramSendablePhotoRef(taskRow, token) {
+  const raw = String(getFirstTaskMediaItemForTelegram(taskRow) || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.includes("/")) {
+    const clean = raw.replace(/^\/+/, "");
+    return `https://api.telegram.org/file/bot${token}/${clean}`;
+  }
+  return "";
+}
+
 /**
  * Отправка текста задачи в Telegram по шаблону текущего статуса.
  * @returns {Promise<{ ok: boolean, reason?: string, okCount?: number, total?: number, missingNames?: string[] }>}
@@ -966,10 +985,62 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
   }
 
   const replyMarkup = options.skipInlineKeyboard ? undefined : buildTelegramInlineKeyboardForTask(taskRow[TASK_COLUMNS.number]);
+  const photoRef = resolveTelegramSendablePhotoRef(taskRow, token);
   const results = await Promise.all(
     targets.map(async (t) => {
       try {
-        const body = {
+        if (photoRef) {
+          const canUseCaption = text.length <= 1024;
+          const photoBody = {
+            chat_id: t.chatId,
+            photo: photoRef,
+            ...(canUseCaption ? { caption: text } : {})
+          };
+          const photoResponse = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(photoBody)
+          });
+          const photoJson = await photoResponse.json().catch(() => ({}));
+          if (!canUseCaption) {
+            const msgBody = {
+              chat_id: t.chatId,
+              text,
+              ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+            };
+            const textResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(msgBody)
+            });
+            const textJson = await textResponse.json().catch(() => ({}));
+            const okLong = photoResponse.ok && photoJson.ok === true && textResponse.ok && textJson.ok === true;
+            return {
+              ...t,
+              ok: okLong,
+              apiDescription: photoJson.description || textJson.description
+            };
+          }
+          const kbBody = {
+            chat_id: t.chatId,
+            text: "Действия по задаче:",
+            ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+          };
+          const kbResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(kbBody)
+          });
+          const kbJson = await kbResponse.json().catch(() => ({}));
+          const okPhoto = photoResponse.ok && photoJson.ok === true && kbResponse.ok && kbJson.ok === true;
+          return {
+            ...t,
+            ok: okPhoto,
+            apiDescription: photoJson.description || kbJson.description
+          };
+        }
+
+        const msgBody = {
           chat_id: t.chatId,
           text,
           ...(replyMarkup ? { reply_markup: replyMarkup } : {})
@@ -977,7 +1048,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
         const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body)
+          body: JSON.stringify(msgBody)
         });
         const apiJson = await response.json().catch(() => ({}));
         return { ...t, ok: response.ok && apiJson.ok === true, apiDescription: apiJson.description };
@@ -7758,9 +7829,14 @@ function openTaskDetailsModal(section, row, rowIndex) {
     close();
   };
   modal.querySelector(".save-details-btn")?.addEventListener("click", () => {
-    applyDraftToTask(section, rowIndex, taskId, draftState);
-    isDirty = false;
-    renderTablePreserveScroll();
+    try {
+      applyDraftToTask(section, rowIndex, taskId, draftState);
+      isDirty = false;
+      renderTablePreserveScroll();
+      closeAndCleanup();
+    } catch (e) {
+      window.alert(`Не удалось сохранить карточку: ${String(e?.message || e)}`);
+    }
   });
   modal.querySelector(".close-details-btn")?.addEventListener("click", askUnsavedClose);
   modal.querySelector(".download-pdf-btn")?.addEventListener("click", () => {
