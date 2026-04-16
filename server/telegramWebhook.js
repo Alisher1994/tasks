@@ -594,11 +594,10 @@ async function handleCallback(q, pool, token) {
     if (!payload.telegramSessions) payload.telegramSessions = {};
     payload.telegramSessions[String(chatId)] = { expect: "comment", taskId };
     await savePayload(pool, payload);
-    await tg(token, "editMessageText", {
+    await tg(token, "sendMessage", {
       chat_id: chatId,
-      message_id: messageId,
-      text: `${shortTaskCaption(row)}\n\nНапишите комментарий одним сообщением ниже (или /отмена).`,
-      reply_markup: { inline_keyboard: [] }
+      text: `${shortTaskCaption(row)}\n\nНапишите комментарий ОТВЕТОМ на это сообщение (или /отмена).`,
+      reply_markup: { force_reply: true, selective: true }
     });
     await answerOk();
     return;
@@ -608,11 +607,10 @@ async function handleCallback(q, pool, token) {
     if (!payload.telegramSessions) payload.telegramSessions = {};
     payload.telegramSessions[String(chatId)] = { expect: "photo", taskId };
     await savePayload(pool, payload);
-    await tg(token, "editMessageText", {
+    await tg(token, "sendMessage", {
       chat_id: chatId,
-      message_id: messageId,
-      text: `${shortTaskCaption(row)}\n\nПришлите фото одним сообщением (или /отмена).`,
-      reply_markup: { inline_keyboard: [] }
+      text: `${shortTaskCaption(row)}\n\nПришлите фото ОТВЕТОМ на это сообщение (или /отмена).`,
+      reply_markup: { force_reply: true, selective: true }
     });
     await answerOk();
     return;
@@ -811,6 +809,13 @@ async function handleMessage(msg, pool, token) {
     });
     return;
   }
+  if (sess.expect === "comment") {
+    await tg(token, "sendMessage", {
+      chat_id: chatId,
+      text: "Не вижу текст комментария. Отправьте текст ОТВЕТОМ на сообщение бота (или /отмена)."
+    });
+    return;
+  }
 
   if (sess.expect === "photo" && msg.photo && msg.photo.length) {
     const best = msg.photo[msg.photo.length - 1];
@@ -834,6 +839,13 @@ async function handleMessage(msg, pool, token) {
       chat_id: chatId,
       text: `Фото добавлено в «Медиа после» задачи №${taskId}.`,
       reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+    });
+    return;
+  }
+  if (sess.expect === "photo") {
+    await tg(token, "sendMessage", {
+      chat_id: chatId,
+      text: "Не вижу фото. Отправьте фото ОТВЕТОМ на сообщение бота (или /отмена)."
     });
     return;
   }
