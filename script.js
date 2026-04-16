@@ -1052,6 +1052,34 @@ async function sendTelegramPhotoViaServerProxy({ chatId, token, photoRef, captio
   }
 }
 
+async function sendTelegramMediaGroupViaServerProxy({ chatId, token, photoRefs }) {
+  if (!isHostedRuntime() || !getAuthToken()) {
+    return { ok: false, description: "proxy_unavailable", firstMessageId: null };
+  }
+  try {
+    const r = await fetch("/api/telegram/send-media-group-proxy", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({
+        chatId: String(chatId || "").trim(),
+        token: String(token || "").trim(),
+        photoRefs: Array.isArray(photoRefs) ? photoRefs.slice(0, 10) : []
+      })
+    });
+    const j = await r.json().catch(() => ({}));
+    return {
+      ok: r.ok && j?.ok === true,
+      description: String(j?.error || j?.description || ""),
+      firstMessageId: Number(j?.firstMessageId) || null
+    };
+  } catch (e) {
+    return { ok: false, description: String(e?.message || "proxy_group_failed"), firstMessageId: null };
+  }
+}
+
 /**
  * Отправка текста задачи в Telegram по шаблону текущего статуса.
  * @returns {Promise<{ ok: boolean, reason?: string, okCount?: number, total?: number, missingNames?: string[] }>}
@@ -1106,41 +1134,47 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
     targets.map(async (t) => {
       try {
         if (photoRefs.length) {
-          const canUseCaption = text.length <= 1024;
-          const firstRef = photoRefs[0];
-          const extraRefs = photoRefs.slice(1);
+          let photosOk = false;
+          let photoDescription = "";
+          let firstMessageId = null;
 
-          const sendSinglePhoto = async (ref, { captionText = "", withKeyboard = false } = {}) => {
+          if (photoRefs.length > 1 && isHostedRuntime() && getAuthToken()) {
+            const group = await sendTelegramMediaGroupViaServerProxy({
+              chatId: t.chatId,
+              token,
+              photoRefs
+            });
+            photosOk = group.ok === true;
+            photoDescription = group.description || "";
+            firstMessageId = group.firstMessageId || null;
+          } else {
+            const firstRef = photoRefs[0];
             if (isHostedRuntime() && getAuthToken()) {
               const proxy = await sendTelegramPhotoViaServerProxy({
                 chatId: t.chatId,
                 token,
-                photoRef: ref,
-                caption: captionText,
-                replyMarkup: withKeyboard ? replyMarkup : undefined
+                photoRef: firstRef,
+                caption: ""
               });
-              return { ok: proxy.ok === true, description: proxy.description || "" };
+              photosOk = proxy.ok === true;
+              photoDescription = proxy.description || "";
+            } else {
+              const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: t.chatId,
+                  photo: firstRef
+                })
+              });
+              const j = await r.json().catch(() => ({}));
+              photosOk = r.ok && j.ok === true;
+              photoDescription = String(j.description || "");
+              firstMessageId = Number(j?.result?.message_id) || null;
             }
-            const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                chat_id: t.chatId,
-                photo: ref,
-                ...(captionText ? { caption: captionText } : {}),
-                ...((withKeyboard && replyMarkup) ? { reply_markup: replyMarkup } : {})
-              })
-            });
-            const j = await r.json().catch(() => ({}));
-            return { ok: r.ok && j.ok === true, description: String(j.description || "") };
-          };
+          }
 
-          const firstPhoto = await sendSinglePhoto(firstRef, {
-            captionText: canUseCaption ? text : "",
-            withKeyboard: Boolean(replyMarkup)
-          });
-          if (!firstPhoto.ok) {
-            // URL/файл может быть недоступен Telegram (например локальный/непубличный источник) — шлём текст без фото.
+          if (!photosOk) {
             const fallbackBody = {
               chat_id: t.chatId,
               text,
@@ -1155,52 +1189,29 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
             return {
               ...t,
               ok: fallbackResponse.ok && fallbackJson.ok === true,
-              apiDescription: fallbackJson.description || firstPhoto.description,
+              apiDescription: fallbackJson.description || photoDescription,
               photoFallback: true,
-              photoError: firstPhoto.description || "",
+              photoError: photoDescription || "",
               photoMode: "server_proxy"
             };
           }
 
-          for (const ref of extraRefs) {
-            const extraPhoto = await sendSinglePhoto(ref, { captionText: "", withKeyboard: false });
-            if (!extraPhoto.ok) {
-              return {
-                ...t,
-                ok: false,
-                apiDescription: extraPhoto.description || "Не удалось отправить одно из фото",
-                photoFallback: true,
-                photoError: extraPhoto.description || "",
-                photoMode: "server_proxy"
-              };
-            }
-          }
-
-          if (!canUseCaption) {
-            const msgBody = {
-              chat_id: t.chatId,
-              text
-            };
-            const textResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(msgBody)
-            });
-            const textJson = await textResponse.json().catch(() => ({}));
-            const okLong = textResponse.ok && textJson.ok === true;
-            return {
-              ...t,
-              ok: okLong,
-              apiDescription: textJson.description,
-              photoFallback: false,
-              photoMode: "server_proxy"
-            };
-          }
-
+          const msgBody = {
+            chat_id: t.chatId,
+            text,
+            ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+            ...(firstMessageId ? { reply_to_message_id: firstMessageId, allow_sending_without_reply: true } : {})
+          };
+          const textResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(msgBody)
+          });
+          const textJson = await textResponse.json().catch(() => ({}));
           return {
             ...t,
-            ok: true,
-            apiDescription: "",
+            ok: textResponse.ok && textJson.ok === true,
+            apiDescription: textJson.description,
             photoFallback: false,
             photoMode: "server_proxy"
           };

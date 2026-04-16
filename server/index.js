@@ -406,6 +406,69 @@ app.post("/api/telegram/send-photo-proxy", authMiddleware, async (req, res) => {
   }
 });
 
+app.post("/api/telegram/send-media-group-proxy", authMiddleware, async (req, res) => {
+  try {
+    const chatId = String(req.body?.chatId || "").trim();
+    const token = String(req.body?.token || "").trim();
+    const refs = Array.isArray(req.body?.photoRefs) ? req.body.photoRefs : [];
+    if (!chatId) return res.status(400).json({ error: "chatId обязателен" });
+    if (!token) return res.status(400).json({ error: "token обязателен" });
+    if (!refs.length) return res.status(400).json({ error: "photoRefs обязателен" });
+
+    const resolved = refs
+      .map((x) => resolveServerSidePhotoRef(String(x || "").trim(), req, token))
+      .filter(Boolean)
+      .slice(0, 10);
+    if (!resolved.length) {
+      return res.status(400).json({ error: "Не удалось сформировать ссылки на фото" });
+    }
+
+    const media = [];
+    const form = new FormData();
+    form.append("chat_id", chatId);
+
+    for (let i = 0; i < resolved.length; i += 1) {
+      const ref = resolved[i];
+      const src = await fetch(ref, { method: "GET" });
+      if (!src.ok) {
+        return res.status(400).json({ error: `Источник фото #${i + 1} недоступен: HTTP ${src.status}` });
+      }
+      const ab = await src.arrayBuffer();
+      const buf = Buffer.from(ab);
+      const headerType = String(src.headers.get("content-type") || "").toLowerCase();
+      const sniffedType = detectImageMimeFromBytes(buf);
+      const effectiveType = (headerType.startsWith("image/") ? headerType : "") || sniffedType || "image/jpeg";
+      if (!headerType.startsWith("image/") && !sniffedType) {
+        return res.status(400).json({ error: `Источник #${i + 1} не изображение: ${headerType || "unknown"}` });
+      }
+
+      const attachName = `file${i}`;
+      media.push({ type: "photo", media: `attach://${attachName}` });
+      form.append(attachName, new Blob([buf], { type: effectiveType }), fileNameFromUrlOrFallback(ref, `photo-${i + 1}.jpg`));
+    }
+
+    form.append("media", JSON.stringify(media));
+    const tgResp = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
+      method: "POST",
+      body: form
+    });
+    const tgJson = await tgResp.json().catch(() => ({}));
+    if (!(tgResp.ok && tgJson?.ok === true)) {
+      return res.status(400).json({
+        ok: false,
+        error: String(tgJson?.description || `Telegram sendMediaGroup error ${tgResp.status}`)
+      });
+    }
+
+    const result = Array.isArray(tgJson.result) ? tgJson.result : [];
+    const firstMessageId = Number(result[0]?.message_id) || null;
+    return res.json({ ok: true, result, firstMessageId });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: `Ошибка прокси-отправки группы фото: ${String(e?.message || e)}` });
+  }
+});
+
 app.post("/api/media/upload", authMiddleware, async (req, res) => {
   try {
     await ensureMediaStorageDir();
