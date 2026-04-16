@@ -39,6 +39,27 @@ function normalizePhone(raw) {
   return `+998${local}`;
 }
 
+function last4DigitsPasswordFromPhone(rawPhone) {
+  const digits = String(rawPhone || "").replace(/\D/g, "");
+  if (digits.length < 4) return "";
+  return digits.slice(-4);
+}
+
+function getEmployeesSection(payload) {
+  const sections = Array.isArray(payload?.sections) ? payload.sections : [];
+  return sections.find((s) => s && s.id === "employees");
+}
+
+function findEmployeeByPhoneInPayload(payload, phone) {
+  const employees = getEmployeesSection(payload);
+  const rows = Array.isArray(employees?.rows) ? employees.rows : [];
+  for (const row of rows) {
+    const rowPhone = normalizePhone(row?.[4] || "");
+    if (rowPhone === phone) return row;
+  }
+  return null;
+}
+
 function authMiddleware(req, res, next) {
   const h = req.headers.authorization || "";
   const m = h.match(/^Bearer\s+(.+)$/i);
@@ -144,6 +165,23 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
         { expiresIn: "30d" }
       );
       return res.json({ token, displayName: u.display_name });
+    }
+
+    /** Фолбэк-вход сотрудника: пароль = последние 4 цифры телефона из справочника. */
+    const { rows: stateRows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
+    const payload = stateRows[0]?.payload;
+    const emp = findEmployeeByPhoneInPayload(payload, phone);
+    if (emp) {
+      const expectedPass = last4DigitsPasswordFromPhone(phone);
+      if (expectedPass && password === expectedPass) {
+        const displayName = String(emp?.[1] || "").trim() || "Пользователь";
+        const token = jwt.sign(
+          { sub: `emp:${phone}`, role: "user", name: displayName },
+          JWT_SECRET,
+          { expiresIn: "30d" }
+        );
+        return res.json({ token, displayName });
+      }
     }
 
     const { rows: cntRows } = await pool.query("SELECT COUNT(*)::int AS c FROM users");

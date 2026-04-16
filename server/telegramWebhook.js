@@ -142,6 +142,42 @@ async function tg(token, method, body) {
   return r.json();
 }
 
+function splitMediaItems(value) {
+  return String(value || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
+function joinMediaItems(items) {
+  return items.filter(Boolean).slice(0, 5).join(", ");
+}
+
+function pickTelegramPhotoFileName(filePath, fileId) {
+  const raw = String(filePath || "").trim();
+  if (raw) {
+    const parts = raw.split("/");
+    const last = String(parts[parts.length - 1] || "").trim();
+    if (last) return last;
+  }
+  return `${String(fileId || "").trim() || Date.now()}.jpg`;
+}
+
+async function addTelegramPhotoToTaskMediaAfter(row, token, fileId) {
+  const fr = await tg(token, "getFile", { file_id: fileId });
+  if (!fr?.ok || !fr?.result) return null;
+  const filePath = String(fr.result.file_path || "").trim();
+  const fileName = pickTelegramPhotoFileName(filePath, fileId);
+  const items = splitMediaItems(row[TASK_COLUMNS.mediaAfter]);
+  if (!items.includes(fileName)) {
+    if (items.length >= 5) items.shift();
+    items.push(fileName);
+    row[TASK_COLUMNS.mediaAfter] = joinMediaItems(items);
+  }
+  return { fileName, filePath };
+}
+
 function shortTaskCaption(row) {
   const num = String(row[TASK_COLUMNS.number] ?? "").trim();
   const title = String(row[TASK_COLUMNS.task] ?? "").trim();
@@ -747,12 +783,24 @@ async function handleMessage(msg, pool, token) {
   if (sess.expect === "photo" && msg.photo && msg.photo.length) {
     const best = msg.photo[msg.photo.length - 1];
     const fileId = best.file_id;
-    appendTaskHistory(payload, taskId, empName, `Telegram: отправлено фото (file_id ${fileId})`);
+    let storedName = "";
+    try {
+      const media = await addTelegramPhotoToTaskMediaAfter(row, token, fileId);
+      storedName = String(media?.fileName || "");
+    } catch (_) {
+      storedName = "";
+    }
+    appendTaskHistory(
+      payload,
+      taskId,
+      empName,
+      `Telegram: отправлено фото${storedName ? ` (добавлено в «Медиа после»: ${storedName})` : ""} (file_id ${fileId})`
+    );
     clearSession(payload, chatKey);
     await savePayload(pool, payload);
     await tg(token, "sendMessage", {
       chat_id: chatId,
-      text: `Фото учтено в истории задачи №${taskId}.`,
+      text: `Фото добавлено в «Медиа после» задачи №${taskId}.`,
       reply_markup: { inline_keyboard: mainKeyboard(taskId) }
     });
     return;
