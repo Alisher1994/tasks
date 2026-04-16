@@ -163,6 +163,41 @@ function fileNameFromUrlOrFallback(url, fallback = "photo.jpg") {
   }
 }
 
+function detectImageMimeFromBytes(buf) {
+  if (!buf || buf.length < 4) return "";
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+  if (
+    buf.length >= 8 &&
+    buf[0] === 0x89 &&
+    buf[1] === 0x50 &&
+    buf[2] === 0x4e &&
+    buf[3] === 0x47 &&
+    buf[4] === 0x0d &&
+    buf[5] === 0x0a &&
+    buf[6] === 0x1a &&
+    buf[7] === 0x0a
+  ) return "image/png";
+  if (buf.length >= 6) {
+    const h = buf.subarray(0, 6).toString("ascii");
+    if (h === "GIF87a" || h === "GIF89a") return "image/gif";
+  }
+  if (
+    buf.length >= 12 &&
+    buf[0] === 0x52 &&
+    buf[1] === 0x49 &&
+    buf[2] === 0x46 &&
+    buf[3] === 0x46 &&
+    buf[8] === 0x57 &&
+    buf[9] === 0x45 &&
+    buf[10] === 0x42 &&
+    buf[11] === 0x50
+  ) return "image/webp";
+  if (buf.length >= 2 && buf[0] === 0x42 && buf[1] === 0x4d) return "image/bmp";
+  const headText = buf.subarray(0, Math.min(buf.length, 256)).toString("utf8").trimStart().toLowerCase();
+  if (headText.startsWith("<svg")) return "image/svg+xml";
+  return "";
+}
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 40,
@@ -333,12 +368,15 @@ app.post("/api/telegram/send-photo-proxy", authMiddleware, async (req, res) => {
     if (!src.ok) {
       return res.status(400).json({ error: `Источник фото недоступен: HTTP ${src.status}` });
     }
-    const contentType = String(src.headers.get("content-type") || "").toLowerCase();
-    if (contentType && !contentType.startsWith("image/")) {
-      return res.status(400).json({ error: `Источник не изображение: ${contentType}` });
-    }
     const ab = await src.arrayBuffer();
-    const blob = new Blob([ab], { type: contentType || "image/jpeg" });
+    const buf = Buffer.from(ab);
+    const headerType = String(src.headers.get("content-type") || "").toLowerCase();
+    const sniffedType = detectImageMimeFromBytes(buf);
+    const effectiveType = (headerType.startsWith("image/") ? headerType : "") || sniffedType || "image/jpeg";
+    if (!headerType.startsWith("image/") && !sniffedType) {
+      return res.status(400).json({ error: `Источник не изображение: ${headerType || "unknown"}` });
+    }
+    const blob = new Blob([buf], { type: effectiveType });
     const form = new FormData();
     form.append("chat_id", chatId);
     form.append("photo", blob, fileNameFromUrlOrFallback(photoRef));
