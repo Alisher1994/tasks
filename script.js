@@ -5116,6 +5116,7 @@ function renderFilters(section, sectionFilters, isOpen) {
   const phaseValues = getUniqueValues(section.rows, TASK_COLUMNS.phase);
   const sectionValues = getUniqueValues(section.rows, TASK_COLUMNS.phaseSection);
   const subsectionValues = getUniqueValues(section.rows, TASK_COLUMNS.phaseSubsection);
+  const readValues = ["Прочитано", "Не прочитано"];
 
   return `
     <div class="filter-panel">
@@ -5129,6 +5130,7 @@ function renderFilters(section, sectionFilters, isOpen) {
       ${renderSelectFilter("filterPhase", "Фаза", phaseValues, sectionFilters.phase || "")}
       ${renderSelectFilter("filterSection", "Раздел", sectionValues, sectionFilters.section || "")}
       ${renderSelectFilter("filterSubsection", "Подраздел", subsectionValues, sectionFilters.subsection || "")}
+      ${renderSelectFilter("filterReadState", "Ознакомление", readValues, sectionFilters.readState || "")}
       <button id="filterResetBtn" type="button" class="secondary">Сбросить</button>
     </div>
   `;
@@ -5163,8 +5165,10 @@ function getFilteredRows(section, sectionFilters) {
     const phaseMatch = !sectionFilters.phase || row[TASK_COLUMNS.phase] === sectionFilters.phase;
     const sectionMatch = !sectionFilters.section || row[TASK_COLUMNS.phaseSection] === sectionFilters.section;
     const subsectionMatch = !sectionFilters.subsection || row[TASK_COLUMNS.phaseSubsection] === sectionFilters.subsection;
+    const readStateLabel = getTaskReadStateParts(row[TASK_COLUMNS.readState]).statusText;
+    const readStateMatch = !sectionFilters.readState || readStateLabel === sectionFilters.readState;
 
-    return statusMatch && responsibleMatch && objectMatch && phaseMatch && sectionMatch && subsectionMatch;
+    return statusMatch && responsibleMatch && objectMatch && phaseMatch && sectionMatch && subsectionMatch && readStateMatch;
   });
 }
 
@@ -8725,6 +8729,7 @@ function attachFilterHandlers(section) {
   const phaseSelect = document.getElementById("filterPhase");
   const sectionSelect = document.getElementById("filterSection");
   const subsectionSelect = document.getElementById("filterSubsection");
+  const readStateSelect = document.getElementById("filterReadState");
 
   const ensureSectionFilters = () => {
     if (!filtersBySection[section.id]) {
@@ -8791,6 +8796,15 @@ function attachFilterHandlers(section) {
     subsectionSelect.addEventListener("change", () => {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.subsection = subsectionSelect.value;
+      bumpTasksPagingReset();
+      renderTable();
+    });
+  }
+
+  if (readStateSelect) {
+    readStateSelect.addEventListener("change", () => {
+      const sectionFilters = ensureSectionFilters();
+      sectionFilters.readState = readStateSelect.value;
       bumpTasksPagingReset();
       renderTable();
     });
