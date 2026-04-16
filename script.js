@@ -5957,8 +5957,7 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
     return;
   }
   if (section.id === "departments" && colIndex === 2) {
-    const employeeOptions = getEmployeesList();
-    openSingleLookupModal("Выбор руководителя отдела", employeeOptions, row[2], (value) => {
+    openEmployeeLookupModal("Выбор руководителя отдела", row[2], (value) => {
       row[2] = value;
     });
     return;
@@ -6752,6 +6751,102 @@ function openSingleLookupModal(title, options, currentValue, onApply, historyCtx
   });
 
   search?.addEventListener("input", () => renderOptions(search.value));
+  cancelBtn?.addEventListener("click", () => {
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
+  applyBtn?.addEventListener("click", () => {
+    const newVal = selectedValue || "";
+    if (historyCtx?.taskId && typeof historyCtx.getOld === "function") {
+      const oldVal = historyCtx.getOld();
+      if (String(oldVal ?? "") !== String(newVal ?? "")) {
+        appendTaskHistoryEntry(
+          historyCtx.taskId,
+          `${historyCtx.columnLabel}: «${shortenHistorySnippet(oldVal)}» → «${shortenHistorySnippet(newVal)}»`
+        );
+      }
+    }
+    onApply?.(newVal);
+    saveSectionsData();
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      overlay.remove();
+      renderTablePreserveScroll();
+    }
+  });
+
+  renderOptions();
+  search?.focus();
+}
+
+function openEmployeeLookupModal(title, currentValue, onApply, historyCtx) {
+  const employees = getEmployeesForSelection();
+  let selectedValue = String(currentValue || "").trim();
+
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal">
+      <h4>${title}</h4>
+      <input type="text" class="responsible-modal-search" placeholder="Поиск сотрудника..." />
+      <select class="cell-editor responsible-modal-position-filter">
+        <option value="">Все должности</option>
+      </select>
+      <div class="responsible-modal-list"></div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary responsible-cancel-btn">Отмена</button>
+        <button type="button" class="responsible-apply-btn">Выбрать</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const list = overlay.querySelector(".responsible-modal-list");
+  const search = overlay.querySelector(".responsible-modal-search");
+  const positionFilter = overlay.querySelector(".responsible-modal-position-filter");
+  const cancelBtn = overlay.querySelector(".responsible-cancel-btn");
+  const applyBtn = overlay.querySelector(".responsible-apply-btn");
+
+  const positions = Array.from(new Set(employees.map((x) => String(x.role || "").trim()).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  if (positionFilter) {
+    positionFilter.innerHTML = `<option value="">Все должности</option>${positions
+      .map((p) => `<option value="${escapeHtmlAttr(p)}">${escapeHtmlText(p)}</option>`)
+      .join("")}`;
+  }
+
+  const renderOptions = () => {
+    const q = String(search?.value || "").trim().toLowerCase();
+    const role = String(positionFilter?.value || "").trim();
+    const filtered = employees.filter((item) => {
+      const fullName = String(item.fullName || "").trim();
+      const itemRole = String(item.role || "").trim();
+      if (role && itemRole !== role) return false;
+      if (!q) return true;
+      return fullName.toLowerCase().includes(q) || itemRole.toLowerCase().includes(q);
+    });
+    list.innerHTML = filtered.length
+      ? filtered.map((item) => `
+        <label class="responsible-option-item">
+          <input type="radio" name="employeeLookupSingleValue" value="${escapeHtmlAttr(item.fullName)}" ${item.fullName === selectedValue ? "checked" : ""} />
+          <span class="responsible-option-name">${escapeHtmlText(item.fullName)}</span>
+          <span class="responsible-option-role">${escapeHtmlText(item.role || "-")}</span>
+        </label>
+      `).join("")
+      : '<div class="responsible-option-empty">Ничего не найдено</div>';
+  };
+
+  list.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== "radio") return;
+    selectedValue = target.value;
+  });
+
+  search?.addEventListener("input", renderOptions);
+  positionFilter?.addEventListener("change", renderOptions);
   cancelBtn?.addEventListener("click", () => {
     overlay.remove();
     renderTablePreserveScroll();
