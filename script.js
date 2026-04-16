@@ -928,13 +928,15 @@ function getFirstTaskMediaItemForTelegram(taskRow) {
 function resolveTelegramSendablePhotoRef(taskRow, token) {
   const raw = String(getFirstTaskMediaItemForTelegram(taskRow) || "").trim();
   if (!raw) return "";
-  if (/^https?:\/\//i.test(raw)) return raw;
+  const directUrl = toAbsoluteMediaUrl(raw);
+  if (directUrl) return directUrl;
+  if (raw.startsWith("/")) {
+    const clean = raw.replace(/^\/+/, "");
+    return `${location.origin}/${clean}`;
+  }
   if (raw.includes("/")) {
     const clean = raw.replace(/^\/+/, "");
     return `https://api.telegram.org/file/bot${token}/${clean}`;
-  }
-  if (/^[\w.-]+\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(raw)) {
-    return `${location.origin}/media/${encodeURIComponent(raw)}`;
   }
   return "";
 }
@@ -4953,6 +4955,7 @@ function renderObjectPhotoCell(row, value, rowIndex) {
   const pkey = oid ? `obj-ph-${oid}` : "";
   const preview = pkey ? objectPhotoPreviewStore[pkey] : null;
   const fileName = String(value || "").trim();
+  const displayName = getMediaDisplayName(fileName);
   const imgSrc = preview?.url ? escapeHtmlAttr(preview.url) : "";
   if (preview?.url) {
     return `<div class="object-photo-slot object-photo-slot--has-img" data-object-id="${escapeHtmlAttr(oid)}">
@@ -4964,7 +4967,7 @@ function renderObjectPhotoCell(row, value, rowIndex) {
   }
   if (fileName) {
     return `<div class="object-photo-slot object-photo-slot--nostore" data-object-id="${escapeHtmlAttr(oid)}">
-      <span class="object-photo-filename-hint" title="${escapeHtmlAttr(fileName)}">Файл: ${escapeHtmlText(fileName)}</span>
+      <span class="object-photo-filename-hint" title="${escapeHtmlAttr(fileName)}">Файл: ${escapeHtmlText(displayName)}</span>
       <div class="object-photo-slot-actions">
         <button type="button" class="object-photo-add" data-object-photo-add="1" title="Заменить фото">Заменить</button>
         <button type="button" class="object-photo-remove" data-object-photo-remove="1" title="Удалить">×</button>
@@ -7925,6 +7928,7 @@ function buildMediaGallery(value, taskId, colIndex) {
   const slots = Array.from({ length: 5 }, (_, slotIndex) => items[slotIndex] || "");
   return slots
     .map((name, slotIndex) => {
+      const displayName = getMediaDisplayName(name);
       if (!name) {
         return `
           <div class="gallery-slot empty" data-col-index="${colIndex}" data-slot-index="${slotIndex}">
@@ -7941,8 +7945,8 @@ function buildMediaGallery(value, taskId, colIndex) {
       if (preview && String(preview.type || "").startsWith("image/")) {
         return `
           <figure class="gallery-slot has-image" data-col-index="${colIndex}" data-slot-index="${slotIndex}">
-            <img class="slot-preview" src="${preview.url}" data-gallery-url="${preview.url}" data-gallery-name="${name}" alt="${name}" />
-            <figcaption>${name}</figcaption>
+            <img class="slot-preview" src="${preview.url}" data-gallery-url="${preview.url}" data-gallery-name="${displayName}" alt="${displayName}" />
+            <figcaption title="${escapeHtmlAttr(name)}">${displayName}</figcaption>
             <div class="slot-actions">
               <button type="button" class="slot-action-btn slot-choose-btn" title="Заменить">+</button>
               <button type="button" class="slot-action-btn slot-delete-btn" title="Удалить">x</button>
@@ -7952,7 +7956,7 @@ function buildMediaGallery(value, taskId, colIndex) {
       }
       return `
         <div class="gallery-slot file-item" data-col-index="${colIndex}" data-slot-index="${slotIndex}">
-          <span>${name}</span>
+          <span title="${escapeHtmlAttr(name)}">${displayName}</span>
           <div class="slot-actions">
             <button type="button" class="slot-action-btn slot-choose-btn" title="Заменить">+</button>
             <button type="button" class="slot-action-btn slot-delete-btn" title="Удалить">x</button>
@@ -7966,6 +7970,7 @@ function buildMediaGallery(value, taskId, colIndex) {
 function buildDraftGallery(items, previewMap, kind) {
   const slots = Array.from({ length: 5 }, (_, i) => items[i] || "");
   return slots.map((name, slotIndex) => {
+    const displayName = getMediaDisplayName(name);
     const preview = resolveMediaPreviewForSlot(name, previewMap[`${kind}-${slotIndex}`]);
     if (!name) {
       return `
@@ -7980,8 +7985,8 @@ function buildDraftGallery(items, previewMap, kind) {
     if (preview && String(preview.type || "").startsWith("image/") && preview.url) {
       return `
         <figure class="gallery-slot has-image" data-kind="${kind}" data-slot-index="${slotIndex}">
-          <img class="slot-preview" src="${preview.url}" data-gallery-url="${preview.url}" data-gallery-name="${name}" alt="${name}" />
-          <figcaption>${name}</figcaption>
+          <img class="slot-preview" src="${preview.url}" data-gallery-url="${preview.url}" data-gallery-name="${displayName}" alt="${displayName}" />
+          <figcaption title="${escapeHtmlAttr(name)}">${displayName}</figcaption>
           <div class="slot-actions">
             <button type="button" class="slot-action-btn slot-choose-btn" title="Заменить">+</button>
             <button type="button" class="slot-action-btn slot-delete-btn" title="Удалить">x</button>
@@ -7991,7 +7996,7 @@ function buildDraftGallery(items, previewMap, kind) {
     }
     return `
       <div class="gallery-slot file-item" data-kind="${kind}" data-slot-index="${slotIndex}">
-        <span>${name}</span>
+        <span title="${escapeHtmlAttr(name)}">${displayName}</span>
         <div class="slot-actions">
           <button type="button" class="slot-action-btn slot-choose-btn" title="Заменить">+</button>
           <button type="button" class="slot-action-btn slot-delete-btn" title="Удалить">x</button>
@@ -8105,11 +8110,45 @@ function mediaNameLooksLikeImage(name) {
   return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(n);
 }
 
+function getMediaDisplayName(storedName) {
+  const raw = String(storedName || "").trim();
+  if (!raw) return "";
+  let candidate = raw;
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const u = new URL(raw);
+      candidate = u.pathname || raw;
+    } catch {
+      candidate = raw;
+    }
+  }
+  const cleaned = candidate.split("#")[0].split("?")[0].replace(/\/+$/, "");
+  const lastPart = cleaned.includes("/") ? cleaned.slice(cleaned.lastIndexOf("/") + 1) : cleaned;
+  if (!lastPart) return raw;
+  try {
+    return decodeURIComponent(lastPart);
+  } catch {
+    return lastPart;
+  }
+}
+
 function buildTelegramMediaPreviewUrl(storedName) {
   const token = String(displaySettings.telegramBotToken || "").trim();
   const p = String(storedName || "").trim().replace(/^\/+/, "");
   if (!token || !p || !p.includes("/")) return "";
   return `https://api.telegram.org/file/bot${token}/${p}`;
+}
+
+function toAbsoluteMediaUrl(storedName) {
+  const raw = String(storedName || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith("/media/")) return `${location.origin}${raw}`;
+  if (raw.startsWith("media/")) return `${location.origin}/${raw}`;
+  if (/^[\w.-]+\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(raw)) {
+    return `${location.origin}/media/${encodeURIComponent(raw)}`;
+  }
+  return "";
 }
 
 function resolveMediaPreviewForSlot(storedName, preview) {
@@ -8118,6 +8157,10 @@ function resolveMediaPreviewForSlot(storedName, preview) {
   }
   const name = String(storedName || "").trim();
   if (!mediaNameLooksLikeImage(name)) return preview || null;
+  const directUrl = toAbsoluteMediaUrl(name);
+  if (directUrl) {
+    return { name, type: "image/url", url: directUrl };
+  }
   const tgUrl = buildTelegramMediaPreviewUrl(name);
   if (!tgUrl) return preview || null;
   return { name, type: "image/telegram", url: tgUrl };
