@@ -127,6 +127,42 @@ function getPublicBaseUrl(req) {
   return "";
 }
 
+function resolveServerSidePhotoRef(rawRef, req, token) {
+  const raw = String(rawRef || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith("/")) {
+    const base = getPublicBaseUrl(req);
+    if (!base) return "";
+    return `${base}${raw}`;
+  }
+  if (raw.startsWith("media/")) {
+    const base = getPublicBaseUrl(req);
+    if (!base) return "";
+    return `${base}/${raw}`;
+  }
+  if (/^[\w.-]+\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(raw)) {
+    const base = getPublicBaseUrl(req);
+    if (!base) return "";
+    return `${base}/media/${encodeURIComponent(raw)}`;
+  }
+  if (token && raw.includes("/")) {
+    const clean = raw.replace(/^\/+/, "");
+    return `https://api.telegram.org/file/bot${token}/${clean}`;
+  }
+  return "";
+}
+
+function fileNameFromUrlOrFallback(url, fallback = "photo.jpg") {
+  try {
+    const u = new URL(String(url || ""));
+    const name = decodeURIComponent(String(u.pathname.split("/").pop() || "").trim());
+    return name || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 40,
@@ -277,6 +313,54 @@ app.post("/api/telegram/set-webhook", authMiddleware, async (req, res) => {
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+app.post("/api/telegram/send-photo-proxy", authMiddleware, async (req, res) => {
+  try {
+    const chatId = String(req.body?.chatId || "").trim();
+    const token = String(req.body?.token || "").trim();
+    const photoRefRaw = String(req.body?.photoRef || "").trim();
+    const caption = String(req.body?.caption || "");
+    if (!chatId) return res.status(400).json({ error: "chatId обязателен" });
+    if (!token) return res.status(400).json({ error: "token обязателен" });
+    const photoRef = resolveServerSidePhotoRef(photoRefRaw, req, token);
+    if (!photoRef) {
+      return res.status(400).json({ error: "Не удалось сформировать ссылку на фото" });
+    }
+
+    const src = await fetch(photoRef, { method: "GET" });
+    if (!src.ok) {
+      return res.status(400).json({ error: `Источник фото недоступен: HTTP ${src.status}` });
+    }
+    const contentType = String(src.headers.get("content-type") || "").toLowerCase();
+    if (contentType && !contentType.startsWith("image/")) {
+      return res.status(400).json({ error: `Источник не изображение: ${contentType}` });
+    }
+    const ab = await src.arrayBuffer();
+    const blob = new Blob([ab], { type: contentType || "image/jpeg" });
+    const form = new FormData();
+    form.append("chat_id", chatId);
+    form.append("photo", blob, fileNameFromUrlOrFallback(photoRef));
+    if (caption && caption.length <= 1024) {
+      form.append("caption", caption);
+    }
+
+    const tgResp = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: "POST",
+      body: form
+    });
+    const tgJson = await tgResp.json().catch(() => ({}));
+    if (!(tgResp.ok && tgJson?.ok === true)) {
+      return res.status(400).json({
+        ok: false,
+        error: String(tgJson?.description || `Telegram sendPhoto error ${tgResp.status}`)
+      });
+    }
+    return res.json({ ok: true, result: tgJson.result || null });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: `Ошибка прокси-отправки фото: ${String(e?.message || e)}` });
   }
 });
 

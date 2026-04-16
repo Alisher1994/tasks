@@ -1003,36 +1003,31 @@ async function precheckPhotoRefForTelegram(photoRef) {
   }
 }
 
-function pickPhotoFileNameFromRef(photoRef) {
-  const raw = String(photoRef || "").trim();
-  const fallback = `photo-${Date.now()}.jpg`;
-  if (!raw) return fallback;
-  const fromName = getMediaDisplayName(raw);
-  return fromName || fallback;
-}
-
-async function loadPhotoBlobForTelegram(photoRef) {
-  const ref = String(photoRef || "").trim();
-  if (!ref) return { ok: false, reason: "empty_ref" };
+async function sendTelegramPhotoViaServerProxy({ chatId, token, photoRef, caption }) {
+  if (!isHostedRuntime() || !getAuthToken()) {
+    return { ok: false, description: "proxy_unavailable" };
+  }
   try {
-    const r = await fetch(ref, { method: "GET", cache: "no-store" });
-    if (!r.ok) return { ok: false, reason: `HTTP ${r.status}` };
-    const headerType = String(r.headers.get("content-type") || "").toLowerCase();
-    if (headerType && !headerType.startsWith("image/")) {
-      return { ok: false, reason: `content-type: ${headerType}` };
-    }
-    const blob = await r.blob();
-    const blobType = String(blob.type || "").toLowerCase();
-    if (blobType && !blobType.startsWith("image/")) {
-      return { ok: false, reason: `blob-type: ${blobType}` };
-    }
+    const r = await fetch("/api/telegram/send-photo-proxy", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({
+        chatId: String(chatId || "").trim(),
+        token: String(token || "").trim(),
+        photoRef: String(photoRef || "").trim(),
+        caption: String(caption || "")
+      })
+    });
+    const j = await r.json().catch(() => ({}));
     return {
-      ok: true,
-      blob,
-      fileName: pickPhotoFileNameFromRef(ref)
+      ok: r.ok && j?.ok === true,
+      description: String(j?.error || j?.description || "")
     };
   } catch (e) {
-    return { ok: false, reason: String(e?.message || "fetch_failed") };
+    return { ok: false, description: String(e?.message || "proxy_failed") };
   }
 }
 
@@ -1085,38 +1080,38 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
   }
 
   const replyMarkup = options.skipInlineKeyboard ? undefined : buildTelegramInlineKeyboardForTask(taskRow[TASK_COLUMNS.number]);
-  const rawPhotoRef = resolveTelegramSendablePhotoRef(taskRow, token);
-  const prechecked = await precheckPhotoRefForTelegram(rawPhotoRef);
-  const photoRef = prechecked.ok ? prechecked.ref : "";
-  const photoUpload = photoRef ? await loadPhotoBlobForTelegram(photoRef) : { ok: false, reason: "no_photo_ref" };
-  const usePhotoUploadMode = Boolean(photoUpload?.ok && photoUpload?.blob);
+  const photoRef = resolveTelegramSendablePhotoRef(taskRow, token);
   const results = await Promise.all(
     targets.map(async (t) => {
       try {
         if (photoRef) {
           const canUseCaption = text.length <= 1024;
-          const photoResponse = usePhotoUploadMode
-            ? await (async () => {
-                const form = new FormData();
-                form.append("chat_id", t.chatId);
-                form.append("photo", photoUpload.blob, photoUpload.fileName || "photo.jpg");
-                if (canUseCaption) form.append("caption", text);
-                return fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-                  method: "POST",
-                  body: form
-                });
-              })()
-            : await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  chat_id: t.chatId,
-                  photo: photoRef,
-                  ...(canUseCaption ? { caption: text } : {})
-                })
-              });
-          const photoJson = await photoResponse.json().catch(() => ({}));
-          if (!(photoResponse.ok && photoJson.ok === true)) {
+          let photoOk = false;
+          let photoDescription = "";
+          if (isHostedRuntime() && getAuthToken()) {
+            const proxy = await sendTelegramPhotoViaServerProxy({
+              chatId: t.chatId,
+              token,
+              photoRef,
+              caption: canUseCaption ? text : ""
+            });
+            photoOk = proxy.ok === true;
+            photoDescription = proxy.description || "";
+          } else {
+            const photoResponse = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: t.chatId,
+                photo: photoRef,
+                ...(canUseCaption ? { caption: text } : {})
+              })
+            });
+            const photoJson = await photoResponse.json().catch(() => ({}));
+            photoOk = photoResponse.ok && photoJson.ok === true;
+            photoDescription = String(photoJson.description || "");
+          }
+          if (!photoOk) {
             // URL/файл может быть недоступен Telegram (например локальный/непубличный источник) — шлём текст без фото.
             const fallbackBody = {
               chat_id: t.chatId,
@@ -1132,10 +1127,10 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
             return {
               ...t,
               ok: fallbackResponse.ok && fallbackJson.ok === true,
-              apiDescription: fallbackJson.description || photoJson.description,
+              apiDescription: fallbackJson.description || photoDescription,
               photoFallback: true,
-              photoError: photoJson.description || "",
-              photoMode: usePhotoUploadMode ? "upload" : "url"
+              photoError: photoDescription || "",
+              photoMode: "server_proxy"
             };
           }
           if (!canUseCaption) {
@@ -1154,9 +1149,9 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
             return {
               ...t,
               ok: okLong,
-              apiDescription: photoJson.description || textJson.description,
+              apiDescription: photoDescription || textJson.description,
               photoFallback: false,
-              photoMode: usePhotoUploadMode ? "upload" : "url"
+              photoMode: "server_proxy"
             };
           }
           const kbBody = {
@@ -1174,9 +1169,9 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
           return {
             ...t,
             ok: okPhoto,
-            apiDescription: photoJson.description || kbJson.description,
+            apiDescription: photoDescription || kbJson.description,
             photoFallback: false,
-            photoMode: usePhotoUploadMode ? "upload" : "url"
+            photoMode: "server_proxy"
           };
         }
 
@@ -1209,17 +1204,9 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
 
   if (!suppressAlerts) {
     let msg = `Отправлено успешно: ${okCount} из ${results.length}.`;
-    if (rawPhotoRef && !photoRef) {
-      msg += `\n\nФото пропущено до отправки: ссылка недоступна или ведет не на изображение (${prechecked.reason || "неизвестная причина"}).`;
-    }
-    if (photoRef && !usePhotoUploadMode) {
-      msg += `\n\nФото отправляется по ссылке (не как файл), так как загрузить blob не удалось: ${photoUpload.reason || "неизвестная причина"}.`;
-    }
     const fallbackWithPhotoError = results.find((r) => r.photoFallback === true);
     if (fallbackWithPhotoError) {
-      const why = fallbackWithPhotoError.photoMode === "upload"
-        ? "Telegram отклонил загруженный файл."
-        : "Telegram не смог загрузить файл по ссылке.";
+      const why = "Telegram отклонил фото при серверной отправке.";
       msg += `\n\nФото не прикрепилось: ${why}${fallbackWithPhotoError.photoError ? `\nПричина Telegram: ${fallbackWithPhotoError.photoError}` : ""}`;
     }
     if (missingNames.length) {
