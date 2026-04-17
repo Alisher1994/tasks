@@ -1186,14 +1186,25 @@ th {
 
 .table-th-title {
   display: block;
-  min-height: 18px;
+  min-height: 19px;
 }
 
-.table-th-order-row {
-  display: block;
-  margin-top: 4px;
-  padding-top: 4px;
+thead.table-head-has-order .table-head-main-row th {
+  top: 0;
+  z-index: 12;
+}
+
+thead.table-head-has-order .table-head-order-row th {
+  top: 40px;
+  z-index: 11;
+  padding-top: 5px;
+  padding-bottom: 5px;
   border-top: 1px solid #c6d2df;
+  font-weight: 500;
+}
+
+thead.table-head-has-order .table-head-order-row th.table-order-cell {
+  text-align: center;
 }
 
 .table-th-order {

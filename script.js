@@ -2845,36 +2845,40 @@ function renderTable() {
   const isAllFilteredSelected = allFilteredEntries.length > 0
     && allFilteredEntries.every((entry) => selectedRows.has(entry.rowIndex));
 
-  const trashHeaders = isTrashView
-    ? `<th class="trash-meta-col">Удалено</th><th class="trash-meta-col">До удаления</th>`
+  const showHeaderNumbers = headerNumberingBySection[section.id] !== false;
+  const headRowspan = showHeaderNumbers ? ` rowspan="2"` : "";
+  const trashHeadersMain = isTrashView
+    ? `<th class="trash-meta-col"${headRowspan}>Удалено</th><th class="trash-meta-col"${headRowspan}>До удаления</th>`
+    : "";
+  const titleHeaderCells = visibleColumnIndexes.map((columnIndex, viewOrder) => {
+    const column = section.columns[columnIndex];
+    const numberClass = columnIndex === 0 && viewOrder === 0 ? "number-col" : "";
+    const rolesNumberClass = section.id === "roles" && columnIndex === 0 && viewOrder === 0 ? "roles-number-col" : "";
+    const statusClass = columnIndex === TASK_COLUMNS.status ? "status-col" : "";
+    const objectClass = columnIndex === TASK_COLUMNS.object ? "object-col" : "";
+    const mediaClass = isMediaColumn(columnIndex) ? "media-col" : "";
+    const objectPhotoClass = section.id === "objects" && columnIndex === OBJECT_COLUMNS.photo ? "object-photo-col" : "";
+    return `<th class="${numberClass} ${rolesNumberClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass}">
+      <span class="table-th-title">${escapeHtmlText(column)}</span>
+    </th>`;
+  }).join("");
+  const orderHeaderRow = showHeaderNumbers
+    ? `<tr class="table-head-order-row">
+        ${visibleColumnIndexes.map((_, viewOrder) => `<th class="table-order-cell"><span class="table-th-order">${viewOrder + 1}</span></th>`).join("")}
+      </tr>`
     : "";
 
   const thead = `
-    <thead>
-      <tr>
-        <th class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}">
+    <thead class="${showHeaderNumbers ? "table-head-has-order" : ""}">
+      <tr class="table-head-main-row">
+        <th class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}"${headRowspan}>
           <input type="checkbox" id="selectAllRows" ${isAllFilteredSelected ? "checked" : ""} />
         </th>
-        ${visibleColumnIndexes.map((columnIndex, viewOrder) => {
-          const column = section.columns[columnIndex];
-          const numberClass = columnIndex === 0 && viewOrder === 0 ? "number-col" : "";
-          const rolesNumberClass = section.id === "roles" && columnIndex === 0 && viewOrder === 0 ? "roles-number-col" : "";
-          const statusClass = columnIndex === TASK_COLUMNS.status ? "status-col" : "";
-          const objectClass = columnIndex === TASK_COLUMNS.object ? "object-col" : "";
-          const mediaClass = isMediaColumn(columnIndex) ? "media-col" : "";
-          const objectPhotoClass = section.id === "objects" && columnIndex === OBJECT_COLUMNS.photo ? "object-photo-col" : "";
-          const showHeaderNumbers = headerNumberingBySection[section.id] !== false;
-          const headerMeta = showHeaderNumbers
-            ? `<span class="table-th-order-row"><span class="table-th-order">${viewOrder + 1}</span></span>`
-            : "";
-          return `<th class="${numberClass} ${rolesNumberClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass}">
-            <span class="table-th-title">${escapeHtmlText(column)}</span>
-            ${headerMeta}
-          </th>`;
-        }).join("")}
-        ${trashHeaders}
-        <th class="actions-col ${section.id === "roles" ? "roles-compact-actions-col" : ""}">Действие</th>
+        ${titleHeaderCells}
+        ${trashHeadersMain}
+        <th class="actions-col ${section.id === "roles" ? "roles-compact-actions-col" : ""}"${headRowspan}>Действие</th>
       </tr>
+      ${orderHeaderRow}
     </thead>
   `;
 
