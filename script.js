@@ -1802,6 +1802,73 @@ function formatGoogleSheetsSyncStatusText() {
   return `Статус: ${status}\nПоследний запуск: ${atLabel}\n${msg || ""}`.trim();
 }
 
+function showStatusDialog({ title = "Уведомление", message = "", type = "info" } = {}) {
+  const overlay = document.createElement("div");
+  overlay.className = "status-dialog-overlay";
+  const safeTitle = escapeHtmlText(String(title || "Уведомление"));
+  const safeMessage = escapeHtmlText(String(message || "")).replace(/\r\n?|\n/g, "<br />");
+  const typeClass = type === "success" ? "is-success" : type === "error" ? "is-error" : "is-info";
+  overlay.innerHTML = `
+    <div class="status-dialog-box ${typeClass}">
+      <h4>${safeTitle}</h4>
+      <div class="status-dialog-message">${safeMessage}</div>
+      <div class="status-dialog-actions">
+        <button type="button" class="confirm-btn confirm-close-btn">OK</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.querySelector(".confirm-close-btn")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+}
+
+async function triggerGoogleSheetsManualSync() {
+  if (!isHostedRuntime() || !getAuthToken()) {
+    showStatusDialog({
+      title: "Google Sheets",
+      message: "Ручная синхронизация доступна после входа в серверный режим.",
+      type: "error"
+    });
+    return false;
+  }
+  try {
+    const r = await fetch("/api/google-sheets/sync", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({})
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j?.ok !== true) {
+      showStatusDialog({
+        title: "Google Sheets",
+        message: String(j?.error || "Ошибка синхронизации"),
+        type: "error"
+      });
+      return false;
+    }
+    showStatusDialog({
+      title: "Google Sheets",
+      message: String(j?.message || "Синхронизация выполнена"),
+      type: "success"
+    });
+    await pullRemoteAppState({ rerender: true });
+    return true;
+  } catch (e) {
+    showStatusDialog({
+      title: "Google Sheets",
+      message: String(e?.message || "Ошибка сети"),
+      type: "error"
+    });
+    return false;
+  }
+}
+
 function getServerTimezone() {
   const raw = displaySettings.serverTimezone;
   if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
@@ -2802,6 +2869,10 @@ function renderTable() {
           <button type="button" class="icon-action-btn refresh-section-btn" id="refreshSectionBtn" title="Обновить">
             <i data-lucide="refresh-cw" class="lucide-icon" aria-hidden="true"></i>
           </button>
+          ${section.id === "tasks" ? `
+          <button type="button" class="icon-action-btn" id="googleSheetsSyncTasksBtn" title="Синхронизировать в Google Sheets">
+            <i data-lucide="cloud-upload" class="lucide-icon" aria-hidden="true"></i>
+          </button>` : ""}
           <button type="button" class="icon-action-btn add-row-btn" id="addRowBtn" title="Добавить строку">
             <i data-lucide="plus" class="lucide-icon" aria-hidden="true"></i>
           </button>
@@ -7859,6 +7930,7 @@ function fromInputDate(value) {
 
 function attachHeaderActionHandlers(section, filteredEntries) {
   const refreshSectionBtn = document.getElementById("refreshSectionBtn");
+  const googleSheetsSyncTasksBtn = document.getElementById("googleSheetsSyncTasksBtn");
   const addRowBtn = document.getElementById("addRowBtn");
   const toggleFiltersBtn = document.getElementById("toggleFiltersBtn");
   const toggleColumnsBtn = document.getElementById("toggleColumnsBtn");
@@ -7868,6 +7940,12 @@ function attachHeaderActionHandlers(section, filteredEntries) {
   if (refreshSectionBtn) {
     refreshSectionBtn.addEventListener("click", () => {
       refreshCurrentViewData();
+    });
+  }
+
+  if (googleSheetsSyncTasksBtn) {
+    googleSheetsSyncTasksBtn.addEventListener("click", async () => {
+      await triggerGoogleSheetsManualSync();
     });
   }
 
@@ -8541,31 +8619,11 @@ function attachOtherSettingsHandlers() {
 
   gsSyncBtn?.addEventListener("click", async () => {
     commitGoogleSheetsSettings();
-    if (!isHostedRuntime() || !getAuthToken()) {
-      window.alert("Ручная синхронизация доступна после входа в серверный режим.");
-      return;
-    }
     const prevLabel = gsSyncBtn.textContent;
     gsSyncBtn.disabled = true;
     gsSyncBtn.textContent = "Синхронизация...";
     try {
-      const r = await fetch("/api/google-sheets/sync", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getAuthToken()}`
-        },
-        body: JSON.stringify({})
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || j?.ok !== true) {
-        window.alert(`Google Sheets: ${String(j?.error || "ошибка синхронизации")}`);
-      } else {
-        window.alert(`Google Sheets: ${String(j?.message || "синхронизация выполнена")}`);
-      }
-      await pullRemoteAppState({ rerender: true });
-    } catch (e) {
-      window.alert(`Google Sheets: ${String(e?.message || "ошибка сети")}`);
+      await triggerGoogleSheetsManualSync();
     } finally {
       gsSyncBtn.disabled = false;
       gsSyncBtn.textContent = prevLabel || "Синхронизировать сейчас";

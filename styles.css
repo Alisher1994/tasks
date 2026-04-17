@@ -2188,6 +2188,58 @@ button.task-card-tab.is-active {
   padding: 20px;
 }
 
+.status-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 18, 30, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 10020;
+  padding: 16px;
+}
+
+.status-dialog-box {
+  width: min(560px, 100%);
+  background: #1f2431;
+  border: 1px solid #374151;
+  border-radius: 14px;
+  color: #f8fafc;
+  padding: 20px 22px;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.35);
+}
+
+.status-dialog-box h4 {
+  margin: 0 0 10px;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.status-dialog-box.is-success h4 {
+  color: #22c55e;
+}
+
+.status-dialog-box.is-error h4 {
+  color: #ef4444;
+}
+
+.status-dialog-box.is-info h4 {
+  color: #93c5fd;
+}
+
+.status-dialog-message {
+  font-size: 15px;
+  line-height: 1.45;
+  color: #e5e7eb;
+  white-space: normal;
+}
+
+.status-dialog-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .unsaved-confirm-box {
   width: min(420px, 100%);
   background: #ffffff;
