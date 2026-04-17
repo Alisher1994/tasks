@@ -1802,15 +1802,30 @@ function formatGoogleSheetsSyncStatusText() {
   return `Статус: ${status}\nПоследний запуск: ${atLabel}\n${msg || ""}`.trim();
 }
 
-function showStatusDialog({ title = "Уведомление", message = "", type = "info" } = {}) {
+function getGoogleSheetsBrandIconHtml() {
+  return `
+    <span class="status-dialog-gs-icon" aria-hidden="true">
+      <svg viewBox="0 0 48 48" fill="none">
+        <path d="M8 5h20l12 12v24a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" fill="#0F9D58"/>
+        <path d="M28 5v10a2 2 0 0 0 2 2h10L28 5z" fill="#B7E1CD"/>
+        <rect x="14" y="22" width="20" height="3" rx="1.5" fill="#fff"/>
+        <rect x="14" y="28" width="20" height="3" rx="1.5" fill="#fff"/>
+        <rect x="14" y="34" width="12" height="3" rx="1.5" fill="#fff"/>
+      </svg>
+    </span>
+  `;
+}
+
+function showStatusDialog({ title = "Уведомление", message = "", type = "info", icon = "" } = {}) {
   const overlay = document.createElement("div");
   overlay.className = "status-dialog-overlay";
   const safeTitle = escapeHtmlText(String(title || "Уведомление"));
   const safeMessage = escapeHtmlText(String(message || "")).replace(/\r\n?|\n/g, "<br />");
   const typeClass = type === "success" ? "is-success" : type === "error" ? "is-error" : "is-info";
+  const iconHtml = icon === "googleSheets" ? getGoogleSheetsBrandIconHtml() : "";
   overlay.innerHTML = `
     <div class="status-dialog-box ${typeClass}">
-      <h4>${safeTitle}</h4>
+      <h4>${iconHtml}<span>${safeTitle}</span></h4>
       <div class="status-dialog-message">${safeMessage}</div>
       <div class="status-dialog-actions">
         <button type="button" class="confirm-btn confirm-close-btn">OK</button>
@@ -1830,7 +1845,8 @@ async function triggerGoogleSheetsManualSync() {
     showStatusDialog({
       title: "Google Sheets",
       message: "Ручная синхронизация доступна после входа в серверный режим.",
-      type: "error"
+      type: "error",
+      icon: "googleSheets"
     });
     return false;
   }
@@ -1848,14 +1864,21 @@ async function triggerGoogleSheetsManualSync() {
       showStatusDialog({
         title: "Google Sheets",
         message: String(j?.error || "Ошибка синхронизации"),
-        type: "error"
+        type: "error",
+        icon: "googleSheets"
       });
       return false;
     }
+    const durMs = Number(j?.durationMs) || 0;
+    const durSec = durMs > 0 ? Math.max(0.1, durMs / 1000).toFixed(1) : "";
+    const details = [];
+    if (j?.message) details.push(String(j.message));
+    if (durSec) details.push(`Время синхронизации: ${durSec} сек.`);
     showStatusDialog({
       title: "Google Sheets",
-      message: String(j?.message || "Синхронизация выполнена"),
-      type: "success"
+      message: details.join("\n") || "Синхронизация выполнена",
+      type: "success",
+      icon: "googleSheets"
     });
     await pullRemoteAppState({ rerender: true });
     return true;
@@ -1863,7 +1886,8 @@ async function triggerGoogleSheetsManualSync() {
     showStatusDialog({
       title: "Google Sheets",
       message: String(e?.message || "Ошибка сети"),
-      type: "error"
+      type: "error",
+      icon: "googleSheets"
     });
     return false;
   }
@@ -2683,6 +2707,21 @@ function attachTasksObjectPickerHandlers(section) {
       renderTable();
     });
   }
+  const refreshBtn = document.getElementById("tasksObjectPickerRefreshBtn");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", () => {
+      refreshCurrentViewData();
+    });
+  }
+  Array.from(document.querySelectorAll('input[name="tasksQuickBrowseMode"]')).forEach((r) => {
+    r.addEventListener("change", () => {
+      displaySettings.tasksListBrowseMode = r.value === "byObject" ? "byObject" : "flat";
+      if (displaySettings.tasksListBrowseMode === "flat") tasksBrowseObjectKey = null;
+      saveDisplaySettings();
+      resetTasksListPagingWindow();
+      renderTable();
+    });
+  });
 }
 
 function detachTasksChunksObserver() {
@@ -2747,6 +2786,7 @@ function renderTable() {
         </div>
       </div>
       <div class="tasks-object-picker-shell">
+        ${renderTasksScreenModeSwitch(section)}
         <p class="tasks-object-picker-hint">Выберите объект — откроется таблица задач по этому объекту (фильтры и вкладки будут доступны в таблице).</p>
         ${pickerInner}
       </div>
@@ -2871,7 +2911,15 @@ function renderTable() {
           </button>
           ${section.id === "tasks" ? `
           <button type="button" class="icon-action-btn" id="googleSheetsSyncTasksBtn" title="Синхронизировать в Google Sheets">
-            <i data-lucide="cloud-upload" class="lucide-icon" aria-hidden="true"></i>
+            <span class="gs-mini-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48" fill="none">
+                <path d="M8 5h20l12 12v24a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" fill="#0F9D58"/>
+                <path d="M28 5v10a2 2 0 0 0 2 2h10L28 5z" fill="#B7E1CD"/>
+                <rect x="14" y="22" width="20" height="3" rx="1.5" fill="#fff"/>
+                <rect x="14" y="28" width="20" height="3" rx="1.5" fill="#fff"/>
+                <rect x="14" y="34" width="12" height="3" rx="1.5" fill="#fff"/>
+              </svg>
+            </span>
           </button>` : ""}
           <button type="button" class="icon-action-btn add-row-btn" id="addRowBtn" title="Добавить строку">
             <i data-lucide="plus" class="lucide-icon" aria-hidden="true"></i>
@@ -9388,12 +9436,6 @@ function getMediaDisplayName(storedName) {
     return decodeURIComponent(lastPart);
   } catch {
     return lastPart;
-  }
-  const refreshBtn = document.getElementById("tasksObjectPickerRefreshBtn");
-  if (refreshBtn) {
-    refreshBtn.addEventListener("click", () => {
-      refreshCurrentViewData();
-    });
   }
 }
 

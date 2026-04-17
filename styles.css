@@ -2191,7 +2191,7 @@ button.task-card-tab.is-active {
 .status-dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(13, 18, 30, 0.45);
+  background: rgba(15, 23, 42, 0.22);
   display: grid;
   place-items: center;
   z-index: 10020;
@@ -2200,37 +2200,40 @@ button.task-card-tab.is-active {
 
 .status-dialog-box {
   width: min(560px, 100%);
-  background: #1f2431;
-  border: 1px solid #374151;
-  border-radius: 14px;
-  color: #f8fafc;
+  background: #ffffff;
+  border: 1px solid #d8dfec;
+  border-radius: 16px;
+  color: #1f2937;
   padding: 20px 22px;
-  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.35);
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.16);
 }
 
 .status-dialog-box h4 {
   margin: 0 0 10px;
-  font-size: 26px;
+  font-size: 30px;
   font-weight: 700;
-  line-height: 1.15;
+  line-height: 1.1;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .status-dialog-box.is-success h4 {
-  color: #22c55e;
+  color: #0f9d58;
 }
 
 .status-dialog-box.is-error h4 {
-  color: #ef4444;
+  color: #d14343;
 }
 
 .status-dialog-box.is-info h4 {
-  color: #93c5fd;
+  color: #4d69c3;
 }
 
 .status-dialog-message {
   font-size: 15px;
   line-height: 1.45;
-  color: #e5e7eb;
+  color: #334155;
   white-space: normal;
 }
 
@@ -2238,6 +2241,32 @@ button.task-card-tab.is-active {
   margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+}
+
+.status-dialog-gs-icon {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  flex: 0 0 32px;
+}
+
+.status-dialog-gs-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.gs-mini-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  flex: 0 0 16px;
+}
+
+.gs-mini-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .unsaved-confirm-box {
@@ -3605,7 +3634,8 @@ body.shared-report-mode .sidebar {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 10px 0 2px;
+  margin: 12px 0 14px;
+  flex-wrap: wrap;
 }
 
 .tasks-screen-switch-label {
