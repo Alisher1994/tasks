@@ -233,26 +233,35 @@ const REMINDER_DAYS_OPTIONS = [
 /** Подстановки для текста отправки задачи (Telegram и т.п.): токен → колонка задачи */
 const TASK_MESSAGE_PLACEHOLDERS_UI = [
   { token: "[ид_задачи]", col: "number", label: "ID" },
-  { token: "[объект]", col: "object", label: "Название объекта" },
+  { token: "[название_объекта]", col: "object", label: "Название объекта" },
   { token: "[статус]", col: "status", label: "Статус" },
   { token: "[приоритет]", col: "priority", label: "Приоритет" },
-  { token: "[дата_задачи]", col: "addedDate", label: "Дата постановки задачи" },
+  { token: "[дата_постановки_задачи]", col: "addedDate", label: "Дата постановки задачи" },
   { token: "[фаза]", col: "phase", label: "Фаза" },
   { token: "[раздел]", col: "phaseSection", label: "Раздел" },
   { token: "[подраздел]", col: "phaseSubsection", label: "Подраздел" },
-  { token: "[название_задачи]", col: "task", label: "Задача" },
-  { token: "[ответственный]", col: "responsible", label: "Постановщик задачи" },
-  { token: "[закреплённый]", col: "assignedResponsible", label: "Ответственный" },
-  { token: "[примечание]", col: "note", label: "Коментарии к задаче" },
-  { token: "[план]", col: "plan", label: "Комментарии сотрудника (Результат)" },
-  { token: "[факт]", col: "fact", label: "Коментарии администратора" },
-  { token: "[срок_задачи]", col: "dueDate", label: "Плановый срок устранения" },
-  { token: "[дата_закрытия]", col: "closedDate", label: "Факт даты устранения" },
+  { token: "[задача]", col: "task", label: "Задача" },
+  { token: "[постановщик_задачи]", col: "responsible", label: "Постановщик задачи" },
+  { token: "[ответственный]", col: "assignedResponsible", label: "Ответственный" },
+  { token: "[коментарии_к_задаче]", col: "note", label: "Коментарии к задаче" },
+  { token: "[комментарии_сотрудника_результат]", col: "plan", label: "Комментарии сотрудника (Результат)" },
+  { token: "[коментарии_администратора]", col: "fact", label: "Коментарии администратора" },
+  { token: "[плановый_срок_устранения]", col: "dueDate", label: "Плановый срок устранения" },
+  { token: "[факт_даты_устранения]", col: "closedDate", label: "Факт даты устранения" },
   { token: "[медиа_до]", col: "mediaBefore", label: "Медиа до (5)" },
   { token: "[медиа_после]", col: "mediaAfter", label: "Медиа после (5)" }
 ];
 /** Старые токены оставляем только для совместимости шаблонов. */
 const TASK_MESSAGE_PLACEHOLDERS_LEGACY = [
+  { token: "[объект]", col: "object", label: "legacy" },
+  { token: "[дата_задачи]", col: "addedDate", label: "legacy" },
+  { token: "[название_задачи]", col: "task", label: "legacy" },
+  { token: "[закреплённый]", col: "assignedResponsible", label: "legacy" },
+  { token: "[примечание]", col: "note", label: "legacy" },
+  { token: "[план]", col: "plan", label: "legacy" },
+  { token: "[факт]", col: "fact", label: "legacy" },
+  { token: "[срок_задачи]", col: "dueDate", label: "legacy" },
+  { token: "[дата_закрытия]", col: "closedDate", label: "legacy" },
   { token: "[Ид]", col: "number", label: "legacy" },
   { token: "[ФИО]", col: "assignedResponsible", label: "legacy" },
   { token: "{Название объекта}", col: "object", label: "legacy" }
@@ -3188,26 +3197,34 @@ function buildTaskTelegramBodyForOverdue(row) {
   return String(applyTaskMessageTemplate(template, row) || "").trim();
 }
 
-function buildOverdueTaskTelegramText(row, overdueDays) {
-  const fullBody = buildTaskTelegramBodyForOverdue(row);
-  if (fullBody) {
-    return [`⚠️ Уведомление о просрочке задачи`, "", fullBody, "", `Просрочено: ${overdueDays} дн.`].join("\n");
-  }
+function buildDefaultFullTaskText(row) {
   const taskId = String(row[TASK_COLUMNS.number] || "").trim() || "—";
-  const task = String(row[TASK_COLUMNS.task] || "").trim() || "—";
-  const obj = String(row[TASK_COLUMNS.object] || "").trim() || "—";
-  const due = String(row[TASK_COLUMNS.dueDate] || "").trim() || "—";
-  const assigned = String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—";
-  return [
-    "⚠️ Уведомление о просрочке задачи",
-    "",
-    `ID: ${taskId}`,
-    `Задача: ${task}`,
-    `Название объекта: ${obj}`,
-    `Ответственный: ${assigned}`,
-    `Плановый срок устранения: ${due}`,
-    `Просрочено: ${overdueDays} дн.`
-  ].join("\n");
+  const status = String(row[TASK_COLUMNS.status] || "").trim();
+  const statusEmoji = TELEGRAM_STATUS_EMOJI[status] || "⚪";
+  const lines = [
+    `📝 Задача ID:${taskId}: ${String(row[TASK_COLUMNS.task] || "").trim() || "—"}`,
+    `🏗️ Название объекта:${String(row[TASK_COLUMNS.object] || "").trim() || "—"}`,
+    `📌 Статус:${statusEmoji} ${status || "—"}`,
+    `⚡ Приоритет:${String(row[TASK_COLUMNS.priority] || "").trim() || "—"}`,
+    `📅 Дата постановки задачи:${String(row[TASK_COLUMNS.addedDate] || "").trim() || "—"}`,
+    `🧭 Фаза:${String(row[TASK_COLUMNS.phase] || "").trim() || "—"}`,
+    `📂 Раздел:${String(row[TASK_COLUMNS.phaseSection] || "").trim() || "—"}`,
+    `🗂️ Подраздел:${String(row[TASK_COLUMNS.phaseSubsection] || "").trim() || "—"}`,
+    `👤 Ответственный:${String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—"}`,
+    `🕴️ Постановщик задачи:${String(row[TASK_COLUMNS.responsible] || "").trim() || "—"}`,
+    `⏳ Плановый срок устранения:${String(row[TASK_COLUMNS.dueDate] || "").trim() || "—"}`,
+    `💬 Коментарии к задаче:${String(row[TASK_COLUMNS.note] || "").trim() || "—"}`
+  ];
+  const plan = String(row[TASK_COLUMNS.plan] || "").trim();
+  const fact = String(row[TASK_COLUMNS.fact] || "").trim();
+  if (plan) lines.push(`🛠️ Комментарии сотрудника (Результат):${plan}`);
+  if (fact) lines.push(`🧾 Коментарии администратора:${fact}`);
+  return lines.join("\n");
+}
+
+function buildOverdueTaskTelegramText(row, overdueDays) {
+  const fullBody = buildTaskTelegramBodyForOverdue(row) || buildDefaultFullTaskText(row);
+  return [`⚠️ Уведомление о просрочке задачи`, "", fullBody, "", `Просрочено: ${overdueDays} дн.`].join("\n");
 }
 
 async function sendOverdueTaskNotification(row, overdueDays, token) {
@@ -9662,11 +9679,18 @@ function attachOtherSettingsHandlers() {
     overdueTimeSaveBtn.classList.toggle("hidden", current === draft);
   };
   const commitOverdueNotificationsSettings = () => {
+    const prevEnabled = Boolean(displaySettings.overdueNotificationsEnabled);
+    const prevTime = normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime);
     if (overdueEnabledEl) displaySettings.overdueNotificationsEnabled = Boolean(overdueEnabledEl.checked);
     if (overdueTimeEl) displaySettings.overdueNotificationsTime = normalizeOverdueNotifyTimeValue(overdueTimeEl.value);
     if (overdueTimeEl) overdueTimeEl.value = normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime);
+    const nextTime = normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime);
+    if (prevEnabled !== displaySettings.overdueNotificationsEnabled || prevTime !== nextTime) {
+      saveOverdueNotifyRuntime({ lastRunDate: "" });
+    }
     saveDisplaySettings();
     startOverdueTaskNotificationsScheduler();
+    runOverdueTaskNotificationTick().catch(() => {});
     updateOverdueSaveBtnState();
   };
   overdueEnabledEl?.addEventListener("change", commitOverdueNotificationsSettings);
