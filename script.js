@@ -766,17 +766,18 @@ function startRemoteAutoPull() {
   if (!isHostedRuntime() || !getAuthToken()) return;
   remotePullTimer = setInterval(() => {
     if (document.hidden) return;
-    // Авто-подтягивание с сервера только на экране «Задачи»,
-    // чтобы не сбивало ввод/редактирование в настройках и справочниках.
+    // Bot-managed поля задач (прочитано/статус/комментарий и т.п.) подтягиваем всегда,
+    // даже если пользователь сейчас в настройках или есть локальные несинхр. правки.
+    pullTaskReadStateFromServerIntoLocal({ rerender: activeSectionId === "tasks" }).catch(() => {});
+
+    // Полный pull — только на экране задач и когда пользователь не редактирует,
+    // чтобы не мешать вводу в формах.
     if (activeSectionId !== "tasks") return;
     if (isUserEditingNow()) return;
-    if (serverPushInFlight) return;
-    if (hasUnsyncedLocalChanges) {
-      pullTaskReadStateFromServerIntoLocal({ rerender: true }).catch(() => {});
-      return;
-    }
+    if (serverPushInFlight || hasUnsyncedLocalChanges) return;
     pullRemoteAppState({ rerender: true }).catch(() => {});
   }, 8000);
+  pullTaskReadStateFromServerIntoLocal({ rerender: activeSectionId === "tasks" }).catch(() => {});
 }
 
 function stopRemoteAutoPull() {
