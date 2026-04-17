@@ -10186,7 +10186,7 @@ function restoreSectionsData() {
       ) {
         return base;
       }
-      const migratedRows = saved.rows.map((row) => migrateRowForSection(base, row));
+      const migratedRows = saved.rows.map((row) => migrateRowForSection(base, row, saved.columns));
       return {
         ...base,
         rows: migratedRows
@@ -10199,6 +10199,8 @@ function restoreSectionsData() {
       saveSectionsData();
     }
     syncEmployeesDerivedFields();
+    // Фиксируем нормализованный порядок колонок задач в localStorage.
+    saveSectionsData();
   } catch (_) {
     // broken storage ignored
   }
@@ -10220,10 +10222,77 @@ function applyObjectsSeedIfNeeded() {
   }
 }
 
-function migrateRowForSection(baseSection, row) {
-  const source = Array.isArray(row) ? [...row] : [];
+function normalizeTaskColumnLabel(raw) {
+  return String(raw || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[^a-zа-я0-9]+/giu, "");
+}
+
+function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
+  const row = Array.isArray(sourceRow) ? sourceRow : [];
+  const cols = Array.isArray(sourceColumns) ? sourceColumns : [];
+  const byNorm = new Map();
+  cols.forEach((label, index) => {
+    const key = normalizeTaskColumnLabel(label);
+    if (!key || byNorm.has(key)) return;
+    byNorm.set(key, index);
+  });
+
+  const pick = (variants) => {
+    for (const v of variants) {
+      const i = byNorm.get(normalizeTaskColumnLabel(v));
+      if (Number.isInteger(i) && i >= 0) return i;
+    }
+    return -1;
+  };
+
+  const has = (label) => byNorm.has(normalizeTaskColumnLabel(label));
+  const out = new Array(TASK_COLUMNS.lastSentAt + 1).fill("");
+  const setByIndex = (targetIndex, sourceIndex, fallbackIndex = -1) => {
+    let idx = sourceIndex;
+    if (!Number.isInteger(idx) || idx < 0 || idx >= row.length) idx = fallbackIndex;
+    out[targetIndex] = Number.isInteger(idx) && idx >= 0 && idx < row.length ? row[idx] : "";
+  };
+
+  const idxAssignedFromLabels = pick(["Исполнитель"]);
+  const idxResponsibleFromLabels = pick(["Постановщик задачи", "Контролирующий ответственный"]);
+  const idxAnswer = pick(["Ответственный"]);
+  const idxTaskFromLabels = pick(["Задача", "Название задачи"]);
+  const idxAssigned = idxAssignedFromLabels >= 0 ? idxAssignedFromLabels : has("Постановщик задачи") ? idxAnswer : -1;
+  const idxResponsible = idxResponsibleFromLabels >= 0 ? idxResponsibleFromLabels : idxAssignedFromLabels === -1 ? idxAnswer : -1;
+
+  setByIndex(TASK_COLUMNS.number, pick(["№", "ID", "Ид", "Ид задачи", "Номер"]), 0);
+  setByIndex(TASK_COLUMNS.object, pick(["Название объекта", "Объект"]), 1);
+  setByIndex(TASK_COLUMNS.status, pick(["Статус"]), 2);
+  setByIndex(TASK_COLUMNS.priority, pick(["Приоритет"]), 3);
+  setByIndex(TASK_COLUMNS.addedDate, pick(["Дата постановки задачи", "Дата добавления"]), 4);
+  setByIndex(TASK_COLUMNS.phase, pick(["Фаза"]), 5);
+  setByIndex(TASK_COLUMNS.phaseSection, pick(["Раздел"]), 6);
+  setByIndex(TASK_COLUMNS.phaseSubsection, pick(["Подраздел"]), 7);
+  setByIndex(TASK_COLUMNS.task, idxTaskFromLabels, 9);
+  setByIndex(TASK_COLUMNS.responsible, idxResponsible, 10);
+  setByIndex(TASK_COLUMNS.assignedResponsible, idxAssigned, 8);
+  setByIndex(TASK_COLUMNS.note, pick(["Коментарии к задаче", "Комментарии к задаче", "Примичание", "Примечание"]), 11);
+  setByIndex(TASK_COLUMNS.plan, pick(["Комментарии сотрудника (Результат)", "План решения (коммент сотрудника)", "План"]), 12);
+  setByIndex(TASK_COLUMNS.fact, pick(["Коментарии администратора", "Комментарии администратора", "Факт исполнения", "Факт"]), 13);
+  setByIndex(TASK_COLUMNS.dueDate, pick(["Плановый срок устранения", "Срок устранения", "Срок"]), 14);
+  setByIndex(TASK_COLUMNS.closedDate, pick(["Факт даты устранения", "Дата устранения", "Дата закрытия"]), 15);
+  setByIndex(TASK_COLUMNS.mediaBefore, pick(["Медиа до (5)", "Медиа до"]), 16);
+  setByIndex(TASK_COLUMNS.mediaAfter, pick(["Медиа после (5)", "Медиа после"]), 17);
+  setByIndex(TASK_COLUMNS.readState, pick(["Ознакомление"]), 18);
+  setByIndex(TASK_COLUMNS.lastSentAt, pick(["Дата последней отправки"]), 19);
+  return out;
+}
+
+function migrateRowForSection(baseSection, row, sourceColumns = null) {
+  let source = Array.isArray(row) ? [...row] : [];
 
   if (baseSection.id === "tasks") {
+    if (Array.isArray(sourceColumns) && sourceColumns.length) {
+      source = remapTaskRowToCurrentOrder(source, sourceColumns);
+    }
+
     // Старый формат задач без колонки «Исполнитель».
     if (source.length === 17) {
       // Исторически в len=17 поля идут как:

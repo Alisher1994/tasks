@@ -30,7 +30,8 @@ const TASK_COLUMNS = {
   closedDate: 15,
   mediaBefore: 16,
   mediaAfter: 17,
-  readState: 18
+  readState: 18,
+  lastSentAt: 19
 };
 const EMPLOYEE_COLUMNS = {
   id: 0,
@@ -53,6 +54,73 @@ const PLACEHOLDERS = [
   ["[статус]", "status"],
   ["[объект]", "object"]
 ];
+
+function normalizeTaskColumnLabel(raw) {
+  return String(raw || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[^a-zа-я0-9]+/giu, "");
+}
+
+function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
+  const row = Array.isArray(sourceRow) ? sourceRow : [];
+  const cols = Array.isArray(sourceColumns) ? sourceColumns : [];
+  const byNorm = new Map();
+  cols.forEach((label, index) => {
+    const key = normalizeTaskColumnLabel(label);
+    if (!key || byNorm.has(key)) return;
+    byNorm.set(key, index);
+  });
+  const pick = (variants) => {
+    for (const v of variants) {
+      const i = byNorm.get(normalizeTaskColumnLabel(v));
+      if (Number.isInteger(i) && i >= 0) return i;
+    }
+    return -1;
+  };
+  const has = (label) => byNorm.has(normalizeTaskColumnLabel(label));
+  const out = new Array(TASK_COLUMNS.lastSentAt + 1).fill("");
+  const setByIndex = (targetIndex, sourceIndex, fallbackIndex = -1) => {
+    let idx = sourceIndex;
+    if (!Number.isInteger(idx) || idx < 0 || idx >= row.length) idx = fallbackIndex;
+    out[targetIndex] = Number.isInteger(idx) && idx >= 0 && idx < row.length ? row[idx] : "";
+  };
+
+  const idxAssignedFromLabels = pick(["Исполнитель"]);
+  const idxResponsibleFromLabels = pick(["Постановщик задачи", "Контролирующий ответственный"]);
+  const idxAnswer = pick(["Ответственный"]);
+  const idxTaskFromLabels = pick(["Задача", "Название задачи"]);
+  const idxAssigned = idxAssignedFromLabels >= 0 ? idxAssignedFromLabels : has("Постановщик задачи") ? idxAnswer : -1;
+  const idxResponsible = idxResponsibleFromLabels >= 0 ? idxResponsibleFromLabels : idxAssignedFromLabels === -1 ? idxAnswer : -1;
+
+  setByIndex(TASK_COLUMNS.number, pick(["№", "ID", "Ид", "Ид задачи", "Номер"]), 0);
+  setByIndex(TASK_COLUMNS.object, pick(["Название объекта", "Объект"]), 1);
+  setByIndex(TASK_COLUMNS.status, pick(["Статус"]), 2);
+  setByIndex(TASK_COLUMNS.priority, pick(["Приоритет"]), 3);
+  setByIndex(TASK_COLUMNS.addedDate, pick(["Дата постановки задачи", "Дата добавления"]), 4);
+  setByIndex(TASK_COLUMNS.phase, pick(["Фаза"]), 5);
+  setByIndex(TASK_COLUMNS.phaseSection, pick(["Раздел"]), 6);
+  setByIndex(TASK_COLUMNS.phaseSubsection, pick(["Подраздел"]), 7);
+  setByIndex(TASK_COLUMNS.task, idxTaskFromLabels, 9);
+  setByIndex(TASK_COLUMNS.responsible, idxResponsible, 10);
+  setByIndex(TASK_COLUMNS.assignedResponsible, idxAssigned, 8);
+  setByIndex(TASK_COLUMNS.note, pick(["Коментарии к задаче", "Комментарии к задаче", "Примичание", "Примечание"]), 11);
+  setByIndex(TASK_COLUMNS.plan, pick(["Комментарии сотрудника (Результат)", "План решения (коммент сотрудника)", "План"]), 12);
+  setByIndex(TASK_COLUMNS.fact, pick(["Коментарии администратора", "Комментарии администратора", "Факт исполнения", "Факт"]), 13);
+  setByIndex(TASK_COLUMNS.dueDate, pick(["Плановый срок устранения", "Срок устранения", "Срок"]), 14);
+  setByIndex(TASK_COLUMNS.closedDate, pick(["Факт даты устранения", "Дата устранения", "Дата закрытия"]), 15);
+  setByIndex(TASK_COLUMNS.mediaBefore, pick(["Медиа до (5)", "Медиа до"]), 16);
+  setByIndex(TASK_COLUMNS.mediaAfter, pick(["Медиа после (5)", "Медиа после"]), 17);
+  setByIndex(TASK_COLUMNS.readState, pick(["Ознакомление"]), 18);
+  setByIndex(TASK_COLUMNS.lastSentAt, pick(["Дата последней отправки"]), 19);
+  return out;
+}
+
+function normalizeTasksSectionByColumns(payload) {
+  const tasks = payload?.sections?.find?.((s) => s.id === "tasks");
+  if (!tasks || !Array.isArray(tasks.rows) || !Array.isArray(tasks.columns) || !tasks.columns.length) return;
+  tasks.rows = tasks.rows.map((row) => remapTaskRowToCurrentOrder(row, tasks.columns));
+}
 
 function getTasksSection(payload) {
   const sections = payload?.sections || [];
@@ -329,8 +397,8 @@ function buildFullTaskMessage(row) {
   lines.push(`🏗 Фаза: ${String(row[TASK_COLUMNS.phase] || "").trim() || "—"}`);
   lines.push(`📂 Раздел: ${String(row[TASK_COLUMNS.phaseSection] || "").trim() || "—"}`);
   lines.push(`🗂 Подраздел: ${String(row[TASK_COLUMNS.phaseSubsection] || "").trim() || "—"}`);
-  lines.push(`👤 Исполнитель: ${String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—"}`);
-  lines.push(`👤 Ответственный: ${String(row[TASK_COLUMNS.responsible] || "").trim() || "—"}`);
+  lines.push(`👤 Ответственный: ${String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—"}`);
+  lines.push(`👤 Постановщик задачи: ${String(row[TASK_COLUMNS.responsible] || "").trim() || "—"}`);
   lines.push(`⏳ Срок: ${String(row[TASK_COLUMNS.dueDate] || "").trim() || "—"}`);
   const note = String(row[TASK_COLUMNS.note] || "").trim();
   if (note) lines.push(`💬 Комментарий: ${note}`);
@@ -489,7 +557,9 @@ export async function handleTelegramWebhook(req, res, pool) {
 async function loadPayload(pool) {
   const { rows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
   const raw = rows[0]?.payload;
-  return raw && typeof raw === "object" ? JSON.parse(JSON.stringify(raw)) : {};
+  const payload = raw && typeof raw === "object" ? JSON.parse(JSON.stringify(raw)) : {};
+  normalizeTasksSectionByColumns(payload);
+  return payload;
 }
 
 async function savePayload(pool, payload) {
