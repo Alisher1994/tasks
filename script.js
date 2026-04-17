@@ -212,11 +212,11 @@ const TASK_MESSAGE_PLACEHOLDERS = [
   { token: "[объект]", col: "object", label: "Объект" },
   { token: "[статус]", col: "status", label: "Статус" },
   { token: "[приоритет]", col: "priority", label: "Приоритет" },
-  { token: "[дата_задачи]", col: "addedDate", label: "Дата добавления" },
+  { token: "[дата_задачи]", col: "addedDate", label: "Дата постановки задачи" },
   { token: "[фаза]", col: "phase", label: "Фаза" },
   { token: "[раздел]", col: "phaseSection", label: "Раздел" },
   { token: "[подраздел]", col: "phaseSubsection", label: "Подраздел" },
-  { token: "[закреплённый]", col: "assignedResponsible", label: "Исполнитель" },
+  { token: "[закреплённый]", col: "assignedResponsible", label: "Ответственный" },
   { token: "[название_задачи]", col: "task", label: "Название задачи" },
   { token: "[ответственный]", col: "responsible", label: "Контролирующий ответственный" },
   { token: "[примечание]", col: "note", label: "Примечание" },
@@ -2020,18 +2020,18 @@ let sections = [
       "Название объекта",
       "Статус",
       "Приоритет",
-      "Дата добавления",
+      "Дата постановки задачи",
       "Фаза",
       "Раздел",
       "Подраздел",
-      "Исполнитель",
-      "Задача",
       "Ответственный",
+      "Задача",
+      "Постановщик задачи",
       "Примичание",
       "План решения (коммент сотрудника)",
       "Факт исполнения",
-      "Срок устранения",
-      "Дата устранения",
+      "Плановый срок устранения",
+      "Факт даты устранения",
       "Медиа до (5)",
       "Медиа после (5)",
       "Ознакомление",
@@ -4459,7 +4459,7 @@ function renderResponsibleStatusTable(rsRows) {
     ${cols.map(() => `<col class="report-matrix-col-st" />`).join("")}
     <col class="report-matrix-col-total" />
   </colgroup>`;
-  const head = `<tr><th>Исполнитель</th>${cols.map((c) => `<th>${escapeHtmlText(c)}</th>`).join("")}<th>Всего</th></tr>`;
+  const head = `<tr><th>Ответственный</th>${cols.map((c) => `<th>${escapeHtmlText(c)}</th>`).join("")}<th>Всего</th></tr>`;
   const body = rsRows
     .map((row) => {
       const cells = cols.map((c) => `<td class="report-matrix-num">${row.counts[c] || 0}</td>`).join("");
@@ -4534,7 +4534,7 @@ function renderReportWeekTasksTable() {
   const head = `<tr>
     <th>ID</th>
     <th>Объект</th>
-    <th>Дата добавления</th>
+    <th>Дата постановки задачи</th>
     <th>Сроки</th>
     <th>Название задачи</th>
     <th>Фаза</th>
@@ -5899,7 +5899,7 @@ function renderFilters(section, sectionFilters, isOpen) {
         <input id="filterSearch" type="text" placeholder="Поиск по задачам..." value="${commonSearch}" />
       </label>
       ${renderSelectFilter("filterStatus", "Статус", statusValues, sectionFilters.status || "")}
-      ${renderSelectFilter("filterResponsible", "Исполнитель", responsibleValues, sectionFilters.responsible || "")}
+      ${renderSelectFilter("filterResponsible", "Ответственный", responsibleValues, sectionFilters.responsible || "")}
       ${renderSelectFilter("filterObject", "Объект", objectValues, sectionFilters.object || "")}
       ${renderSelectFilter("filterPhase", "Фаза", phaseValues, sectionFilters.phase || "")}
       ${renderSelectFilter("filterSection", "Раздел", sectionValues, sectionFilters.section || "")}
