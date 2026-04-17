@@ -988,6 +988,32 @@ function getSessionUserDisplayName() {
   return String(localStorage.getItem(SESSION_STORAGE_KEY) || "").trim() || "Пользователь";
 }
 
+function canAccessSettingsMenu() {
+  if (!isHostedRuntime() || !getAuthToken()) return true;
+  return currentAuthRole === "admin";
+}
+
+async function refreshAuthMeProfile() {
+  if (!isHostedRuntime() || !getAuthToken()) return null;
+  try {
+    const r = await fetch("/api/auth/me", {
+      headers: { Authorization: `Bearer ${getAuthToken()}` }
+    });
+    if (r.status === 401) {
+      handleServerAuthExpired();
+      return null;
+    }
+    if (!r.ok) return null;
+    const j = await r.json().catch(() => ({}));
+    const role = String(j?.role || "user").trim().toLowerCase() === "admin" ? "admin" : "user";
+    const displayName = String(j?.displayName || "").trim();
+    currentAuthRole = role;
+    return { role, displayName };
+  } catch (_) {
+    return null;
+  }
+}
+
 function loadTaskHistoryStore() {
   try {
     const raw = localStorage.getItem(TASK_HISTORY_STORAGE_KEY);
@@ -2601,6 +2627,7 @@ let sharedReportMode = false;
 let reportShareRowsOverride = null;
 let sharedReportExpiresAt = 0;
 let otherSettingsActiveTab = "general";
+let currentAuthRole = "user";
 
 let displaySettings = {
   highlightClosed: false,
@@ -2700,6 +2727,10 @@ function getSectionIcon(sectionId) {
 }
 
 function selectSection(sectionId) {
+  const allowSettings = canAccessSettingsMenu();
+  if (!allowSettings && sectionId !== "tasks" && sectionId !== "report") {
+    sectionId = "tasks";
+  }
   startTurboLoader();
   if (sectionId === "report" && activeSectionId !== "report") {
     reportWeekRowsVisible = REPORT_WEEK_ROWS_STEP;
@@ -2719,6 +2750,11 @@ function selectSection(sectionId) {
 }
 
 function renderSidebarMenu() {
+  const allowSettings = canAccessSettingsMenu();
+  if (!allowSettings && activeSectionId !== "tasks" && activeSectionId !== "report") {
+    activeSectionId = "tasks";
+    saveActiveSection("tasks");
+  }
   const sectionById = new Map(sections.map((section) => [section.id, section]));
   const isReferenceActive = SECTION_GROUPS.reference.sections.includes(activeSectionId);
   const isUsersActive = SECTION_GROUPS.users.sections.includes(activeSectionId);
@@ -2741,20 +2777,22 @@ function renderSidebarMenu() {
   reportButton.addEventListener("click", () => selectSection("report"));
   tabsRoot.appendChild(reportButton);
 
-  const settingsButton = document.createElement("button");
-  settingsButton.className = "tab-btn top-level settings-toggle";
-  settingsButton.type = "button";
-  settingsButton.innerHTML = isSidebarCollapsed
-    ? `<span class="icon-label">${iconSvg("panelLeft")}<span></span></span>`
-    : `<span class="icon-label">${iconSvg("panelLeft")}<span>Настройки</span></span><span class="menu-caret">${isSettingsOpen ? "▾" : "▸"}</span>`;
-  settingsButton.title = "Настройки";
-  settingsButton.addEventListener("click", () => {
-    isSettingsOpen = !isSettingsOpen;
-    renderSidebarMenu();
-  });
-  tabsRoot.appendChild(settingsButton);
+  if (allowSettings) {
+    const settingsButton = document.createElement("button");
+    settingsButton.className = "tab-btn top-level settings-toggle";
+    settingsButton.type = "button";
+    settingsButton.innerHTML = isSidebarCollapsed
+      ? `<span class="icon-label">${iconSvg("panelLeft")}<span></span></span>`
+      : `<span class="icon-label">${iconSvg("panelLeft")}<span>Настройки</span></span><span class="menu-caret">${isSettingsOpen ? "▾" : "▸"}</span>`;
+    settingsButton.title = "Настройки";
+    settingsButton.addEventListener("click", () => {
+      isSettingsOpen = !isSettingsOpen;
+      renderSidebarMenu();
+    });
+    tabsRoot.appendChild(settingsButton);
+  }
 
-  if (isSettingsOpen && !isSidebarCollapsed) {
+  if (allowSettings && isSettingsOpen && !isSidebarCollapsed) {
     const referenceButton = document.createElement("button");
     referenceButton.className = `tab-btn submenu-item ${isReferenceActive ? "active" : ""}`;
     referenceButton.type = "button";
@@ -11347,6 +11385,7 @@ function showLogin() {
   stopRemoteAutoPull();
   stopOverdueTaskNotificationsScheduler();
   stopSessionIdleWatcher();
+  currentAuthRole = "user";
   hideBootLoaderAfterRender();
 }
 
@@ -11951,7 +11990,8 @@ loginForm.addEventListener("submit", async (event) => {
         const j = await r.json();
         setAuthToken(j.token);
         loginError.classList.add("hidden");
-        const userName = String(j.displayName || "").trim() || "Пользователь";
+        const me = await refreshAuthMeProfile();
+        const userName = String(me?.displayName || j.displayName || "").trim() || "Пользователь";
         saveSession(userName);
         await pullRemoteAppState();
         showApp(userName);
@@ -11968,6 +12008,7 @@ loginForm.addEventListener("submit", async (event) => {
   if (isDefaultCredentials) {
     loginError.classList.add("hidden");
     const userName = "Пользователь";
+    currentAuthRole = "admin";
     saveSession(userName);
     showApp(userName);
     return;
@@ -12043,15 +12084,21 @@ if (initialShareIdBoot) {
   (async () => {
     const savedUser = restoreSession();
     const hasToken = Boolean(getAuthToken());
+    let userName = String(savedUser || "").trim();
     if (savedUser && hasToken && isHostedRuntime()) {
       try {
+        const me = await refreshAuthMeProfile();
+        if (me?.displayName) {
+          userName = me.displayName;
+          saveSession(userName);
+        }
         await pullRemoteAppState();
       } catch (_) {
         /* noop */
       }
     }
     if (savedUser && hasToken) {
-      showApp(savedUser);
+      showApp(userName || savedUser);
       if (getAuthToken() && isHostedRuntime()) {
         scheduleServerSync();
       }

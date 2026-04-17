@@ -375,6 +375,19 @@ function formatRuDateTime(dt, timeZone = "UTC") {
   }
 }
 
+function formatRuDate(dt, timeZone = "UTC") {
+  try {
+    return new Intl.DateTimeFormat("ru-RU", {
+      timeZone,
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    }).format(dt);
+  } catch (_) {
+    return "";
+  }
+}
+
 function composeReadStateValue(isRead, whenText = "—") {
   return `${isRead ? "Прочитано" : "Не прочитано"}\n${String(whenText || "—").trim() || "—"}`;
 }
@@ -1065,7 +1078,10 @@ async function handleCallback(q, pool, token) {
 
     if (decision === "y") {
       row[TASK_COLUMNS.status] = "Закрыт";
-      const confirmedAt = formatRuDateTime(new Date(), resolveAppTimeZone(payload));
+      const appTz = resolveAppTimeZone(payload);
+      const now = new Date();
+      const confirmedAt = formatRuDateTime(now, appTz);
+      row[TASK_COLUMNS.closedDate] = formatRuDate(now, appTz);
       const confirmInfo = `Закрытие подтверждено: ${empName || "—"}, ${confirmedAt}`;
       delete payload.telegramCloseRequests[taskId];
       const ds = payload.displaySettings || {};
