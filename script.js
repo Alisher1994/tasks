@@ -289,6 +289,20 @@ let overdueNotifyTimer = null;
 let overdueNotifyInFlight = false;
 let hasUnsyncedLocalChanges = false;
 let serverPushInFlight = false;
+let authExpiredNoticeShown = false;
+
+function handleServerAuthExpired() {
+  if (authExpiredNoticeShown) return;
+  authExpiredNoticeShown = true;
+  setAuthToken("");
+  clearSession();
+  showLogin();
+  showStatusDialog({
+    title: "Сессия истекла",
+    message: "Повторно войдите в систему. Без этого ответы из Telegram не синхронизируются в таблицу.",
+    type: "error"
+  });
+}
 
 function isKnownSectionId(sectionId) {
   const id = String(sectionId || "").trim();
@@ -352,7 +366,7 @@ async function pushAppToServer() {
       body: JSON.stringify({ data })
     });
     if (r.status === 401) {
-      setAuthToken("");
+      handleServerAuthExpired();
       return;
     }
     if (r.ok) {
@@ -380,7 +394,7 @@ async function pushAppToServerImmediate() {
       body: JSON.stringify({ data })
     });
     if (r.status === 401) {
-      setAuthToken("");
+      handleServerAuthExpired();
       return false;
     }
     if (r.ok) {
@@ -482,6 +496,10 @@ async function pullTaskReadStateFromServerIntoLocal({ rerender = true } = {}) {
     const r = await fetch("/api/data", {
       headers: { Authorization: `Bearer ${getAuthToken()}` }
     });
+    if (r.status === 401) {
+      handleServerAuthExpired();
+      return false;
+    }
     if (!r.ok) return false;
     const json = await r.json().catch(() => null);
     const remoteTasks = Array.isArray(json?.data?.sections)
@@ -681,7 +699,7 @@ async function pullRemoteAppState(options = {}) {
     headers: { Authorization: `Bearer ${getAuthToken()}` }
   });
   if (r.status === 401) {
-    setAuthToken("");
+    handleServerAuthExpired();
     stopRemoteAutoPull();
     return;
   }
@@ -11020,6 +11038,7 @@ function attachFilterHandlers(section) {
 }
 
 function showApp(userName) {
+  authExpiredNoticeShown = false;
   document.body.classList.remove("login-mode");
   document.body.classList.remove("shared-report-mode");
   sharedReportMode = false;
@@ -11666,14 +11685,15 @@ if (initialShareIdBoot) {
 } else {
   (async () => {
     const savedUser = restoreSession();
-    if (savedUser && getAuthToken() && isHostedRuntime()) {
+    const hasToken = Boolean(getAuthToken());
+    if (savedUser && hasToken && isHostedRuntime()) {
       try {
         await pullRemoteAppState();
       } catch (_) {
         /* noop */
       }
     }
-    if (savedUser) {
+    if (savedUser && hasToken) {
       showApp(savedUser);
       if (getAuthToken() && isHostedRuntime()) {
         scheduleServerSync();
