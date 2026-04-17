@@ -2931,8 +2931,11 @@ function renderObjectCardThumb(objectLabel) {
   }
   const key = getObjectPhotoPreviewKeyForRow(found.row);
   const prev = key ? objectPhotoPreviewStore[key] : null;
-  if (prev?.url) {
-    return `<div class="tasks-object-pick-photo"><img src="${escapeHtmlAttr(prev.url)}" alt="" loading="lazy" /></div>`;
+  const storedFileName = String(found.row?.[OBJECT_COLUMNS.photo] || "").trim();
+  const fallbackUrl = resolveObjectPhotoSourceUrl(storedFileName);
+  const src = prev?.url || fallbackUrl;
+  if (src) {
+    return `<div class="tasks-object-pick-photo"><img src="${escapeHtmlAttr(src)}" alt="" loading="lazy" /></div>`;
   }
   return `<div class="tasks-object-pick-photo tasks-object-pick-photo--empty" aria-hidden="true"><span class="tasks-object-pick-logo" role="img" aria-label=""></span></div>`;
 }
@@ -6881,14 +6884,27 @@ function renderTasksScreenModeSwitch(section) {
   `;
 }
 
+function resolveObjectPhotoSourceUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^(data:|blob:)/i.test(raw)) return raw;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith("/media/")) return raw;
+  if (raw.startsWith("media/")) return `/${raw}`;
+  if (raw.startsWith("/")) return raw;
+  return `/media/${encodeURIComponent(raw)}`;
+}
+
 function renderObjectPhotoCell(row, value, rowIndex) {
   const oid = String(row[OBJECT_COLUMNS.id] ?? (rowIndex >= 0 ? rowIndex : "")).trim();
   const pkey = oid ? `obj-ph-${oid}` : "";
   const preview = pkey ? objectPhotoPreviewStore[pkey] : null;
   const fileName = String(value || "").trim();
   const displayName = getMediaDisplayName(fileName);
-  const imgSrc = preview?.url ? escapeHtmlAttr(preview.url) : "";
-  if (preview?.url) {
+  const fallbackSrc = resolveObjectPhotoSourceUrl(fileName);
+  const imgSrcRaw = preview?.url || fallbackSrc;
+  const imgSrc = imgSrcRaw ? escapeHtmlAttr(imgSrcRaw) : "";
+  if (imgSrcRaw) {
     return `<div class="object-photo-slot object-photo-slot--has-img" data-object-id="${escapeHtmlAttr(oid)}">
       <div class="object-photo-slot-visual">
         <img src="${imgSrc}" alt="" class="object-photo-thumb" />
