@@ -2864,7 +2864,9 @@ function renderTable() {
           const mediaClass = isMediaColumn(columnIndex) ? "media-col" : "";
           const objectPhotoClass = section.id === "objects" && columnIndex === OBJECT_COLUMNS.photo ? "object-photo-col" : "";
           const showHeaderNumbers = headerNumberingBySection[section.id] !== false;
-          const headerMeta = showHeaderNumbers ? `<span class="table-th-order">${viewOrder + 1}</span>` : "";
+          const headerMeta = showHeaderNumbers
+            ? `<span class="table-th-order-row"><span class="table-th-order">${viewOrder + 1}</span></span>`
+            : "";
           return `<th class="${numberClass} ${rolesNumberClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass}">
             <span class="table-th-title">${escapeHtmlText(column)}</span>
             ${headerMeta}

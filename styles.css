@@ -1186,11 +1186,18 @@ th {
 
 .table-th-title {
   display: block;
+  min-height: 18px;
+}
+
+.table-th-order-row {
+  display: block;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #c6d2df;
 }
 
 .table-th-order {
   display: block;
-  margin-top: 3px;
   color: #6b7a8d;
   font-weight: 500;
   font-size: 11px;
