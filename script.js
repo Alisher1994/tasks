@@ -308,6 +308,7 @@ async function pushAppToServer() {
   serverPushInFlight = true;
   try {
     const data = buildAppPayload();
+    await mergeTaskReadStateFromServer(data);
     const r = await fetch("/api/data", {
       method: "PUT",
       headers: {
@@ -335,6 +336,7 @@ async function pushAppToServerImmediate() {
   serverPushInFlight = true;
   try {
     const data = buildAppPayload();
+    await mergeTaskReadStateFromServer(data);
     const r = await fetch("/api/data", {
       method: "PUT",
       headers: {
@@ -353,6 +355,46 @@ async function pushAppToServerImmediate() {
     return r.ok;
   } finally {
     serverPushInFlight = false;
+  }
+}
+
+async function mergeTaskReadStateFromServer(localPayload) {
+  if (!isHostedRuntime() || !getAuthToken()) return;
+  if (!localPayload || typeof localPayload !== "object") return;
+  if (!Array.isArray(localPayload.sections)) return;
+  try {
+    const r = await fetch("/api/data", {
+      headers: { Authorization: `Bearer ${getAuthToken()}` }
+    });
+    if (!r.ok) return;
+    const json = await r.json().catch(() => null);
+    const remotePayload = json?.data;
+    const localTasks = Array.isArray(localPayload.sections)
+      ? localPayload.sections.find((s) => s?.id === "tasks")
+      : null;
+    const remoteTasks = Array.isArray(remotePayload?.sections)
+      ? remotePayload.sections.find((s) => s?.id === "tasks")
+      : null;
+    if (!Array.isArray(localTasks?.rows) || !Array.isArray(remoteTasks?.rows)) return;
+    const remoteById = new Map();
+    remoteTasks.rows.forEach((row) => {
+      const id = String(row?.[TASK_COLUMNS.number] || "").trim();
+      if (id) remoteById.set(id, row);
+    });
+    localTasks.rows.forEach((row) => {
+      const id = String(row?.[TASK_COLUMNS.number] || "").trim();
+      if (!id) return;
+      const remoteRow = remoteById.get(id);
+      if (!remoteRow) return;
+      const localRead = getTaskReadStateParts(row[TASK_COLUMNS.readState]);
+      const remoteRead = getTaskReadStateParts(remoteRow[TASK_COLUMNS.readState]);
+      // Если сервер уже отметил «Прочитано», не даём локальной устаревшей копии перетереть это состояние.
+      if (remoteRead.isRead && !localRead.isRead) {
+        row[TASK_COLUMNS.readState] = String(remoteRow[TASK_COLUMNS.readState] || composeTaskReadState(true, "—"));
+      }
+    });
+  } catch (_) {
+    /* noop */
   }
 }
 
