@@ -4909,6 +4909,42 @@ function normalizeUzPhone(rawValue) {
   return `+${digits}`;
 }
 
+function sanitizePhoneInputValue(rawValue) {
+  const n = normalizeUzPhone(rawValue);
+  return n === "+" ? DEFAULT_PHONE_PREFIX : n;
+}
+
+function enforcePhoneKeyInput(event) {
+  const key = String(event.key || "");
+  if (!key) return;
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  const allowedControl = new Set(["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Home", "End", "Tab"]);
+  if (allowedControl.has(key)) return;
+  if (/^\d$/.test(key)) return;
+  if (key === "+") {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement)) return;
+    const start = Number(input.selectionStart ?? 0);
+    if (start === 0 && !input.value.includes("+")) return;
+  }
+  event.preventDefault();
+}
+
+function attachStrictPhoneInputBehavior(input, onAfterSanitize) {
+  if (!(input instanceof HTMLInputElement)) return;
+  input.addEventListener("keydown", enforcePhoneKeyInput);
+  input.addEventListener("input", () => {
+    input.value = sanitizePhoneInputValue(input.value);
+    onAfterSanitize?.();
+  });
+  input.addEventListener("paste", () => {
+    requestAnimationFrame(() => {
+      input.value = sanitizePhoneInputValue(input.value);
+      onAfterSanitize?.();
+    });
+  });
+}
+
 function formatUzPhoneDisplay(normalizedPhone) {
   const n = normalizeUzPhone(normalizedPhone);
   return n === "+" ? DEFAULT_PHONE_PREFIX : n;
@@ -6639,12 +6675,10 @@ function createUzPhoneCellEditor(currentValue) {
   input.inputMode = "tel";
   input.className = "cell-editor";
   input.maxLength = PHONE_MAX_LENGTH;
+  input.pattern = "^\\+[0-9]{8,15}$";
   input.autocomplete = "off";
   input.value = formatUzPhoneDisplay(normalizeUzPhone(currentValue || DEFAULT_PHONE_PREFIX));
-  input.addEventListener("input", () => {
-    const n = normalizeUzPhone(input.value);
-    input.value = formatUzPhoneDisplay(n);
-  });
+  attachStrictPhoneInputBehavior(input);
   return input;
 }
 
@@ -7206,7 +7240,7 @@ function openEmployeePhoneEditorModal(section, rowIndex, colIndex) {
         </button>
         <input type="tel" inputmode="tel" class="cell-editor" id="employeePhoneInput" value="${escapeHtmlAttr(
           formatUzPhoneDisplay(normalizeUzPhone(prevValue || DEFAULT_PHONE_PREFIX))
-        )}" maxlength="${PHONE_MAX_LENGTH}" autocomplete="off" />
+        )}" maxlength="${PHONE_MAX_LENGTH}" pattern="^\\+[0-9]{8,15}$" autocomplete="off" />
       </div>
       <div class="responsible-option-empty" style="margin-top:8px">Формат: +код_страны номер (${PHONE_MIN_DIGITS}-${PHONE_MAX_DIGITS} цифр).</div>
       <div class="responsible-modal-actions">
@@ -7294,10 +7328,9 @@ function openEmployeePhoneEditorModal(section, rowIndex, colIndex) {
     search?.focus();
   };
 
-  input?.addEventListener("input", () => {
-    input.value = formatUzPhoneDisplay(normalizeUzPhone(input.value));
-    updateLocalFlag();
-  });
+  if (input instanceof HTMLInputElement) {
+    attachStrictPhoneInputBehavior(input, updateLocalFlag);
+  }
   countryBtn?.addEventListener("click", openCountryPickerForEmployeePhone);
   cancelBtn?.addEventListener("click", () => {
     overlay.remove();
@@ -9619,8 +9652,10 @@ phoneInput?.addEventListener("focus", () => {
   }
   updateLoginPhoneFlag();
 });
-phoneInput?.addEventListener("input", enforceUzPhonePrefix);
 phoneInput?.addEventListener("blur", enforceUzPhonePrefix);
+if (phoneInput instanceof HTMLInputElement) {
+  attachStrictPhoneInputBehavior(phoneInput, updateLoginPhoneFlag);
+}
 loginPhoneCountryBtn?.addEventListener("click", openLoginCountryPickerModal);
 
 loginBtn.innerHTML = withLucideIcon("log-in", "Войти");
