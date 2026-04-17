@@ -4946,6 +4946,17 @@ function flagEmojiFromIso2(iso2) {
   return String.fromCodePoint(...Array.from(code).map((c) => 127397 + c.charCodeAt(0)));
 }
 
+function flagSvgUrlByIso(iso2) {
+  const code = String(iso2 || "").trim().toLowerCase();
+  if (!/^[a-z]{2}$/.test(code)) return "";
+  return `https://flagcdn.com/${code}.svg`;
+}
+
+function globeSvgDataUrl() {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="14" viewBox="0 0 18 14"><rect width="18" height="14" rx="2" fill="#eef3f9"/><circle cx="9" cy="7" r="4.2" fill="none" stroke="#6b7c93" stroke-width="1"/><path d="M4.8 7h8.4M9 2.8c1.6 1.1 1.6 7.3 0 8.4M9 2.8c-1.6 1.1-1.6 7.3 0 8.4" stroke="#6b7c93" stroke-width="1" fill="none"/></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 function detectCountryIsoByPhone(rawPhone) {
   const digits = normalizeUzPhone(rawPhone).replace(/\D/g, "");
   if (!digits) return "";
@@ -4991,7 +5002,7 @@ function buildCountryPhoneOptions() {
     .map(([dial, iso]) => ({
       dial,
       iso,
-      flag: flagEmojiFromIso2(iso),
+      flagUrl: flagSvgUrlByIso(iso),
       name: COUNTRY_NAME_BY_ISO[iso] || iso
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
@@ -5037,11 +5048,11 @@ function openLoginCountryPickerModal() {
       if (!q) return true;
       return opt.name.toLowerCase().includes(q) || opt.iso.toLowerCase().includes(q) || `+${opt.dial}`.includes(q);
     });
-    list.innerHTML = filtered.length
-      ? filtered.map((opt) => `
+      list.innerHTML = filtered.length
+        ? filtered.map((opt) => `
         <label class="responsible-option-item">
           <input type="radio" name="countryDial" value="${opt.dial}" ${opt.dial === selectedDial ? "checked" : ""} />
-          <span class="responsible-option-name">${opt.flag} ${escapeHtmlText(opt.name)}</span>
+          <span class="responsible-option-name"><img class="country-flag-svg" src="${escapeHtmlAttr(opt.flagUrl || globeSvgDataUrl())}" alt="" />${escapeHtmlText(opt.name)}</span>
           <span class="responsible-option-role">+${opt.dial}</span>
         </label>
       `).join("")
@@ -5077,7 +5088,11 @@ function openLoginCountryPickerModal() {
 
 function updateLoginPhoneFlag() {
   if (!loginPhoneFlag || !phoneInput) return;
-  loginPhoneFlag.textContent = phoneFlagByValue(phoneInput.value);
+  const iso = detectCountryIsoByPhone(phoneInput.value);
+  const svg = flagSvgUrlByIso(iso);
+  loginPhoneFlag.src = svg || globeSvgDataUrl();
+  loginPhoneFlag.alt = iso ? String(COUNTRY_NAME_BY_ISO[iso] || iso) : "Страна";
+  loginPhoneFlag.title = iso ? `Страна: ${String(COUNTRY_NAME_BY_ISO[iso] || iso)}` : "Страна не определена";
 }
 
 function firstRowIndexWithSameCompletePhone(rows, phoneNormalized) {
@@ -7187,7 +7202,7 @@ function openEmployeePhoneEditorModal(section, rowIndex, colIndex) {
       <h4>Номер телефона</h4>
       <div class="phone-input-wrap">
         <button type="button" class="phone-input-flag-btn" id="employeePhoneCountryBtn" title="Выбрать страну">
-          <span class="phone-input-flag" id="employeePhoneFlag">🌐</span>
+          <img class="phone-input-flag" id="employeePhoneFlag" alt="" src="" />
         </button>
         <input type="tel" inputmode="tel" class="cell-editor" id="employeePhoneInput" value="${escapeHtmlAttr(
           formatUzPhoneDisplay(normalizeUzPhone(prevValue || DEFAULT_PHONE_PREFIX))
@@ -7210,7 +7225,10 @@ function openEmployeePhoneEditorModal(section, rowIndex, colIndex) {
 
   const updateLocalFlag = () => {
     if (!flag || !input) return;
-    flag.textContent = phoneFlagByValue(input.value);
+    const iso = detectCountryIsoByPhone(input.value);
+    flag.src = flagSvgUrlByIso(iso) || globeSvgDataUrl();
+    flag.alt = iso ? String(COUNTRY_NAME_BY_ISO[iso] || iso) : "Страна";
+    flag.title = iso ? `Страна: ${String(COUNTRY_NAME_BY_ISO[iso] || iso)}` : "Страна не определена";
   };
 
   const openCountryPickerForEmployeePhone = () => {
@@ -7248,7 +7266,7 @@ function openEmployeePhoneEditorModal(section, rowIndex, colIndex) {
         ? filtered.map((opt) => `
           <label class="responsible-option-item">
             <input type="radio" name="employeeCountryDial" value="${opt.dial}" ${opt.dial === selectedDial ? "checked" : ""} />
-            <span class="responsible-option-name">${opt.flag} ${escapeHtmlText(opt.name)}</span>
+            <span class="responsible-option-name"><img class="country-flag-svg" src="${escapeHtmlAttr(opt.flagUrl || globeSvgDataUrl())}" alt="" />${escapeHtmlText(opt.name)}</span>
             <span class="responsible-option-role">+${opt.dial}</span>
           </label>
         `).join("")
@@ -9175,9 +9193,6 @@ function enforceUzPhonePrefix() {
   const normalized = normalizeUzPhone(phoneInput.value);
   phoneInput.value = formatUzPhoneDisplay(normalized);
   updateLoginPhoneFlag();
-  if (normalized.replace(/\D/g, "").length >= 8 && passwordInput) {
-    requestAnimationFrame(() => passwordInput.focus());
-  }
 }
 
 function addEmptyRow(section) {
