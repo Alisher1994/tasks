@@ -4905,13 +4905,17 @@ function normalizeUzPhone(rawValue) {
   let s = raw.replace(/[^\d+]/g, "");
   if (s.startsWith("00")) s = `+${s.slice(2)}`;
   if (!s.startsWith("+")) s = `+${s.replace(/\D/g, "")}`;
-  const digits = s.slice(1).replace(/\D/g, "").slice(0, 15);
+  const digits = s.slice(1).replace(/\D/g, "").slice(0, PHONE_MAX_DIGITS);
   return `+${digits}`;
 }
 
 function sanitizePhoneInputValue(rawValue) {
   const n = normalizeUzPhone(rawValue);
-  return n === "+" ? DEFAULT_PHONE_PREFIX : n;
+  if (n === "+") return DEFAULT_PHONE_PREFIX;
+  const digits = n.replace(/\D/g, "");
+  const dial = detectDialCodeByPhone(n);
+  const rule = getPhoneRuleByDial(dial);
+  return `+${digits.slice(0, rule.max)}`;
 }
 
 function enforcePhoneKeyInput(event) {
@@ -4932,14 +4936,22 @@ function enforcePhoneKeyInput(event) {
 
 function attachStrictPhoneInputBehavior(input, onAfterSanitize) {
   if (!(input instanceof HTMLInputElement)) return;
+  const syncMaxLength = () => {
+    const dial = detectDialCodeByPhone(input.value);
+    const rule = getPhoneRuleByDial(dial);
+    input.maxLength = rule.max + 1; // + для символа "+"
+  };
+  syncMaxLength();
   input.addEventListener("keydown", enforcePhoneKeyInput);
   input.addEventListener("input", () => {
     input.value = sanitizePhoneInputValue(input.value);
+    syncMaxLength();
     onAfterSanitize?.();
   });
   input.addEventListener("paste", () => {
     requestAnimationFrame(() => {
       input.value = sanitizePhoneInputValue(input.value);
+      syncMaxLength();
       onAfterSanitize?.();
     });
   });
@@ -4974,6 +4986,45 @@ const COUNTRY_NAME_BY_ISO = {
   IN: "Индия", PK: "Пакистан", CN: "Китай", JP: "Япония", KR: "Южная Корея",
   AU: "Австралия", BR: "Бразилия", MX: "Мексика", ID: "Индонезия", PH: "Филиппины",
   SG: "Сингапур", MY: "Малайзия", TH: "Таиланд", VN: "Вьетнам", IR: "Иран"
+};
+
+/** Ограничения по длине в формате E.164 (общее количество цифр без "+"). */
+const PHONE_TOTAL_DIGITS_BY_DIAL = {
+  "998": { min: 12, max: 12 }, // UZ: 998 + 9
+  "7": { min: 11, max: 11 },   // RU/KZ: 7 + 10
+  "380": { min: 12, max: 12 },
+  "375": { min: 12, max: 12 },
+  "1": { min: 11, max: 11 },   // US/CA NANP
+  "90": { min: 12, max: 12 },
+  "971": { min: 12, max: 12 },
+  "966": { min: 12, max: 12 },
+  "44": { min: 12, max: 12 },
+  "49": { min: 11, max: 13 },
+  "33": { min: 11, max: 11 },
+  "39": { min: 11, max: 13 },
+  "34": { min: 11, max: 11 },
+  "48": { min: 11, max: 11 },
+  "995": { min: 12, max: 12 },
+  "994": { min: 12, max: 12 },
+  "996": { min: 12, max: 12 },
+  "992": { min: 12, max: 12 },
+  "993": { min: 11, max: 11 },
+  "20": { min: 12, max: 12 },
+  "91": { min: 12, max: 12 },
+  "92": { min: 12, max: 12 },
+  "86": { min: 13, max: 13 },
+  "81": { min: 11, max: 12 },
+  "82": { min: 11, max: 12 },
+  "61": { min: 11, max: 11 },
+  "55": { min: 12, max: 13 },
+  "52": { min: 12, max: 12 },
+  "62": { min: 10, max: 13 },
+  "63": { min: 12, max: 12 },
+  "65": { min: 10, max: 10 },
+  "60": { min: 10, max: 12 },
+  "66": { min: 11, max: 11 },
+  "84": { min: 11, max: 11 },
+  "98": { min: 12, max: 12 }
 };
 
 function flagEmojiFromIso2(iso2) {
@@ -5016,11 +5067,6 @@ function getPhoneDigitsCount(rawPhone) {
   return normalizeUzPhone(rawPhone).replace(/\D/g, "").length;
 }
 
-function isPhoneLengthValid(rawPhone) {
-  const len = getPhoneDigitsCount(rawPhone);
-  return len >= PHONE_MIN_DIGITS && len <= PHONE_MAX_DIGITS;
-}
-
 function detectDialCodeByPhone(rawPhone) {
   const digits = normalizeUzPhone(rawPhone).replace(/\D/g, "");
   if (!digits) return "";
@@ -5031,6 +5077,25 @@ function detectDialCodeByPhone(rawPhone) {
     }
   }
   return best;
+}
+
+function getPhoneRuleByDial(dial) {
+  const d = String(dial || "").trim();
+  return PHONE_TOTAL_DIGITS_BY_DIAL[d] || { min: PHONE_MIN_DIGITS, max: PHONE_MAX_DIGITS };
+}
+
+function getPhoneLengthHint(rawPhone) {
+  const dial = detectDialCodeByPhone(rawPhone);
+  const rule = getPhoneRuleByDial(dial);
+  return rule.min === rule.max ? `${rule.max}` : `${rule.min}-${rule.max}`;
+}
+
+function isPhoneLengthValid(rawPhone) {
+  const normalized = normalizeUzPhone(rawPhone);
+  const len = normalized.replace(/\D/g, "").length;
+  const dial = detectDialCodeByPhone(normalized);
+  const rule = getPhoneRuleByDial(dial);
+  return len >= rule.min && len <= rule.max;
 }
 
 function buildCountryPhoneOptions() {
@@ -7242,7 +7307,7 @@ function openEmployeePhoneEditorModal(section, rowIndex, colIndex) {
           formatUzPhoneDisplay(normalizeUzPhone(prevValue || DEFAULT_PHONE_PREFIX))
         )}" maxlength="${PHONE_MAX_LENGTH}" pattern="^\\+[0-9]{8,15}$" autocomplete="off" />
       </div>
-      <div class="responsible-option-empty" style="margin-top:8px">Формат: +код_страны номер (${PHONE_MIN_DIGITS}-${PHONE_MAX_DIGITS} цифр).</div>
+      <div class="responsible-option-empty" style="margin-top:8px">Формат: +код_страны номер (длина зависит от страны).</div>
       <div class="responsible-modal-actions">
         <button type="button" class="secondary responsible-cancel-btn">Отмена</button>
         <button type="button" class="responsible-apply-btn">Сохранить</button>
@@ -7339,7 +7404,7 @@ function openEmployeePhoneEditorModal(section, rowIndex, colIndex) {
   applyBtn?.addEventListener("click", () => {
     const normalized = normalizeUzPhone(input?.value || "");
     if (!isPhoneLengthValid(normalized)) {
-      window.alert(`Введите корректный номер (${PHONE_MIN_DIGITS}-${PHONE_MAX_DIGITS} цифр после +).`);
+      window.alert(`Введите корректный номер (${getPhoneLengthHint(normalized)} цифр после + для выбранной страны).`);
       input?.focus();
       return;
     }
@@ -9592,7 +9657,7 @@ loginForm.addEventListener("submit", async (event) => {
   const phone = normalizeUzPhone(String(formData.get("phone") || ""));
   const password = String(formData.get("password") || "");
   if (!isPhoneLengthValid(phone)) {
-    loginError.textContent = `Введите корректный номер (${PHONE_MIN_DIGITS}-${PHONE_MAX_DIGITS} цифр после +).`;
+    loginError.textContent = `Введите корректный номер (${getPhoneLengthHint(phone)} цифр после + для выбранной страны).`;
     loginError.classList.remove("hidden");
     return;
   }
