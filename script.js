@@ -1412,6 +1412,16 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
     taskRow[TASK_COLUMNS.readState] = composeTaskReadState(false, "—");
     taskRow[TASK_COLUMNS.lastSentAt] = formatTrashDate(Date.now());
     saveSectionsData();
+    // Избегаем гонки: отложенный debounce-пуш может перезаписать серверное
+    // «Прочитано», если сотрудник нажмёт «📖 Прочитать» сразу после отправки.
+    clearTimeout(serverSyncTimer);
+    if (isHostedRuntime() && getAuthToken()) {
+      try {
+        await pushAppToServerImmediate();
+      } catch (_) {
+        /* noop */
+      }
+    }
   }
 
   if (!suppressAlerts) {
