@@ -31,6 +31,14 @@ body {
   overflow: hidden;
 }
 
+body.app-booting {
+  overflow: hidden;
+}
+
+body.app-booting .page {
+  visibility: hidden;
+}
+
 .page {
   max-width: 1800px;
   width: 98vw;
@@ -1594,6 +1602,61 @@ tr:nth-child(even) td {
   width: min(1380px, 96vw);
   max-height: min(88vh, 920px);
   overflow: hidden;
+}
+
+.app-boot-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(242, 245, 249, 0.94);
+  backdrop-filter: blur(2px);
+}
+
+body.app-booting .app-boot-loader {
+  display: flex;
+}
+
+.app-boot-loader__card {
+  min-width: 280px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 18px 20px;
+  border-radius: 12px;
+  border: 1px solid #dbe2ea;
+  background: #fff;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.app-boot-loader__spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid #dde4f1;
+  border-top-color: var(--brand);
+  animation: app-loader-spin 0.85s linear infinite;
+}
+
+.app-boot-loader__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1f2a37;
+}
+
+.app-boot-loader__subtitle {
+  font-size: 12px;
+  color: #6b7786;
+  text-align: center;
+}
+
+@keyframes app-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .task-import-template-wrap {

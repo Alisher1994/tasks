@@ -12,7 +12,14 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 </head>
-<body>
+<body class="app-booting">
+  <div id="appBootLoader" class="app-boot-loader" aria-live="polite">
+    <div class="app-boot-loader__card">
+      <div class="app-boot-loader__spinner" aria-hidden="true"></div>
+      <div class="app-boot-loader__title">Загрузка данных…</div>
+      <div class="app-boot-loader__subtitle">Покажем интерфейс после полного рендера.</div>
+    </div>
+  </div>
   <main class="page">
     <section id="loginSection" class="card auth-card">
       <img src="horizontal-v1.svg" alt="Логотип" class="login-logo" />

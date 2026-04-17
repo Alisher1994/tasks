@@ -25,9 +25,12 @@ const OVERDUE_NOTIFY_RUNTIME_KEY = "mbc_overdue_notify_runtime";
 /** JWT при работе с сервером (Railway) */
 const AUTH_TOKEN_KEY = "mbc_jwt";
 const SESSION_STORAGE_KEY = "mbc_task_auth_user";
+const SESSION_LAST_ACTIVITY_KEY = "mbc_task_last_activity_ts";
 const ACTIVE_SECTION_STORAGE_KEY = "mbc_task_active_section";
 const DISPLAY_SETTINGS_KEY = "mbc_task_display_settings";
 const DATA_STORAGE_KEY = "mbc_task_sections_data";
+const SESSION_IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
+const SESSION_IDLE_CHECK_INTERVAL_MS = 60 * 1000;
 /** Data URL превью фото объектов (ключ obj-ph-{id}) — переживает перезагрузку; в ячейке по-прежнему имя файла */
 const OBJECT_PHOTO_THUMBS_STORAGE_KEY = "mbc_object_photo_thumbs";
 const TRASH_STORAGE_KEY = "mbc_task_trash_data";
@@ -271,6 +274,103 @@ function setAuthToken(token) {
   }
 }
 
+function setAppBootLoading(isLoading) {
+  const active = Boolean(isLoading);
+  document.body.classList.toggle("app-booting", active);
+  const loader = document.getElementById("appBootLoader");
+  if (loader) loader.setAttribute("aria-hidden", active ? "false" : "true");
+}
+
+function hideBootLoaderAfterRender() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      setAppBootLoading(false);
+    });
+  });
+}
+
+function readLastSessionActivityTs() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_LAST_ACTIVITY_KEY);
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function writeLastSessionActivityTs(ts = Date.now()) {
+  try {
+    sessionStorage.setItem(SESSION_LAST_ACTIVITY_KEY, String(Math.max(0, Math.floor(ts))));
+  } catch (_) {
+    /* noop */
+  }
+}
+
+function clearLastSessionActivityTs() {
+  try {
+    sessionStorage.removeItem(SESSION_LAST_ACTIVITY_KEY);
+  } catch (_) {
+    /* noop */
+  }
+}
+
+function trackSessionActivity(force = false) {
+  if (!getAuthToken()) return;
+  const now = Date.now();
+  if (!force && now - lastSessionActivityWriteAt < 5000) return;
+  lastSessionActivityWriteAt = now;
+  writeLastSessionActivityTs(now);
+}
+
+function bindSessionActivityListeners() {
+  if (sessionActivityListenersBound) return;
+  sessionActivityListenersBound = true;
+  const handler = () => trackSessionActivity(false);
+  const opts = { passive: true, capture: true };
+  ["pointerdown", "keydown", "touchstart", "wheel", "scroll"].forEach((eventName) => {
+    window.addEventListener(eventName, handler, opts);
+  });
+}
+
+function handleIdleSessionExpired() {
+  if (!getAuthToken()) return;
+  clearSession();
+  showLogin();
+  showStatusDialog({
+    title: "Сессия завершена",
+    message: "Вы были неактивны слишком долго. Войдите снова, чтобы продолжить работу и синхронизацию Telegram.",
+    type: "error"
+  });
+}
+
+function checkSessionIdleTimeout() {
+  if (!getAuthToken()) return;
+  const last = readLastSessionActivityTs();
+  if (!last) {
+    trackSessionActivity(true);
+    return;
+  }
+  if (Date.now() - last >= SESSION_IDLE_TIMEOUT_MS) {
+    handleIdleSessionExpired();
+  }
+}
+
+function startSessionIdleWatcher() {
+  if (!getAuthToken()) return;
+  bindSessionActivityListeners();
+  trackSessionActivity(true);
+  clearInterval(sessionIdleCheckTimer);
+  sessionIdleCheckTimer = setInterval(() => {
+    checkSessionIdleTimeout();
+  }, SESSION_IDLE_CHECK_INTERVAL_MS);
+}
+
+function stopSessionIdleWatcher() {
+  clearInterval(sessionIdleCheckTimer);
+  sessionIdleCheckTimer = null;
+}
+
 function buildAppPayload() {
   return {
     sections: JSON.parse(JSON.stringify(sections)),
@@ -290,6 +390,9 @@ let overdueNotifyInFlight = false;
 let hasUnsyncedLocalChanges = false;
 let serverPushInFlight = false;
 let authExpiredNoticeShown = false;
+let sessionIdleCheckTimer = null;
+let sessionActivityListenersBound = false;
+let lastSessionActivityWriteAt = 0;
 
 function handleServerAuthExpired() {
   if (authExpiredNoticeShown) return;
@@ -1453,10 +1556,18 @@ async function sendTelegramMediaGroupViaServerProxy({ chatId, token, photoRefs }
  */
 async function sendTaskRowTelegramNotification(taskRow, options = {}) {
   const suppressAlerts = Boolean(options.suppressAlerts);
+  const notify = (message, type = "info") => {
+    if (suppressAlerts) return;
+    showStatusDialog({
+      title: "Отправка в Telegram",
+      message: String(message || ""),
+      type
+    });
+  };
   const token = String(displaySettings.telegramBotToken || "").trim();
   if (!token) {
     const msg = "Укажите токен Telegram-бота в прочих настройках.";
-    if (!suppressAlerts) window.alert(msg);
+    notify(msg, "error");
     return { ok: false, reason: "no_token", message: msg };
   }
 
@@ -1465,14 +1576,14 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
   const template = String(templates[status] || "");
   if (!template.trim()) {
     const msg = `Нет текста шаблона для статуса «${status}». Заполните в «Прочие настройки» → «Шаблон сообщений».`;
-    if (!suppressAlerts) window.alert(msg);
+    notify(msg, "error");
     return { ok: false, reason: "no_template", message: msg };
   }
 
   const text = applyTaskMessageTemplate(template, taskRow);
   if (!String(text).trim()) {
     const msg = "После подстановки полей сообщение пустое.";
-    if (!suppressAlerts) window.alert(msg);
+    notify(msg, "error");
     return { ok: false, reason: "empty_message", message: msg };
   }
 
@@ -1480,7 +1591,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
   if (!recipientNames.length) {
     const msg =
       "Нет получателей: укажите исполнителя и/или контролирующего ответственного в задаче либо добавьте глобальных получателей копий в настройках Telegram.";
-    if (!suppressAlerts) window.alert(msg);
+    notify(msg, "error");
     return { ok: false, reason: "no_recipients", message: msg };
   }
 
@@ -1492,7 +1603,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
   if (!targets.length) {
     const msg =
       "Не удалось найти сотрудников с Telegram: проверьте ФИО в задаче и в справочнике сотрудников (подключение Telegram и Chat ID).";
-    if (!suppressAlerts) window.alert(msg);
+    notify(msg, "error");
     return { ok: false, reason: "no_targets", message: msg, missingNames };
   }
 
@@ -1650,7 +1761,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
         ? `Не удалось отправить: ${firstErr.apiDescription}\n\nУбедитесь, что в «Chat ID» указан числовой Telegram user ID (например из @userinfobot), а не цифры с номера телефона.`
         : "Не удалось отправить сообщение. Проверьте токен и Chat ID.";
     }
-    window.alert(msg);
+    notify(msg, ok ? "success" : "error");
   }
 
   return { ok, okCount, total: results.length, missingNames, results };
@@ -4478,6 +4589,7 @@ function mountReportShareGate(shareId) {
     </div>
   `;
     document.body.appendChild(overlay);
+    hideBootLoaderAfterRender();
     const pinInput = overlay.querySelector("#reportSharePinInput");
     const errEl = overlay.querySelector("#reportShareGateError");
     const submitBtn = overlay.querySelector("#reportShareGateSubmitBtn");
@@ -4598,6 +4710,8 @@ function enterSharedReportView(rec) {
   activeSectionId = "report";
   renderSidebarMenu();
   renderTable();
+  stopSessionIdleWatcher();
+  hideBootLoaderAfterRender();
 }
 
 function exitSharedReportView() {
@@ -7254,7 +7368,11 @@ function attachTableActionHandlers(section, filteredEntries) {
               errors.length === 0
                 ? `Готово: успешно обработано задач: ${okTasks} из ${rowIndices.length}.`
                 : `Обработано: ${okTasks} из ${rowIndices.length}.\n\nОшибки:\n${errors.slice(0, 12).join("\n")}${errors.length > 12 ? `\n… и ещё ${errors.length - 12}` : ""}`;
-            window.alert(summary);
+            showStatusDialog({
+              title: "Отправка в Telegram",
+              message: summary,
+              type: errors.length === 0 ? "success" : "error"
+            });
             renderTablePreserveScroll();
           })();
         }
@@ -11053,6 +11171,8 @@ function showApp(userName) {
   renderTable();
   startRemoteAutoPull();
   startOverdueTaskNotificationsScheduler();
+  startSessionIdleWatcher();
+  hideBootLoaderAfterRender();
 }
 
 function showLogin() {
@@ -11082,6 +11202,8 @@ function showLogin() {
   isSettingsOpen = false;
   stopRemoteAutoPull();
   stopOverdueTaskNotificationsScheduler();
+  stopSessionIdleWatcher();
+  hideBootLoaderAfterRender();
 }
 
 function togglePasswordVisibility() {
@@ -11298,6 +11420,23 @@ function normalizeTaskColumnLabel(raw) {
     .replace(/[^a-zа-я0-9]+/giu, "");
 }
 
+function looksLikePersonName(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (text.length > 80) return false;
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length < 2 || words.length > 4) return false;
+  return words.every((w) => /^[A-Za-zА-Яа-яЁё-]+$/u.test(w));
+}
+
+function looksLikeTaskText(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (text.length < 10) return false;
+  const words = text.split(/\s+/).filter(Boolean);
+  return words.length >= 2;
+}
+
 function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
   const row = Array.isArray(sourceRow) ? sourceRow : [];
   const cols = Array.isArray(sourceColumns) ? sourceColumns : [];
@@ -11389,10 +11528,9 @@ function migrateRowForSection(baseSection, row, sourceColumns = null) {
       const oldTask = source[9];
       const oldResponsible = source[10];
       const looksLikeOldOrder =
-        oldTask != null &&
-        oldResponsible != null &&
-        String(oldTask).trim() !== "" &&
-        (String(oldAssigned).trim() === "" || String(oldAssigned).trim() !== String(oldTask).trim());
+        looksLikePersonName(oldAssigned) &&
+        looksLikeTaskText(oldTask) &&
+        (String(oldResponsible || "").trim() === "" || looksLikePersonName(oldResponsible));
       if (looksLikeOldOrder) {
         source[8] = oldTask;
         source[9] = oldResponsible;
@@ -11563,9 +11701,11 @@ function saveSession(userName) {
 function clearSession() {
   localStorage.removeItem(SESSION_STORAGE_KEY);
   setAuthToken("");
+  clearLastSessionActivityTs();
   stopRemoteAutoPull();
   hasUnsyncedLocalChanges = false;
   serverPushInFlight = false;
+  stopSessionIdleWatcher();
 }
 
 function restoreSession() {
