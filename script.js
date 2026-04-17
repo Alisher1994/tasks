@@ -4934,25 +4934,37 @@ function enforcePhoneKeyInput(event) {
   event.preventDefault();
 }
 
-function attachStrictPhoneInputBehavior(input, onAfterSanitize) {
+function attachStrictPhoneInputBehavior(input, onAfterSanitize, onMaxReached) {
   if (!(input instanceof HTMLInputElement)) return;
   const syncMaxLength = () => {
     const dial = detectDialCodeByPhone(input.value);
     const rule = getPhoneRuleByDial(dial);
     input.maxLength = rule.max + 1; // + для символа "+"
+    return rule.max;
   };
+  let prevDigitsLen = getPhoneDigitsCount(input.value);
   syncMaxLength();
   input.addEventListener("keydown", enforcePhoneKeyInput);
   input.addEventListener("input", () => {
     input.value = sanitizePhoneInputValue(input.value);
-    syncMaxLength();
+    const maxDigits = syncMaxLength();
     onAfterSanitize?.();
+    const digitsLen = getPhoneDigitsCount(input.value);
+    if (digitsLen >= maxDigits && prevDigitsLen < maxDigits) {
+      onMaxReached?.();
+    }
+    prevDigitsLen = digitsLen;
   });
   input.addEventListener("paste", () => {
     requestAnimationFrame(() => {
       input.value = sanitizePhoneInputValue(input.value);
-      syncMaxLength();
+      const maxDigits = syncMaxLength();
       onAfterSanitize?.();
+      const digitsLen = getPhoneDigitsCount(input.value);
+      if (digitsLen >= maxDigits && prevDigitsLen < maxDigits) {
+        onMaxReached?.();
+      }
+      prevDigitsLen = digitsLen;
     });
   });
 }
@@ -9719,7 +9731,15 @@ phoneInput?.addEventListener("focus", () => {
 });
 phoneInput?.addEventListener("blur", enforceUzPhonePrefix);
 if (phoneInput instanceof HTMLInputElement) {
-  attachStrictPhoneInputBehavior(phoneInput, updateLoginPhoneFlag);
+  attachStrictPhoneInputBehavior(
+    phoneInput,
+    updateLoginPhoneFlag,
+    () => {
+      if (passwordInput instanceof HTMLInputElement) {
+        requestAnimationFrame(() => passwordInput.focus());
+      }
+    }
+  );
 }
 loginPhoneCountryBtn?.addEventListener("click", openLoginCountryPickerModal);
 
