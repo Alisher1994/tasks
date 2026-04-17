@@ -6058,6 +6058,60 @@ function createTaskRowFromImport(values, nextId) {
   return row;
 }
 
+function getCatalogValueSet(sectionId) {
+  const rows = getSectionById(sectionId)?.rows || [];
+  return new Set(rows.map((row) => String(row?.[1] || "").trim()).filter(Boolean));
+}
+
+function inspectImportedHierarchyValue(values, catalogs = null) {
+  const catalogSets = catalogs || {
+    phases: getCatalogValueSet("phases"),
+    sections: getCatalogValueSet("phaseSections"),
+    subsections: getCatalogValueSet("phaseSubsections")
+  };
+  const phase = normalizeTaskImportCellValue(values.phase);
+  const phaseSection = normalizeTaskImportCellValue(values.phaseSection);
+  const phaseSubsection = normalizeTaskImportCellValue(values.phaseSubsection);
+  const missing = [];
+  if (phase && !catalogSets.phases.has(phase)) missing.push(`Фаза: ${phase}`);
+  if (phaseSection && !catalogSets.sections.has(phaseSection)) missing.push(`Раздел: ${phaseSection}`);
+  if (phaseSubsection && !catalogSets.subsections.has(phaseSubsection)) missing.push(`Подраздел: ${phaseSubsection}`);
+  return {
+    phase,
+    phaseSection,
+    phaseSubsection,
+    missing,
+    hasMissing: missing.length > 0
+  };
+}
+
+function ensureHierarchyValuesInCatalogs(values) {
+  const phase = normalizeTaskImportCellValue(values.phase);
+  const phaseSection = normalizeTaskImportCellValue(values.phaseSection);
+  const phaseSubsection = normalizeTaskImportCellValue(values.phaseSubsection);
+  if (phase) upsertCatalogValue("phases", 1, phase);
+  if (phaseSection) upsertCatalogValue("phaseSections", 1, phaseSection);
+  if (phaseSubsection) upsertCatalogValue("phaseSubsections", 1, phaseSubsection);
+}
+
+function ensureResponsibleHierarchyLink(phase, phaseSection, phaseSubsection) {
+  const p = String(phase || "").trim();
+  const s = String(phaseSection || "").trim();
+  const ss = String(phaseSubsection || "").trim();
+  if (!p || !s || !ss) return;
+  const dataSection = getSectionById("data");
+  if (!dataSection) return;
+  const exists = dataSection.rows.some((row) =>
+    String(row?.[1] || "").trim() === p
+    && String(row?.[2] || "").trim() === s
+    && String(row?.[3] || "").trim() === ss
+  );
+  if (exists) return;
+  const numericIds = dataSection.rows.map((row) => Number(row?.[0])).filter((n) => Number.isFinite(n));
+  const nextId = numericIds.length ? Math.max(...numericIds) + 1 : dataSection.rows.length + 1;
+  dataSection.rows.push([String(nextId), p, s, ss, "", "Добавлено при импорте"]);
+}
+
 function getDataRowByHierarchy(phase, phaseSection, phaseSubsection) {
   const dataSection = getSectionById("data");
   if (!dataSection) return null;
@@ -10219,6 +10273,10 @@ function openTaskImportModal(section) {
         <strong>Превью</strong>
         <span id="taskImportPreviewMeta" class="hint">Строк: 0</span>
       </div>
+      <label class="settings-option task-import-sync-option">
+        <input type="checkbox" id="taskImportSyncCatalogsCheckbox" />
+        <span>Добавлять не найденные фаза/раздел/подраздел в справочники и связку «Ответственные»</span>
+      </label>
       <div id="taskImportPreviewWrap" class="task-import-preview-wrap">
         <p class="hint">Данные ещё не вставлены.</p>
       </div>
@@ -10239,13 +10297,18 @@ function openTaskImportModal(section) {
   const saveSendBtn = overlay.querySelector(".task-import-save-send-btn");
   const cancelBtn = overlay.querySelector(".task-import-cancel-btn");
   const downloadTemplateBtn = overlay.querySelector("#taskImportDownloadTemplateBtn");
+  const syncCatalogsCheckbox = overlay.querySelector("#taskImportSyncCatalogsCheckbox");
   const close = () => overlay.remove();
 
   let parsedRows = [];
+  let inspectedRows = [];
 
   const renderPreview = () => {
     if (!previewWrap || !previewMeta || !saveBtn || !saveSendBtn) return;
-    previewMeta.textContent = `Строк: ${parsedRows.length}`;
+    const allowCatalogSync = Boolean(syncCatalogsCheckbox?.checked);
+    const canImportRows = inspectedRows.filter((x) => !x.hasMissing || allowCatalogSync);
+    const blockedRows = inspectedRows.length - canImportRows.length;
+    previewMeta.textContent = `Строк: ${inspectedRows.length} · к импорту: ${canImportRows.length}`;
     if (!parsedRows.length) {
       previewWrap.innerHTML = '<p class="hint">Данные ещё не вставлены.</p>';
       saveBtn.disabled = true;
@@ -10253,14 +10316,19 @@ function openTaskImportModal(section) {
       return;
     }
     const head = TASK_IMPORT_COLUMNS.map((col) => `<th>${escapeHtmlText(col.label)}</th>`).join("");
-    const body = parsedRows
-      .map((row, index) => {
+    const body = inspectedRows
+      .map((item, index) => {
+        const row = item.row;
         const cells = TASK_IMPORT_COLUMNS.map((col) => {
           const raw = String(row[col.key] || "—");
           const safe = escapeHtmlText(raw);
           return `<td title="${escapeHtmlAttr(raw)}">${safe}</td>`;
         }).join("");
-        return `<tr><td>${index + 1}</td>${cells}</tr>`;
+        const badge = item.hasMissing
+          ? `<div class="task-import-missing-badge">Нет в справочнике: ${escapeHtmlText(item.missing.join("; "))}</div>`
+          : "";
+        const rowClass = item.hasMissing ? "task-import-preview-row--missing" : "";
+        return `<tr class="${rowClass}"><td><div>${index + 1}</div>${badge}</td>${cells}</tr>`;
       })
       .join("");
     previewWrap.innerHTML = `
@@ -10268,28 +10336,48 @@ function openTaskImportModal(section) {
         <thead><tr><th>#</th>${head}</tr></thead>
         <tbody>${body}</tbody>
       </table>
+      ${blockedRows > 0 && !allowCatalogSync ? `<p class="task-import-preview-note">Не будут импортированы: ${blockedRows} строк(и) — включите чекбокс выше, чтобы добавить новые значения в справочники.</p>` : ""}
     `;
-    saveBtn.disabled = false;
-    saveSendBtn.disabled = false;
+    saveBtn.disabled = canImportRows.length === 0;
+    saveSendBtn.disabled = canImportRows.length === 0;
   };
 
   const parseFromInput = () => {
     const res = parseTaskImportPayload(input?.value || "");
     if (!res.ok) {
       parsedRows = [];
+      inspectedRows = [];
       renderPreview();
       return;
     }
     parsedRows = res.rows;
+    const catalogs = {
+      phases: getCatalogValueSet("phases"),
+      sections: getCatalogValueSet("phaseSections"),
+      subsections: getCatalogValueSet("phaseSubsections")
+    };
+    inspectedRows = parsedRows.map((row) => {
+      const inspected = inspectImportedHierarchyValue(row, catalogs);
+      return { row, ...inspected };
+    });
     renderPreview();
   };
 
-  const buildRows = () => {
+  const buildRows = ({ allowCatalogSync = false } = {}) => {
     const ids = section.rows
       .map((row) => Number(row?.[TASK_COLUMNS.number]))
       .filter((n) => Number.isFinite(n));
     let nextId = ids.length ? Math.max(...ids) + 1 : section.rows.length + 1;
-    return parsedRows.map((item) => createTaskRowFromImport(item, nextId++));
+    const rows = [];
+    inspectedRows.forEach((item) => {
+      if (item.hasMissing && !allowCatalogSync) return;
+      if (item.hasMissing && allowCatalogSync) {
+        ensureHierarchyValuesInCatalogs(item.row);
+        ensureResponsibleHierarchyLink(item.phase, item.phaseSection, item.phaseSubsection);
+      }
+      rows.push(createTaskRowFromImport(item.row, nextId++));
+    });
+    return rows;
   };
 
   const appendImportedRows = (rows, { markPending = true } = {}) => {
@@ -10329,7 +10417,8 @@ function openTaskImportModal(section) {
 
   saveBtn?.addEventListener("click", () => {
     if (!parsedRows.length) return;
-    const rows = buildRows();
+    const rows = buildRows({ allowCatalogSync: Boolean(syncCatalogsCheckbox?.checked) });
+    if (!rows.length) return;
     appendImportedRows(rows, { markPending: true });
     close();
     resetTasksListPagingWindow();
@@ -10344,7 +10433,8 @@ function openTaskImportModal(section) {
   saveSendBtn?.addEventListener("click", () => {
     if (!parsedRows.length) return;
     void (async () => {
-      const rows = buildRows();
+      const rows = buildRows({ allowCatalogSync: Boolean(syncCatalogsCheckbox?.checked) });
+      if (!rows.length) return;
       appendImportedRows(rows, { markPending: true });
       const result = await sendImportedRows(rows);
       close();
@@ -10381,6 +10471,7 @@ function openTaskImportModal(section) {
   });
 
   input?.addEventListener("input", parseFromInput);
+  syncCatalogsCheckbox?.addEventListener("change", renderPreview);
   cancelBtn?.addEventListener("click", close);
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
