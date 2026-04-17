@@ -36,21 +36,24 @@ const TASK_HISTORY_MAX_PER_TASK = 300;
 const REPORT_CHART_ORDER_STORAGE_KEY = "mbc_report_chart_tile_order";
 /** «row» — Топ фаз / Разделы / Подразделы в одной строке; «separate» — каждый график на всю ширину */
 const REPORT_PHASE_GROUP_LAYOUT_KEY = "mbc_report_phase_group_layout";
+const REPORT_TOP_TRIO_IDS = ["status", "priority", "priorityDonut"];
 const REPORT_PHASE_GROUP_IDS = ["phase", "phaseSection", "phaseSubsection"];
 const REPORT_PHASE_GROUP_SET = new Set(REPORT_PHASE_GROUP_IDS);
+const REPORT_PHASE_DONUT_GROUP_IDS = ["phaseDonut", "phaseSectionDonut", "phaseSubsectionDonut"];
+const REPORT_PHASE_DONUT_GROUP_SET = new Set(REPORT_PHASE_DONUT_GROUP_IDS);
 /** id плитки → широкая колонка на всю строку */
 const REPORT_CHART_TILE_META = {
   status: { wide: false },
   priority: { wide: false },
   priorityDonut: { wide: false },
+  phase: { wide: false },
+  phaseSection: { wide: false },
+  phaseSubsection: { wide: true },
+  phaseDonut: { wide: false },
+  phaseSectionDonut: { wide: false },
+  phaseSubsectionDonut: { wide: false },
   months: { wide: true },
   overdue: { wide: true },
-  phase: { wide: false },
-  phaseDonut: { wide: false },
-  phaseSection: { wide: false },
-  phaseSectionDonut: { wide: false },
-  phaseSubsection: { wide: true },
-  phaseSubsectionDonut: { wide: false },
   object: { wide: true },
   department: { wide: true },
   responsible: { wide: true }
@@ -3250,7 +3253,8 @@ function applyReportPhaseTrioWrapHeights(phLen, psecLen, psubLen) {
   const wrapPh = document.getElementById("reportChartPhaseWrap");
   const wrapSec = document.getElementById("reportChartPhaseSectionWrap");
   const wrapSub = document.getElementById("reportChartPhaseSubsectionWrap");
-  const opts = { maxPx: 900, minPx: 72, rowPx: 14, paddingPx: 52 };
+  // Для stacked-графиков нужна большая высота: место под легенду + читабельные подписи категорий.
+  const opts = { maxPx: 1100, minPx: 210, rowPx: 24, paddingPx: 108 };
   if (loadReportPhaseGroupLayout() === "row") {
     const nMax = Math.max(phLen, psecLen, psubLen, 1);
     const h = Math.round(getReportPhaseHBarWrapHeightPx(nMax, opts));
@@ -3438,29 +3442,38 @@ function renderReportChartTileFragment(id, opts = {}) {
 
 function renderReportChartsGridHtml() {
   const order = loadReportChartOrder();
-  const layout = loadReportPhaseGroupLayout();
-  if (layout !== "row") {
-    return order.map((id) => renderReportChartTileFragment(id)).join("");
+  const topTrio = REPORT_TOP_TRIO_IDS.filter((id) => order.includes(id));
+  const phaseBars = REPORT_PHASE_GROUP_IDS.filter((id) => order.includes(id));
+  const phaseDonuts = REPORT_PHASE_DONUT_GROUP_IDS.filter((id) => order.includes(id));
+
+  const groupedIds = new Set([...topTrio, ...phaseBars, ...phaseDonuts]);
+  const rest = order.filter((id) => !groupedIds.has(id));
+
+  const parts = [];
+  if (topTrio.length) {
+    parts.push(
+      `<div class="report-phase-group-row report-triple-group-row">${topTrio.map((id) =>
+        renderReportChartTileFragment(id, { inPhaseRow: true })
+      ).join("")}</div>`
+    );
   }
-  const firstPhaseIdx = order.findIndex((id) => REPORT_PHASE_GROUP_SET.has(id));
-  if (firstPhaseIdx === -1) {
-    return order.map((id) => renderReportChartTileFragment(id)).join("");
+  if (phaseBars.length) {
+    parts.push(
+      `<div class="report-phase-group-row report-phase-bars-row">${phaseBars.map((id) =>
+        renderReportChartTileFragment(id, { inPhaseRow: true })
+      ).join("")}</div>`
+    );
   }
-  const before = [];
-  const after = [];
-  let passed = false;
-  for (const id of order) {
-    if (REPORT_PHASE_GROUP_SET.has(id)) {
-      passed = true;
-      continue;
-    }
-    if (!passed) before.push(id);
-    else after.push(id);
+  if (phaseDonuts.length) {
+    parts.push(
+      `<div class="report-phase-group-row report-phase-donuts-row">${phaseDonuts.map((id) =>
+        renderReportChartTileFragment(id, { inPhaseRow: true })
+      ).join("")}</div>`
+    );
   }
-  const rowHtml = `<div class="report-phase-group-row">${REPORT_PHASE_GROUP_IDS.map((pid) =>
-    renderReportChartTileFragment(pid, { inPhaseRow: true })
-  ).join("")}</div>`;
-  return [...before.map((id) => renderReportChartTileFragment(id)), rowHtml, ...after.map((id) => renderReportChartTileFragment(id))].join("");
+
+  parts.push(...rest.map((id) => renderReportChartTileFragment(id)));
+  return parts.join("");
 }
 
 function attachReportChartTileDragHandlers() {
