@@ -2244,7 +2244,6 @@ const activeRowBySection = {};
 const visibleColumnsBySection = {};
 const columnOrderBySection = {};
 const headerNumberingBySection = {};
-const columnPanelOpenBySection = {};
 const mediaPreviewStore = {};
 /** Превью фото объекта: ключ obj-ph-{id строки объекта} */
 const objectPhotoPreviewStore = {};
@@ -2971,7 +2970,6 @@ function renderTable() {
       ${tasksDrilldownHeader}
       ${sectionGroupTabs}
       ${renderBulkActions(selectedCount, isTrashView, section.id)}
-      ${renderColumnsPanel(section)}
       ${renderStatusTabs(section)}
       ${renderTasksScreenModeSwitch(section)}
       ${renderFilters(section, sectionFilters, filterPanelOpenBySection[section.id] === true)}
@@ -5985,6 +5983,7 @@ function getVisibleColumnIndexes(section) {
 }
 
 function ensureColumnDisplayState(section) {
+  const FIXED_COLUMN_INDEX = 0;
   const size = section.columns.length;
   if (!visibleColumnsBySection[section.id]) {
     visibleColumnsBySection[section.id] = section.columns.map(() => true);
@@ -5994,6 +5993,8 @@ function ensureColumnDisplayState(section) {
     while (visibility.length < size) visibility.push(true);
     visibility.length = size;
   }
+  // ID/№ всегда видимый и фиксированный.
+  if (size > 0) visibility[FIXED_COLUMN_INDEX] = true;
 
   if (!Array.isArray(columnOrderBySection[section.id])) {
     columnOrderBySection[section.id] = section.columns.map((_, index) => index);
@@ -6010,40 +6011,13 @@ function ensureColumnDisplayState(section) {
   for (let i = 0; i < size; i += 1) {
     if (!seen.has(i)) normalized.push(i);
   }
-  columnOrderBySection[section.id] = normalized;
-}
-
-function renderColumnsPanel(section) {
-  if (columnPanelOpenBySection[section.id] !== true) {
-    return "";
+  // ID/№ всегда в начале порядка.
+  const fixedPos = normalized.indexOf(FIXED_COLUMN_INDEX);
+  if (fixedPos > 0) {
+    normalized.splice(fixedPos, 1);
+    normalized.unshift(FIXED_COLUMN_INDEX);
   }
-
-  ensureColumnDisplayState(section);
-  const visibility = visibleColumnsBySection[section.id];
-  const order = columnOrderBySection[section.id];
-  const showHeaderNumbers = headerNumberingBySection[section.id] !== false;
-  const options = order
-    .map((columnIndex, position) => `
-      <div class="column-option column-option--settings">
-        <label class="column-option-check">
-          <input type="checkbox" class="column-toggle-checkbox" data-column-index="${columnIndex}" ${visibility[columnIndex] !== false ? "checked" : ""} />
-          <span>${escapeHtmlText(section.columns[columnIndex])}</span>
-        </label>
-        <label class="column-order-wrap">
-          <span>Порядок</span>
-          <input type="number" class="column-order-input" data-column-index="${columnIndex}" min="1" max="${section.columns.length}" value="${position + 1}" />
-        </label>
-      </div>
-    `)
-    .join("");
-
-  return `<div class="columns-panel table-settings-panel">
-    <label class="settings-option table-settings-flag">
-      <input type="checkbox" id="toggleHeaderNumbering" ${showHeaderNumbers ? "checked" : ""} />
-      <span>Отобразить нумерацию заголовка</span>
-    </label>
-    <div class="table-settings-options">${options}</div>
-  </div>`;
+  columnOrderBySection[section.id] = normalized;
 }
 
 function renderStatusTabs(section) {
@@ -8249,10 +8223,8 @@ function attachHeaderActionHandlers(section, filteredEntries) {
   }
 
   if (toggleTableSettingsBtn) {
-    toggleTableSettingsBtn.classList.toggle("is-active", columnPanelOpenBySection[section.id] === true);
     toggleTableSettingsBtn.addEventListener("click", () => {
-      columnPanelOpenBySection[section.id] = !(columnPanelOpenBySection[section.id] === true);
-      renderTablePreserveScroll();
+      openTableSettingsModal(section);
     });
   }
 
@@ -8278,50 +8250,6 @@ function attachHeaderActionHandlers(section, filteredEntries) {
       const sectionId = String(button.dataset.sectionTab || "");
       if (!sectionId) return;
       selectSection(sectionId);
-    });
-  });
-
-  const columnCheckboxes = Array.from(document.querySelectorAll(".column-toggle-checkbox"));
-  columnCheckboxes.forEach((checkbox) => {
-    checkbox.addEventListener("change", () => {
-      ensureColumnDisplayState(section);
-      const visibility = visibleColumnsBySection[section.id] || section.columns.map(() => true);
-      const columnIndex = Number(checkbox.dataset.columnIndex);
-      visibility[columnIndex] = checkbox.checked;
-
-      // Всегда оставляем минимум один видимый столбец.
-      if (visibility.every((value) => value === false)) {
-        visibility[columnIndex] = true;
-      }
-
-      visibleColumnsBySection[section.id] = visibility;
-      renderTablePreserveScroll();
-    });
-  });
-
-  const headerNumberingToggle = document.getElementById("toggleHeaderNumbering");
-  if (headerNumberingToggle) {
-    headerNumberingToggle.addEventListener("change", () => {
-      headerNumberingBySection[section.id] = headerNumberingToggle.checked;
-      renderTablePreserveScroll();
-    });
-  }
-
-  const columnOrderInputs = Array.from(document.querySelectorAll(".column-order-input"));
-  columnOrderInputs.forEach((input) => {
-    input.addEventListener("change", () => {
-      ensureColumnDisplayState(section);
-      const colIndex = Number(input.dataset.columnIndex);
-      if (!Number.isInteger(colIndex) || colIndex < 0) return;
-      const max = section.columns.length;
-      const desired = Math.min(max, Math.max(1, Number(input.value) || 1));
-      const order = [...columnOrderBySection[section.id]];
-      const from = order.indexOf(colIndex);
-      if (from === -1) return;
-      order.splice(from, 1);
-      order.splice(desired - 1, 0, colIndex);
-      columnOrderBySection[section.id] = order;
-      renderTablePreserveScroll();
     });
   });
 
@@ -9864,6 +9792,144 @@ function openExportFormatModal(section, filteredEntries) {
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
   });
+}
+
+function openTableSettingsModal(section) {
+  ensureColumnDisplayState(section);
+  const FIXED_COLUMN_INDEX = 0;
+  const initialOrder = [...columnOrderBySection[section.id]];
+  const initialVisibility = [...visibleColumnsBySection[section.id]];
+  const initialHeaderNumbers = headerNumberingBySection[section.id] !== false;
+
+  const draftOrder = [...initialOrder];
+  const draftVisibility = [...initialVisibility];
+  let draftHeaderNumbers = initialHeaderNumbers;
+  let dragColIndex = null;
+
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal table-settings-modal">
+      <h3>${withIcon("settings", "Настройки таблицы")}</h3>
+      <label class="settings-option table-settings-flag">
+        <input type="checkbox" id="tableSettingsHeaderNumbersToggle" ${draftHeaderNumbers ? "checked" : ""} />
+        <span>Отобразить нумерацию заголовка</span>
+      </label>
+      <div class="table-settings-dnd-list" id="tableSettingsDndList"></div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary table-settings-cancel-btn">Отмена</button>
+        <button type="button" class="responsible-apply-btn table-settings-apply-btn">Сохранить</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  initLucideIcons();
+
+  const listEl = overlay.querySelector("#tableSettingsDndList");
+  const headerNumbersToggle = overlay.querySelector("#tableSettingsHeaderNumbersToggle");
+  const cancelBtn = overlay.querySelector(".table-settings-cancel-btn");
+  const applyBtn = overlay.querySelector(".table-settings-apply-btn");
+
+  const renderList = () => {
+    if (!listEl) return;
+    listEl.innerHTML = draftOrder
+      .map((colIndex, position) => {
+        const title = String(section.columns[colIndex] || `Колонка ${colIndex + 1}`);
+        const checked = draftVisibility[colIndex] !== false;
+        const isFixed = colIndex === FIXED_COLUMN_INDEX;
+        return `
+          <div class="table-settings-dnd-item${isFixed ? " is-fixed" : ""}" data-col-index="${colIndex}" draggable="${isFixed ? "false" : "true"}">
+            <div class="table-settings-dnd-main">
+              <span class="table-settings-dnd-pos">${position + 1}</span>
+              <label class="table-settings-dnd-check">
+                <input type="checkbox" class="table-settings-col-visible" data-col-index="${colIndex}" ${checked ? "checked" : ""} ${isFixed ? "disabled" : ""} />
+                <span>${escapeHtmlText(title)}</span>
+              </label>
+            </div>
+            <span class="table-settings-dnd-handle" title="${isFixed ? "Фиксированный столбец" : "Перетащите мышью"}">
+              <i data-lucide="${isFixed ? "lock" : "grip-vertical"}" class="lucide-icon" aria-hidden="true"></i>
+            </span>
+          </div>
+        `;
+      })
+      .join("");
+    initLucideIcons();
+
+    Array.from(listEl.querySelectorAll(".table-settings-col-visible")).forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        const colIndex = Number(checkbox.dataset.colIndex);
+        if (!Number.isInteger(colIndex) || colIndex < 0) return;
+        draftVisibility[colIndex] = checkbox.checked;
+        draftVisibility[FIXED_COLUMN_INDEX] = true;
+        const nonFixedVisible = draftOrder.some((idx) => idx !== FIXED_COLUMN_INDEX && draftVisibility[idx] !== false);
+        if (!nonFixedVisible) {
+          draftVisibility[colIndex] = true;
+          checkbox.checked = true;
+        }
+      });
+    });
+
+    const items = Array.from(listEl.querySelectorAll(".table-settings-dnd-item"));
+    items.forEach((item) => {
+      const colIndex = Number(item.dataset.colIndex);
+      const isFixed = colIndex === FIXED_COLUMN_INDEX;
+      if (isFixed) return;
+
+      item.addEventListener("dragstart", (event) => {
+        dragColIndex = colIndex;
+        item.classList.add("is-dragging");
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", String(colIndex));
+        }
+      });
+      item.addEventListener("dragend", () => {
+        dragColIndex = null;
+        items.forEach((el) => el.classList.remove("is-dragging", "drop-target"));
+      });
+      item.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        if (dragColIndex == null || dragColIndex === colIndex) return;
+        items.forEach((el) => el.classList.remove("drop-target"));
+        item.classList.add("drop-target");
+      });
+      item.addEventListener("dragleave", () => {
+        item.classList.remove("drop-target");
+      });
+      item.addEventListener("drop", (event) => {
+        event.preventDefault();
+        item.classList.remove("drop-target");
+        if (dragColIndex == null || dragColIndex === colIndex) return;
+        const from = draftOrder.indexOf(dragColIndex);
+        const to = draftOrder.indexOf(colIndex);
+        if (from < 1 || to < 1) return;
+        draftOrder.splice(from, 1);
+        draftOrder.splice(to, 0, dragColIndex);
+        renderList();
+      });
+    });
+  };
+
+  headerNumbersToggle?.addEventListener("change", () => {
+    draftHeaderNumbers = Boolean(headerNumbersToggle.checked);
+  });
+
+  cancelBtn?.addEventListener("click", () => {
+    overlay.remove();
+  });
+  applyBtn?.addEventListener("click", () => {
+    visibleColumnsBySection[section.id] = [...draftVisibility];
+    visibleColumnsBySection[section.id][FIXED_COLUMN_INDEX] = true;
+    columnOrderBySection[section.id] = [...draftOrder];
+    headerNumberingBySection[section.id] = draftHeaderNumbers;
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+
+  renderList();
 }
 
 function attachFilterHandlers(section) {

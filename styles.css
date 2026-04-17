@@ -1567,6 +1567,93 @@ tr:nth-child(even) td {
   gap: 8px;
 }
 
+.table-settings-modal {
+  width: min(760px, 100%);
+}
+
+.table-settings-dnd-list {
+  max-height: min(62vh, 680px);
+  overflow: auto;
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.table-settings-dnd-item {
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: grab;
+}
+
+.table-settings-dnd-item.is-fixed {
+  background: #f8fafc;
+  cursor: default;
+}
+
+.table-settings-dnd-item.is-dragging {
+  opacity: 0.6;
+}
+
+.table-settings-dnd-item.drop-target {
+  border-color: var(--brand-border-mid);
+  box-shadow: 0 0 0 2px rgba(75, 85, 214, 0.15);
+}
+
+.table-settings-dnd-main {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.table-settings-dnd-pos {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid #dbe2ea;
+  background: #f8fafc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #3f4b5b;
+}
+
+.table-settings-dnd-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  color: #2a3748;
+}
+
+.table-settings-dnd-check span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-settings-dnd-handle {
+  color: #8a97a8;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .responsible-apply-btn {
   border: 1px solid var(--brand-border-mid);
   border-radius: 8px;
