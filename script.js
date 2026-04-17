@@ -135,7 +135,7 @@ const SYSTEM_DEPARTMENTS = [
 ];
 const STATUS_DECISION_OLD = "Треб. реш. рук.";
 const STATUS_DECISION = "Требует решение руководителя";
-const STATUS_OPTIONS = ["Новый", "В процессе", STATUS_DECISION, "Закрыт"];
+const STATUS_OPTIONS = ["Новый", "В процессе", "Закрыт"];
 
 /** Подписи месяцев для графика «Добавление задач по месяцам» (текущий год, ось X). */
 const REPORT_MONTH_LABELS_RU = ["Янв.", "Февр.", "Мар.", "Апр.", "Май", "Июн.", "Июл.", "Авг.", "Сен.", "Окт.", "Ноя.", "Дек."];
@@ -181,7 +181,7 @@ const TELEGRAM_STATUS_EMOJI = {
 
 function normalizeTaskStatusValue(raw) {
   const value = String(raw || "").trim();
-  if (value === STATUS_DECISION_OLD) return STATUS_DECISION;
+  if (value === STATUS_DECISION_OLD || value === STATUS_DECISION) return "В процессе";
   return value;
 }
 
@@ -1999,7 +1999,6 @@ const STATUS_TABS = [
   { id: "all", label: "Все статусы" },
   { id: "Новый", label: "Новый" },
   { id: "В процессе", label: "В процессе" },
-  { id: STATUS_DECISION, label: STATUS_DECISION },
   { id: "Закрыт", label: "Закрыт" },
   { id: "trash", label: "Корзина" }
 ];
@@ -8384,10 +8383,6 @@ function renderOtherSettingsPanel() {
               <input class="other-settings-checkbox" type="checkbox" data-setting="highlightClosed" ${displaySettings.highlightClosed ? "checked" : ""} />
               <span>Закрыт: светло-зеленый фон</span>
             </label>
-            <label class="settings-option">
-              <input class="other-settings-checkbox" type="checkbox" data-setting="highlightNeedDecision" ${displaySettings.highlightNeedDecision ? "checked" : ""} />
-              <span>${STATUS_DECISION}: светло-красный фон</span>
-            </label>
           </div>
           <div class="other-settings-block other-settings-block--tasks-list">
             <h4>Список задач</h4>
@@ -9692,7 +9687,7 @@ function resolveMediaPreviewForSlot(storedName, preview) {
 }
 
 function renderStatusStepper(currentStatus) {
-  const steps = ["Новый", "В процессе", STATUS_DECISION, "Закрыт"];
+  const steps = ["Новый", "В процессе", "Закрыт"];
   const currentIndex = getStatusStepIndex(currentStatus);
   const safeIndex = currentIndex >= 0 ? currentIndex : 0;
   const progress = steps.length > 1 ? (safeIndex / (steps.length - 1)) * 100 : 0;
@@ -9706,8 +9701,7 @@ function renderStatusStepper(currentStatus) {
 }
 
 function getStatusStepIndex(status) {
-  if (status === "Закрыт") return 3;
-  if (status === STATUS_DECISION || status === STATUS_DECISION_OLD) return 2;
+  if (status === "Закрыт") return 2;
   if (status === "В процессе") return 1;
   return 0;
 }

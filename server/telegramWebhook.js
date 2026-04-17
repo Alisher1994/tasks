@@ -6,7 +6,7 @@
 
 const STATUS_DECISION_OLD = "Треб. реш. рук.";
 const STATUS_DECISION = "Требует решение руководителя";
-const EMPLOYEE_STATUS_OPTIONS = ["В процессе", STATUS_DECISION, "Закрыт"];
+const EMPLOYEE_STATUS_OPTIONS = ["В процессе", "Закрыт"];
 const STATUS_EMOJI = {
   Новый: "🟣",
   "В процессе": "🟡",
@@ -67,7 +67,7 @@ function normalizeTaskColumnLabel(raw) {
 
 function normalizeTaskStatusValue(raw) {
   const value = String(raw || "").trim();
-  if (value === STATUS_DECISION_OLD) return STATUS_DECISION;
+  if (value === STATUS_DECISION_OLD || value === STATUS_DECISION) return "В процессе";
   return value;
 }
 
