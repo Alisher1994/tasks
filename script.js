@@ -9768,6 +9768,127 @@ function exportRowsToCsv(section, filteredEntries, downloadName) {
   URL.revokeObjectURL(url);
 }
 
+function printSectionTablePdf(section, filteredEntries) {
+  ensureColumnDisplayState(section);
+  const visibleColumnIndexes = getVisibleColumnIndexes(section);
+  const showHeaderNumbers = headerNumberingBySection[section.id] !== false;
+  const colCount = Math.max(1, visibleColumnIndexes.length);
+  const fontSize = colCount >= 18 ? 7 : colCount >= 14 ? 8 : 9;
+  const cellPadY = colCount >= 16 ? 3 : 5;
+  const cellPadX = colCount >= 16 ? 4 : 6;
+
+  const now = new Date();
+  const p2 = (v) => String(v).padStart(2, "0");
+  const generatedAt = `${p2(now.getDate())}.${p2(now.getMonth() + 1)}.${now.getFullYear()} ${p2(now.getHours())}:${p2(now.getMinutes())}`;
+  const logoUrl = `${window.location.origin}/horizontal-v1.svg`;
+
+  const headerMain = visibleColumnIndexes
+    .map((colIndex) => `<th>${escapeHtmlText(String(section.columns[colIndex] || ""))}</th>`)
+    .join("");
+  const headerNumbers = showHeaderNumbers
+    ? `<tr class="pdf-head-order">${visibleColumnIndexes.map((_, i) => `<th>${i + 1}</th>`).join("")}</tr>`
+    : "";
+  const bodyRows = filteredEntries.length
+    ? filteredEntries
+        .map((entry) => {
+          const tds = visibleColumnIndexes.map((colIndex) => {
+            const raw = String(entry.row?.[colIndex] ?? "");
+            const html = escapeHtmlText(raw).replace(/\r?\n/g, "<br>");
+            return `<td>${html || "—"}</td>`;
+          }).join("");
+          return `<tr>${tds}</tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="${visibleColumnIndexes.length}">Нет данных</td></tr>`;
+
+  const html = `
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <title>${escapeHtmlText(section.title)} — PDF</title>
+      <style>
+        @page { size: A4 landscape; margin: 8mm; }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        body { font-family: Inter, Segoe UI, Arial, sans-serif; color: #1f2a37; }
+        .pdf-root { width: 100%; }
+        .pdf-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          border-bottom: 1px solid #d7e0ea;
+          padding-bottom: 8px;
+          margin-bottom: 8px;
+        }
+        .pdf-logo { height: 28px; width: auto; object-fit: contain; }
+        .pdf-meta { text-align: right; font-size: 10px; color: #526174; }
+        .pdf-meta b { color: #1f2a37; }
+        .pdf-title { margin: 0 0 6px; font-size: 12px; font-weight: 700; color: #223247; }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+          font-size: ${fontSize}pt;
+        }
+        thead { display: table-header-group; }
+        tfoot { display: table-footer-group; }
+        tr { page-break-inside: avoid; }
+        th, td {
+          border: 1px solid #cfd8e3;
+          padding: ${cellPadY}px ${cellPadX}px;
+          vertical-align: top;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+        }
+        thead th {
+          background: #edf3f9;
+          font-weight: 700;
+          text-align: left;
+        }
+        thead tr.pdf-head-order th {
+          text-align: center;
+          font-weight: 500;
+          color: #5b6b7f;
+          border-top: none;
+          background: #f5f8fc;
+        }
+        tbody tr:nth-child(even) td { background: #fbfdff; }
+      </style>
+    </head>
+    <body>
+      <div class="pdf-root">
+        <div class="pdf-head">
+          <img src="${logoUrl}" alt="Логотип" class="pdf-logo" />
+          <div class="pdf-meta">
+            <div><b>${escapeHtmlText(section.title)}</b></div>
+            <div>Дата формирования отчёта: ${generatedAt}</div>
+          </div>
+        </div>
+        <h1 class="pdf-title">Табличная часть</h1>
+        <table>
+          <thead>
+            <tr>${headerMain}</tr>
+            ${headerNumbers}
+          </thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      </div>
+    </body>
+  </html>`;
+
+  const win = window.open("", "_blank");
+  if (!win) {
+    showStatusDialog({ title: "Печать", message: "Разрешите всплывающие окна для формирования PDF.", type: "error" });
+    return;
+  }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 180);
+}
+
 function openExportFormatModal(section, filteredEntries) {
   const overlay = document.createElement("div");
   overlay.className = "responsible-modal-overlay";
@@ -9788,7 +9909,7 @@ function openExportFormatModal(section, filteredEntries) {
   const close = () => overlay.remove();
   overlay.querySelector(".export-format-pdf-btn")?.addEventListener("click", () => {
     close();
-    window.print();
+    printSectionTablePdf(section, filteredEntries);
   });
   overlay.querySelector(".export-format-xls-btn")?.addEventListener("click", () => {
     close();
