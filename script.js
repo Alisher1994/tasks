@@ -17,7 +17,9 @@ const loginPhoneCountryBtn = document.getElementById("loginPhoneCountryBtn");
 const AUTH_PHONE = "+998994067406";
 const AUTH_PASSWORD = "7406";
 const DEFAULT_PHONE_PREFIX = "+";
-const PHONE_MAX_LENGTH = 18;
+const PHONE_MIN_DIGITS = 8;
+const PHONE_MAX_DIGITS = 15;
+const PHONE_MAX_LENGTH = PHONE_MAX_DIGITS + 1;
 const REPORT_SHARE_STORAGE_KEY = "mbc_report_share_links";
 /** JWT при работе с сервером (Railway) */
 const AUTH_TOKEN_KEY = "mbc_jwt";
@@ -4963,6 +4965,15 @@ function phoneFlagByValue(rawPhone) {
   return flagEmojiFromIso2(iso);
 }
 
+function getPhoneDigitsCount(rawPhone) {
+  return normalizeUzPhone(rawPhone).replace(/\D/g, "").length;
+}
+
+function isPhoneLengthValid(rawPhone) {
+  const len = getPhoneDigitsCount(rawPhone);
+  return len >= PHONE_MIN_DIGITS && len <= PHONE_MAX_DIGITS;
+}
+
 function detectDialCodeByPhone(rawPhone) {
   const digits = normalizeUzPhone(rawPhone).replace(/\D/g, "");
   if (!digits) return "";
@@ -4984,6 +4995,14 @@ function buildCountryPhoneOptions() {
       name: COUNTRY_NAME_BY_ISO[iso] || iso
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+}
+
+function applyCountryDialToPhone(rawPhone, selectedDial) {
+  const normalized = normalizeUzPhone(rawPhone);
+  const digits = normalized.replace(/\D/g, "");
+  const prevDial = detectDialCodeByPhone(normalized);
+  const national = prevDial && digits.startsWith(prevDial) ? digits.slice(prevDial.length) : digits;
+  return normalizeUzPhone(`+${selectedDial}${national}`);
 }
 
 function openLoginCountryPickerModal() {
@@ -5040,11 +5059,7 @@ function openLoginCountryPickerModal() {
     phoneInput.focus();
   });
   applyBtn?.addEventListener("click", () => {
-    const normalized = normalizeUzPhone(phoneInput.value);
-    const digits = normalized.replace(/\D/g, "");
-    const prevDial = detectDialCodeByPhone(normalized);
-    const national = prevDial && digits.startsWith(prevDial) ? digits.slice(prevDial.length) : digits;
-    phoneInput.value = normalizeUzPhone(`+${selectedDial}${national}`);
+    phoneInput.value = applyCountryDialToPhone(phoneInput.value, selectedDial);
     enforceUzPhonePrefix();
     overlay.remove();
     phoneInput.focus();
@@ -6234,6 +6249,10 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
     });
     return;
   }
+  if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.phone) {
+    openEmployeePhoneEditorModal(section, rowIndex, colIndex);
+    return;
+  }
   if (section.id === "departments" && colIndex === 2) {
     openEmployeeLookupModal("Выбор руководителя отдела", row[2], (value) => {
       row[2] = value;
@@ -7154,6 +7173,141 @@ function openEmployeeLookupModal(title, currentValue, onApply, historyCtx) {
 
   renderOptions();
   search?.focus();
+}
+
+function openEmployeePhoneEditorModal(section, rowIndex, colIndex) {
+  const row = section.rows[rowIndex];
+  if (!row) return;
+  const prevValue = String(row[colIndex] || "");
+
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal">
+      <h4>Номер телефона</h4>
+      <div class="phone-input-wrap">
+        <button type="button" class="phone-input-flag-btn" id="employeePhoneCountryBtn" title="Выбрать страну">
+          <span class="phone-input-flag" id="employeePhoneFlag">🌐</span>
+        </button>
+        <input type="tel" inputmode="tel" class="cell-editor" id="employeePhoneInput" value="${escapeHtmlAttr(
+          formatUzPhoneDisplay(normalizeUzPhone(prevValue || DEFAULT_PHONE_PREFIX))
+        )}" maxlength="${PHONE_MAX_LENGTH}" autocomplete="off" />
+      </div>
+      <div class="responsible-option-empty" style="margin-top:8px">Формат: +код_страны номер (${PHONE_MIN_DIGITS}-${PHONE_MAX_DIGITS} цифр).</div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary responsible-cancel-btn">Отмена</button>
+        <button type="button" class="responsible-apply-btn">Сохранить</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const input = overlay.querySelector("#employeePhoneInput");
+  const flag = overlay.querySelector("#employeePhoneFlag");
+  const countryBtn = overlay.querySelector("#employeePhoneCountryBtn");
+  const cancelBtn = overlay.querySelector(".responsible-cancel-btn");
+  const applyBtn = overlay.querySelector(".responsible-apply-btn");
+
+  const updateLocalFlag = () => {
+    if (!flag || !input) return;
+    flag.textContent = phoneFlagByValue(input.value);
+  };
+
+  const openCountryPickerForEmployeePhone = () => {
+    if (!input) return;
+    const options = buildCountryPhoneOptions();
+    let selectedDial = detectDialCodeByPhone(input.value) || "998";
+
+    const second = document.createElement("div");
+    second.className = "responsible-modal-overlay";
+    second.innerHTML = `
+      <div class="responsible-modal">
+        <h4>Выбор страны</h4>
+        <input type="text" class="responsible-modal-search" placeholder="Поиск страны или кода..." />
+        <div class="responsible-modal-list"></div>
+        <div class="responsible-modal-actions">
+          <button type="button" class="secondary responsible-cancel-btn">Отмена</button>
+          <button type="button" class="responsible-apply-btn">Выбрать</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(second);
+
+    const list = second.querySelector(".responsible-modal-list");
+    const search = second.querySelector(".responsible-modal-search");
+    const secondCancel = second.querySelector(".responsible-cancel-btn");
+    const secondApply = second.querySelector(".responsible-apply-btn");
+
+    const render = () => {
+      const q = String(search?.value || "").trim().toLowerCase();
+      const filtered = options.filter((opt) => {
+        if (!q) return true;
+        return opt.name.toLowerCase().includes(q) || opt.iso.toLowerCase().includes(q) || `+${opt.dial}`.includes(q);
+      });
+      list.innerHTML = filtered.length
+        ? filtered.map((opt) => `
+          <label class="responsible-option-item">
+            <input type="radio" name="employeeCountryDial" value="${opt.dial}" ${opt.dial === selectedDial ? "checked" : ""} />
+            <span class="responsible-option-name">${opt.flag} ${escapeHtmlText(opt.name)}</span>
+            <span class="responsible-option-role">+${opt.dial}</span>
+          </label>
+        `).join("")
+        : '<div class="responsible-option-empty">Ничего не найдено</div>';
+    };
+
+    list.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || target.type !== "radio") return;
+      selectedDial = String(target.value || "").trim();
+    });
+    search?.addEventListener("input", render);
+    secondCancel?.addEventListener("click", () => second.remove());
+    secondApply?.addEventListener("click", () => {
+      input.value = applyCountryDialToPhone(input.value, selectedDial);
+      input.value = formatUzPhoneDisplay(input.value);
+      updateLocalFlag();
+      second.remove();
+      input.focus();
+    });
+    second.addEventListener("click", (event) => {
+      if (event.target === second) second.remove();
+    });
+    render();
+    search?.focus();
+  };
+
+  input?.addEventListener("input", () => {
+    input.value = formatUzPhoneDisplay(normalizeUzPhone(input.value));
+    updateLocalFlag();
+  });
+  countryBtn?.addEventListener("click", openCountryPickerForEmployeePhone);
+  cancelBtn?.addEventListener("click", () => {
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
+  applyBtn?.addEventListener("click", () => {
+    const normalized = normalizeUzPhone(input?.value || "");
+    if (!isPhoneLengthValid(normalized)) {
+      window.alert(`Введите корректный номер (${PHONE_MIN_DIGITS}-${PHONE_MAX_DIGITS} цифр после +).`);
+      input?.focus();
+      return;
+    }
+    row.__prevEmployeePhoneForNormalize = prevValue;
+    row[colIndex] = normalized;
+    normalizeRowAfterEdit(section, rowIndex, colIndex);
+    saveSectionsData();
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      overlay.remove();
+      renderTablePreserveScroll();
+    }
+  });
+
+  updateLocalFlag();
+  input?.focus();
 }
 
 function openReportFilterPickerModal(title, allLabel, items, currentValue, onApply) {
@@ -9389,6 +9543,12 @@ loginForm.addEventListener("submit", async (event) => {
   const formData = new FormData(loginForm);
   const phone = normalizeUzPhone(String(formData.get("phone") || ""));
   const password = String(formData.get("password") || "");
+  if (!isPhoneLengthValid(phone)) {
+    loginError.textContent = `Введите корректный номер (${PHONE_MIN_DIGITS}-${PHONE_MAX_DIGITS} цифр после +).`;
+    loginError.classList.remove("hidden");
+    return;
+  }
+  loginError.textContent = "Неверный логин или пароль";
 
   if (isHostedRuntime()) {
     try {

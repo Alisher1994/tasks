@@ -123,6 +123,8 @@ h3 {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  color: #1f2a37;
+  z-index: 2;
 }
 
 .phone-input-flag-btn:hover {
@@ -142,7 +144,7 @@ h3 {
 }
 
 .phone-input-wrap input {
-  padding-left: 36px;
+  padding-left: 42px;
 }
 
 .password-field {
