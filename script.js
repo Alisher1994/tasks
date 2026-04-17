@@ -392,6 +392,55 @@ async function pushAppToServerImmediate() {
   }
 }
 
+function mergeBotManagedTaskFieldsIntoLocalRow(localRow, remoteRow) {
+  if (!Array.isArray(localRow) || !Array.isArray(remoteRow)) return false;
+  let changed = false;
+
+  // Статус и комментарий сотрудника приходят из Telegram и должны иметь приоритет над устаревшей локальной копией.
+  const remoteStatus = normalizeTaskStatusValue(remoteRow[TASK_COLUMNS.status]);
+  const localStatus = normalizeTaskStatusValue(localRow[TASK_COLUMNS.status]);
+  if (String(remoteStatus || "") !== String(localStatus || "")) {
+    localRow[TASK_COLUMNS.status] = remoteStatus;
+    changed = true;
+  }
+
+  const syncTextField = (colIndex) => {
+    const remoteVal = String(remoteRow[colIndex] ?? "");
+    const localVal = String(localRow[colIndex] ?? "");
+    if (remoteVal !== localVal) {
+      localRow[colIndex] = remoteVal;
+      changed = true;
+    }
+  };
+
+  syncTextField(TASK_COLUMNS.plan);
+  syncTextField(TASK_COLUMNS.mediaAfter);
+  syncTextField(TASK_COLUMNS.closedDate);
+
+  // Поле «Прочитано» обновляем безопасно: всегда берём серверный признак прочтения, если он true.
+  const localRead = getTaskReadStateParts(localRow[TASK_COLUMNS.readState]);
+  const remoteRead = getTaskReadStateParts(remoteRow[TASK_COLUMNS.readState]);
+  if (remoteRead.isRead && !localRead.isRead) {
+    localRow[TASK_COLUMNS.readState] = String(remoteRow[TASK_COLUMNS.readState] || composeTaskReadState(true, "—"));
+    changed = true;
+  } else if (String(localRow[TASK_COLUMNS.readState] ?? "") !== String(remoteRow[TASK_COLUMNS.readState] ?? "")) {
+    localRow[TASK_COLUMNS.readState] = String(remoteRow[TASK_COLUMNS.readState] ?? "");
+    changed = true;
+  }
+
+  const localSent = String(localRow[TASK_COLUMNS.lastSentAt] || "").trim();
+  const remoteSent = String(remoteRow[TASK_COLUMNS.lastSentAt] || "").trim();
+  if ((!localSent || localSent === "—") && remoteSent && remoteSent !== "—") {
+    localRow[TASK_COLUMNS.lastSentAt] = remoteSent;
+    changed = true;
+  } else if (localSent !== remoteSent && remoteSent && remoteSent !== "—") {
+    localRow[TASK_COLUMNS.lastSentAt] = remoteSent;
+    changed = true;
+  }
+
+  return changed;
+}
+
 async function mergeTaskReadStateFromServer(localPayload) {
   if (!isHostedRuntime() || !getAuthToken()) return;
   if (!localPayload || typeof localPayload !== "object") return;
@@ -420,12 +469,7 @@ async function mergeTaskReadStateFromServer(localPayload) {
       if (!id) return;
       const remoteRow = remoteById.get(id);
       if (!remoteRow) return;
-      const localRead = getTaskReadStateParts(row[TASK_COLUMNS.readState]);
-      const remoteRead = getTaskReadStateParts(remoteRow[TASK_COLUMNS.readState]);
-      // Если сервер уже отметил «Прочитано», не даём локальной устаревшей копии перетереть это состояние.
-      if (remoteRead.isRead && !localRead.isRead) {
-        row[TASK_COLUMNS.readState] = String(remoteRow[TASK_COLUMNS.readState] || composeTaskReadState(true, "—"));
-      }
+      mergeBotManagedTaskFieldsIntoLocalRow(row, remoteRow);
     });
   } catch (_) {
     /* noop */
@@ -457,18 +501,7 @@ async function pullTaskReadStateFromServerIntoLocal({ rerender = true } = {}) {
       if (!id) return;
       const remoteRow = remoteById.get(id);
       if (!remoteRow) return;
-      const localRead = getTaskReadStateParts(row[TASK_COLUMNS.readState]);
-      const remoteRead = getTaskReadStateParts(remoteRow[TASK_COLUMNS.readState]);
-      if (remoteRead.isRead && !localRead.isRead) {
-        row[TASK_COLUMNS.readState] = String(remoteRow[TASK_COLUMNS.readState] || composeTaskReadState(true, "—"));
-        changed = true;
-      }
-      const localSent = String(row[TASK_COLUMNS.lastSentAt] || "").trim();
-      const remoteSent = String(remoteRow[TASK_COLUMNS.lastSentAt] || "").trim();
-      if ((!localSent || localSent === "—") && remoteSent && remoteSent !== "—") {
-        row[TASK_COLUMNS.lastSentAt] = remoteSent;
-        changed = true;
-      }
+      changed = mergeBotManagedTaskFieldsIntoLocalRow(row, remoteRow) || changed;
     });
     if (changed) {
       try {
