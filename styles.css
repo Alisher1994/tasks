@@ -2547,33 +2547,49 @@ button.task-card-tab.is-active {
 .status-dialog-box {
   width: min(560px, 100%);
   background: #ffffff;
-  border: 1px solid #d8dfec;
-  border-radius: 16px;
+  border: 1px solid var(--brand-border-soft);
+  border-radius: 12px;
   color: #1f2937;
-  padding: 20px 22px;
-  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.16);
+  padding: 18px 20px;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
 }
 
 .status-dialog-box h4 {
   margin: 0 0 10px;
-  font-size: 30px;
+  font-size: 18px;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.25;
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  color: #2a3748;
 }
 
 .status-dialog-box.is-success h4 {
-  color: #0f9d58;
+  color: #2a3748;
+}
+
+.status-dialog-box.is-success {
+  background: #ffffff;
+  border-color: var(--brand-border-soft);
 }
 
 .status-dialog-box.is-error h4 {
-  color: #d14343;
+  color: #2a3748;
+}
+
+.status-dialog-box.is-error {
+  background: #fffafa;
+  border-color: #e7c9c9;
 }
 
 .status-dialog-box.is-info h4 {
-  color: #4d69c3;
+  color: #2a3748;
+}
+
+.status-dialog-box.is-info {
+  background: #ffffff;
+  border-color: var(--brand-border-soft);
 }
 
 .status-dialog-message {
