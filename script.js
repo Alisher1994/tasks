@@ -276,7 +276,18 @@ function setAuthToken(token) {
 
 function setAppBootLoading(isLoading) {
   const active = Boolean(isLoading);
-  document.body.classList.toggle("app-booting", active);
+  clearTimeout(bootLoaderCloseTimer);
+  if (active) {
+    document.body.classList.remove("app-boot-closing");
+    document.body.classList.add("app-booting");
+  } else {
+    if (!document.body.classList.contains("app-booting")) return;
+    document.body.classList.remove("app-booting");
+    document.body.classList.add("app-boot-closing");
+    bootLoaderCloseTimer = setTimeout(() => {
+      document.body.classList.remove("app-boot-closing");
+    }, 240);
+  }
   const loader = document.getElementById("appBootLoader");
   if (loader) loader.setAttribute("aria-hidden", active ? "false" : "true");
 }
@@ -390,6 +401,7 @@ let overdueNotifyInFlight = false;
 let hasUnsyncedLocalChanges = false;
 let serverPushInFlight = false;
 let authExpiredNoticeShown = false;
+let bootLoaderCloseTimer = null;
 let sessionIdleCheckTimer = null;
 let sessionActivityListenersBound = false;
 let lastSessionActivityWriteAt = 0;
@@ -11432,6 +11444,7 @@ function looksLikePersonName(value) {
 function looksLikeTaskText(value) {
   const text = String(value || "").trim();
   if (!text) return false;
+  if (looksLikePersonName(text)) return false;
   if (text.length < 10) return false;
   const words = text.split(/\s+/).filter(Boolean);
   return words.length >= 2;

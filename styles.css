@@ -39,6 +39,10 @@ body.app-booting .page {
   visibility: hidden;
 }
 
+body.app-boot-closing .page {
+  visibility: visible;
+}
+
 .page {
   max-width: 1800px;
   width: 98vw;
@@ -1613,10 +1617,19 @@ tr:nth-child(even) td {
   justify-content: center;
   background: rgba(242, 245, 249, 0.94);
   backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+body.app-booting .app-boot-loader,
+body.app-boot-closing .app-boot-loader {
+  display: flex;
 }
 
 body.app-booting .app-boot-loader {
-  display: flex;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .app-boot-loader__card {
@@ -1645,12 +1658,6 @@ body.app-booting .app-boot-loader {
   font-size: 15px;
   font-weight: 700;
   color: #1f2a37;
-}
-
-.app-boot-loader__subtitle {
-  font-size: 12px;
-  color: #6b7786;
-  text-align: center;
 }
 
 @keyframes app-loader-spin {
