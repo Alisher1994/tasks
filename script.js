@@ -3291,6 +3291,88 @@ async function runOverdueTaskNotificationTick() {
   }
 }
 
+async function triggerOverdueTaskManualNotifications() {
+  if (!getAuthToken()) {
+    showStatusDialog({
+      title: "Просроченные задачи",
+      message: "Ручная отправка доступна после входа в систему.",
+      type: "error"
+    });
+    return false;
+  }
+  const token = String(displaySettings.telegramBotToken || "").trim();
+  if (!token) {
+    showStatusDialog({
+      title: "Просроченные задачи",
+      message: "Укажите токен Telegram-бота в настройках Telegram.",
+      type: "error"
+    });
+    return false;
+  }
+  const rows = getSectionById("tasks")?.rows || [];
+  const today = getTodayStorageDateInTimezone();
+  const todayParts = parseRuDateStringToParts(today);
+  if (!todayParts) {
+    showStatusDialog({
+      title: "Просроченные задачи",
+      message: "Не удалось определить текущую дату для проверки просрочки.",
+      type: "error"
+    });
+    return false;
+  }
+
+  const overdueRows = rows
+    .map((row) => {
+      const status = String(row[TASK_COLUMNS.status] || "").trim();
+      if (status === "Закрыт") return null;
+      const due = parseRuDateStringToParts(String(row[TASK_COLUMNS.dueDate] || "").trim());
+      if (!due) return null;
+      const diff = calendarDiffDays(due, todayParts);
+      if (diff <= 0) return null;
+      return { row, diff };
+    })
+    .filter(Boolean);
+
+  if (!overdueRows.length) {
+    showStatusDialog({
+      title: "Просроченные задачи",
+      message: "На сегодня просроченных задач нет.",
+      type: "info"
+    });
+    return true;
+  }
+
+  let sentTasks = 0;
+  let noRecipients = 0;
+  let failed = 0;
+  for (const item of overdueRows) {
+    const result = await sendOverdueTaskNotification(item.row, item.diff, token);
+    if (result.ok) {
+      sentTasks += 1;
+      continue;
+    }
+    if (result.reason === "no_recipients" || result.reason === "no_targets") {
+      noRecipients += 1;
+    } else {
+      failed += 1;
+    }
+  }
+
+  const lines = [
+    `Просроченных задач: ${overdueRows.length}.`,
+    `Уведомления отправлены по задачам: ${sentTasks}.`
+  ];
+  if (noRecipients) lines.push(`Без получателей (нет Telegram/Chat ID): ${noRecipients}.`);
+  if (failed) lines.push(`Ошибки отправки: ${failed}.`);
+
+  showStatusDialog({
+    title: "Просроченные задачи",
+    message: lines.join("\n"),
+    type: sentTasks > 0 ? "success" : "error"
+  });
+  return sentTasks > 0;
+}
+
 function startOverdueTaskNotificationsScheduler() {
   clearInterval(overdueNotifyTimer);
   overdueNotifyTimer = null;
@@ -3520,6 +3602,10 @@ function renderTable() {
                 <rect x="14" y="34" width="12" height="3" rx="1.5" fill="#fff"/>
               </svg>
             </span>
+          </button>` : ""}
+          ${section.id === "tasks" ? `
+          <button type="button" class="icon-action-btn" id="sendOverdueTasksBtn" title="Отправить просроченные">
+            <i data-lucide="bell-ring" class="lucide-icon" aria-hidden="true"></i>
           </button>` : ""}
           <button type="button" class="icon-action-btn refresh-section-btn" id="refreshSectionBtn" title="Обновить">
             <i data-lucide="refresh-cw" class="lucide-icon" aria-hidden="true"></i>
@@ -9123,6 +9209,7 @@ function fromInputDate(value) {
 function attachHeaderActionHandlers(section, filteredEntries) {
   const refreshSectionBtn = document.getElementById("refreshSectionBtn");
   const googleSheetsSyncTasksBtn = document.getElementById("googleSheetsSyncTasksBtn");
+  const sendOverdueTasksBtn = document.getElementById("sendOverdueTasksBtn");
   const openTaskImportModalBtn = document.getElementById("openTaskImportModalBtn");
   const addRowBtn = document.getElementById("addRowBtn");
   const toggleFiltersBtn = document.getElementById("toggleFiltersBtn");
@@ -9138,6 +9225,19 @@ function attachHeaderActionHandlers(section, filteredEntries) {
   if (googleSheetsSyncTasksBtn) {
     googleSheetsSyncTasksBtn.addEventListener("click", async () => {
       await triggerGoogleSheetsManualSync();
+    });
+  }
+  if (sendOverdueTasksBtn && section.id === "tasks") {
+    sendOverdueTasksBtn.addEventListener("click", async () => {
+      if (sendOverdueTasksBtn.dataset.busy === "1") return;
+      sendOverdueTasksBtn.dataset.busy = "1";
+      sendOverdueTasksBtn.disabled = true;
+      try {
+        await triggerOverdueTaskManualNotifications();
+      } finally {
+        sendOverdueTasksBtn.disabled = false;
+        sendOverdueTasksBtn.dataset.busy = "0";
+      }
     });
   }
 
