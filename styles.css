@@ -1680,6 +1680,7 @@ tr:nth-child(even) td {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+  table-layout: fixed;
 }
 
 .task-import-preview-table th,
@@ -1687,8 +1688,11 @@ tr:nth-child(even) td {
   border-bottom: 1px solid #edf2f8;
   border-right: 1px solid #edf2f8;
   padding: 6px 8px;
-  vertical-align: top;
+  vertical-align: middle;
   text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .task-import-preview-table th {

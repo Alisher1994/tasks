@@ -10254,7 +10254,14 @@ function openTaskImportModal(section) {
     }
     const head = TASK_IMPORT_COLUMNS.map((col) => `<th>${escapeHtmlText(col.label)}</th>`).join("");
     const body = parsedRows
-      .map((row, index) => `<tr><td>${index + 1}</td>${TASK_IMPORT_COLUMNS.map((col) => `<td>${escapeHtmlText(row[col.key] || "—")}</td>`).join("")}</tr>`)
+      .map((row, index) => {
+        const cells = TASK_IMPORT_COLUMNS.map((col) => {
+          const raw = String(row[col.key] || "—");
+          const safe = escapeHtmlText(raw);
+          return `<td title="${escapeHtmlAttr(raw)}">${safe}</td>`;
+        }).join("");
+        return `<tr><td>${index + 1}</td>${cells}</tr>`;
+      })
       .join("");
     previewWrap.innerHTML = `
       <table class="task-import-preview-table">
