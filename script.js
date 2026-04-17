@@ -42,11 +42,15 @@ const REPORT_PHASE_GROUP_SET = new Set(REPORT_PHASE_GROUP_IDS);
 const REPORT_CHART_TILE_META = {
   status: { wide: false },
   priority: { wide: false },
+  priorityDonut: { wide: false },
   months: { wide: true },
   overdue: { wide: true },
   phase: { wide: false },
+  phaseDonut: { wide: false },
   phaseSection: { wide: false },
+  phaseSectionDonut: { wide: false },
   phaseSubsection: { wide: true },
+  phaseSubsectionDonut: { wide: false },
   object: { wide: true },
   department: { wide: true },
   responsible: { wide: true }
@@ -3414,11 +3418,15 @@ function renderReportChartTileFragment(id, opts = {}) {
   const bodies = {
     status: `<h4>По статусам</h4><div class="report-canvas-wrap"><canvas id="reportChartStatus"></canvas></div>`,
     priority: `<h4>По приоритету</h4><div class="report-canvas-wrap"><canvas id="reportChartPriority"></canvas></div>`,
+    priorityDonut: `<h4>Приоритеты (donut)</h4><div class="report-canvas-wrap"><canvas id="reportChartPriorityDonut"></canvas></div>`,
     months: `<h4>Добавлено и закрыто по месяцам <span class="report-tile-year">${new Date().getFullYear()}</span></h4><div class="report-canvas-wrap report-canvas-tall"><canvas id="reportChartMonths"></canvas></div>`,
     overdue: `<h4>Просроченные задачи <span class="report-tile-note">(по объектам, топ)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartOverdueWrap"><canvas id="reportChartOverdue"></canvas></div>`,
     phase: `<h4>Топ фаз</h4><div class="report-canvas-wrap report-canvas-wrap--phase-h" id="reportChartPhaseWrap"><canvas id="reportChartPhase"></canvas></div>`,
+    phaseDonut: `<h4>Фазы (donut)</h4><div class="report-canvas-wrap"><canvas id="reportChartPhaseDonut"></canvas></div>`,
     phaseSection: `<h4>Разделы</h4><div class="report-canvas-wrap report-canvas-wrap--phase-h report-canvas-scroll" id="reportChartPhaseSectionWrap"><canvas id="reportChartPhaseSection"></canvas></div>`,
+    phaseSectionDonut: `<h4>Разделы (donut)</h4><div class="report-canvas-wrap"><canvas id="reportChartPhaseSectionDonut"></canvas></div>`,
     phaseSubsection: `<h4>Подразделы</h4><div class="report-canvas-wrap report-canvas-wrap--phase-h report-canvas-scroll" id="reportChartPhaseSubsectionWrap"><canvas id="reportChartPhaseSubsection"></canvas></div>`,
+    phaseSubsectionDonut: `<h4>Подразделы (donut)</h4><div class="report-canvas-wrap"><canvas id="reportChartPhaseSubsectionDonut"></canvas></div>`,
     object: `<h4>Объекты <span class="report-tile-note">(все, по убыванию; прокрутка)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartObjectWrap"><canvas id="reportChartObject"></canvas></div>`,
     department: `<h4>По отделам <span class="report-tile-note">(исполнитель → отдел из справочника)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartDepartmentWrap"><canvas id="reportChartDepartment"></canvas></div>`,
     responsible: `<h4>Исполнители <span class="report-tile-note">(по статусам, топ)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartResponsibleWrap"><canvas id="reportChartResponsible"></canvas></div>`
@@ -4265,6 +4273,10 @@ function buildTaskReportStats(rows) {
   const nameToDept = buildEmployeeNameToDepartmentMap();
   const departmentStatusMap = new Map();
   const responsibleStatusMap = new Map();
+  const objectStatusMap = new Map();
+  const phaseStatusMap = new Map();
+  const phaseSectionStatusMap = new Map();
+  const phaseSubsectionStatusMap = new Map();
 
   rows.forEach((row) => {
     const st = String(row[TASK_COLUMNS.status] || "").trim() || REPORT_NO_STATUS_LABEL;
@@ -4307,8 +4319,7 @@ function buildTaskReportStats(rows) {
       overdueByObject[obO] = (overdueByObject[obO] || 0) + 1;
     }
 
-    const stDept = String(row[TASK_COLUMNS.status] || "").trim();
-    if (STATUS_OPTIONS.includes(stDept)) {
+    if (STATUS_OPTIONS.includes(st)) {
       const respRaw = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
       const respLabel = respRaw || "— не назначен —";
       if (!responsibleStatusMap.has(respLabel)) {
@@ -4316,7 +4327,7 @@ function buildTaskReportStats(rows) {
         for (const st of STATUS_OPTIONS) o[st] = 0;
         responsibleStatusMap.set(respLabel, o);
       }
-      responsibleStatusMap.get(respLabel)[stDept] += 1;
+      responsibleStatusMap.get(respLabel)[st] += 1;
 
       let deptLabel;
       if (!respRaw) deptLabel = "— не назначен —";
@@ -4329,7 +4340,35 @@ function buildTaskReportStats(rows) {
         for (const st of STATUS_OPTIONS) o[st] = 0;
         departmentStatusMap.set(deptLabel, o);
       }
-      departmentStatusMap.get(deptLabel)[stDept] += 1;
+      departmentStatusMap.get(deptLabel)[st] += 1;
+
+      if (!objectStatusMap.has(ob)) {
+        const o = {};
+        for (const st of STATUS_OPTIONS) o[st] = 0;
+        objectStatusMap.set(ob, o);
+      }
+      objectStatusMap.get(ob)[st] += 1;
+
+      if (!phaseStatusMap.has(ph)) {
+        const o = {};
+        for (const st of STATUS_OPTIONS) o[st] = 0;
+        phaseStatusMap.set(ph, o);
+      }
+      phaseStatusMap.get(ph)[st] += 1;
+
+      if (!phaseSectionStatusMap.has(psec)) {
+        const o = {};
+        for (const st of STATUS_OPTIONS) o[st] = 0;
+        phaseSectionStatusMap.set(psec, o);
+      }
+      phaseSectionStatusMap.get(psec)[st] += 1;
+
+      if (!phaseSubsectionStatusMap.has(psub)) {
+        const o = {};
+        for (const st of STATUS_OPTIONS) o[st] = 0;
+        phaseSubsectionStatusMap.set(psub, o);
+      }
+      phaseSubsectionStatusMap.get(psub)[st] += 1;
     }
   });
 
@@ -4340,22 +4379,23 @@ function buildTaskReportStats(rows) {
 
   const monthKeysSorted = Object.keys(monthCounts).sort();
 
-  const deptLabelsSorted = Array.from(departmentStatusMap.keys()).sort((a, b) => {
-    const sum = (key) => STATUS_OPTIONS.reduce((s, st) => s + (departmentStatusMap.get(key)[st] || 0), 0);
-    const ta = sum(a);
-    const tb = sum(b);
-    if (tb !== ta) return tb - ta;
-    return String(a).localeCompare(String(b), "ru");
-  });
-  const departmentStacked =
-    deptLabelsSorted.length > 0
+  const buildStatusStacked = (statusMap, stackId, maxItems = null) => {
+    const labelsSorted = Array.from(statusMap.keys()).sort((a, b) => {
+      const sum = (key) => STATUS_OPTIONS.reduce((s, st) => s + (statusMap.get(key)[st] || 0), 0);
+      const ta = sum(a);
+      const tb = sum(b);
+      if (tb !== ta) return tb - ta;
+      return String(a).localeCompare(String(b), "ru");
+    });
+    const labels = maxItems ? labelsSorted.slice(0, maxItems) : labelsSorted;
+    return labels.length > 0
       ? {
-          labels: deptLabelsSorted,
+          labels,
           datasets: STATUS_OPTIONS.map((st) => ({
             label: st,
-            data: deptLabelsSorted.map((lab) => departmentStatusMap.get(lab)[st] || 0),
+            data: labels.map((lab) => statusMap.get(lab)[st] || 0),
             backgroundColor: colorForStatusLabel(st),
-            stack: "dept"
+            stack: stackId
           }))
         }
       : {
@@ -4364,37 +4404,17 @@ function buildTaskReportStats(rows) {
             label: st,
             data: [0],
             backgroundColor: colorForStatusLabel(st),
-            stack: "dept"
+            stack: stackId
           }))
         };
+  };
 
-  const respLabelsSorted = Array.from(responsibleStatusMap.keys()).sort((a, b) => {
-    const sum = (key) => STATUS_OPTIONS.reduce((s, st) => s + (responsibleStatusMap.get(key)[st] || 0), 0);
-    const ta = sum(a);
-    const tb = sum(b);
-    if (tb !== ta) return tb - ta;
-    return String(a).localeCompare(String(b), "ru");
-  }).slice(0, 10);
-  const responsibleStacked =
-    respLabelsSorted.length > 0
-      ? {
-          labels: respLabelsSorted,
-          datasets: STATUS_OPTIONS.map((st) => ({
-            label: st,
-            data: respLabelsSorted.map((lab) => responsibleStatusMap.get(lab)[st] || 0),
-            backgroundColor: colorForStatusLabel(st),
-            stack: "resp"
-          }))
-        }
-      : {
-          labels: ["Нет данных"],
-          datasets: STATUS_OPTIONS.map((st) => ({
-            label: st,
-            data: [0],
-            backgroundColor: colorForStatusLabel(st),
-            stack: "resp"
-          }))
-        };
+  const departmentStacked = buildStatusStacked(departmentStatusMap, "dept");
+  const responsibleStacked = buildStatusStacked(responsibleStatusMap, "resp", 10);
+  const objectStacked = buildStatusStacked(objectStatusMap, "obj");
+  const phaseStacked = buildStatusStacked(phaseStatusMap, "ph", 10);
+  const phaseSectionStacked = buildStatusStacked(phaseSectionStatusMap, "phsec");
+  const phaseSubsectionStacked = buildStatusStacked(phaseSubsectionStatusMap, "phsub");
 
   return {
     statusCounts,
@@ -4410,6 +4430,10 @@ function buildTaskReportStats(rows) {
     overdueTop: topEntries(overdueByObject, 12),
     departmentStacked,
     responsibleStacked,
+    objectStacked,
+    phaseStacked,
+    phaseSectionStacked,
+    phaseSubsectionStacked,
     total: rows.length
   };
 }
@@ -4711,11 +4735,7 @@ function attachReportCharts() {
   const dlDonut = hasDl
     ? {
         formatter: (value) => (Number(value) > 0 ? String(Math.round(Number(value))) : ""),
-        color: (ctx) => {
-          const lab = ctx.chart.data.labels[ctx.dataIndex];
-          if (lab === "Нет данных") return "#94a3b8";
-          return STATUS_CHART_COLORS_ACCENT[lab] || "#475569";
-        },
+        color: "#334155",
         font: { weight: "700", size: 10 },
         textAlign: "center",
         anchor: "end",
@@ -4723,6 +4743,16 @@ function attachReportCharts() {
         offset: 4,
         clamp: true,
         clip: false
+      }
+    : { display: false };
+  const dlDonutStatus = hasDl
+    ? {
+        ...dlDonut,
+        color: (ctx) => {
+          const lab = ctx.chart.data.labels[ctx.dataIndex];
+          if (lab === "Нет данных") return "#94a3b8";
+          return STATUS_CHART_COLORS_ACCENT[lab] || "#475569";
+        }
       }
     : { display: false };
 
@@ -4810,7 +4840,7 @@ function attachReportCharts() {
                 }
               }
             },
-            datalabels: dlDonut
+            datalabels: dlDonutStatus
           }
         }
       })
@@ -4974,163 +5004,190 @@ function attachReportCharts() {
   const psec = s.phaseSectionAll.length ? s.phaseSectionAll : [["—", 0]];
   const psub = s.phaseSubsectionAll.length ? s.phaseSubsectionAll : [["—", 0]];
   applyReportPhaseTrioWrapHeights(ph.length, psec.length, psub.length);
-  const ctx4 = document.getElementById("reportChartPhase");
-  if (ctx4) {
-    reportChartInstances.push(
-      new Chart(ctx4, {
-        type: "bar",
-        data: {
-          labels: ph.map((x) => x[0]),
-          datasets: [
-            {
-              label: "Задач",
-              data: ph.map((x) => x[1]),
-              backgroundColor: (context) => {
-                const base = colorRot(context.dataIndex);
-                return reportBarGradientHorizontal(context.chart, base);
-              }
-            }
-          ]
-        },
-        options: {
-          ...common,
-          ...REPORT_HBAR_OPTIONS_THIN,
-          indexAxis: "y",
-          scales: { x: { ...REPORT_HBAR_SCALE_X } },
-          plugins: {
-            legend: { display: false },
-            datalabels: dlBarH
-          }
-        }
-      })
-    );
-  }
 
-  const ctxSec = document.getElementById("reportChartPhaseSection");
-  if (ctxSec) {
-    const n = psec.length;
-    reportChartInstances.push(
-      new Chart(ctxSec, {
-        type: "bar",
-        data: {
-          labels: psec.map((x) => x[0]),
-          datasets: [
-            {
-              label: "Задач",
-              data: psec.map((x) => x[1]),
-              backgroundColor: (context) => {
-                const base = colorRot(context.dataIndex + 1);
-                return reportBarGradientHorizontal(context.chart, base);
-              }
-            }
-          ]
-        },
-        options: {
-          ...common,
-          ...REPORT_HBAR_OPTIONS_THIN,
-          indexAxis: "y",
-          scales: {
-            x: { ...REPORT_HBAR_SCALE_X },
-            y: {
-              ticks: {
-                autoSkip: false,
-                font: { size: n > 40 ? 9 : 11 }
-              }
-            }
-          },
-          plugins: {
-            legend: { display: false },
-            datalabels: hasDl ? makeDlBarHLong(n) : { display: false }
-          }
+  const renderStatusStackedHBar = (ctx, stacked, n, fontRule) => {
+    if (!ctx || !stacked?.datasets?.length) return;
+    const labelsCount = n || stacked.labels?.length || 1;
+    const dlStacked = hasDl
+      ? {
+          anchor: "center",
+          align: "center",
+          formatter: (v) => (Number(v) > 0 ? String(Math.round(Number(v))) : ""),
+          color: "#1e293b",
+          font: { weight: "600", size: 10 },
+          clamp: true,
+          clip: false,
+          display: (c) => Number(c.dataset.data[c.dataIndex]) > 0
         }
-      })
-    );
-  }
-
-  const ctxSub = document.getElementById("reportChartPhaseSubsection");
-  if (ctxSub) {
-    const n = psub.length;
+      : { display: false };
     reportChartInstances.push(
-      new Chart(ctxSub, {
+      new Chart(ctx, {
         type: "bar",
         data: {
-          labels: psub.map((x) => x[0]),
-          datasets: [
-            {
-              label: "Задач",
-              data: psub.map((x) => x[1]),
-              backgroundColor: (context) => {
-                const base = colorRot(context.dataIndex + 2);
-                return reportBarGradientHorizontal(context.chart, base);
-              }
-            }
-          ]
-        },
-        options: {
-          ...common,
-          ...REPORT_HBAR_OPTIONS_THIN,
-          indexAxis: "y",
-          scales: {
-            x: { ...REPORT_HBAR_SCALE_X },
-            y: {
-              ticks: {
-                autoSkip: false,
-                font: { size: n > 40 ? 9 : 11 }
-              }
-            }
-          },
-          plugins: {
-            legend: { display: false },
-            datalabels: hasDl ? makeDlBarHLong(n) : { display: false }
-          }
-        }
-      })
-    );
-  }
-
-  const ob = s.objectAll.length ? s.objectAll : [["—", 0]];
-  const wrapObj = document.getElementById("reportChartObjectWrap");
-  setReportScrollableChartHeight(wrapObj, ob.length, { maxPx: 1200, minPx: 280, rowPx: 24 });
-  const ctx5 = document.getElementById("reportChartObject");
-  if (ctx5) {
-    const n = ob.length;
-    reportChartInstances.push(
-      new Chart(ctx5, {
-        type: "bar",
-        data: {
-          labels: ob.map((x) => x[0]),
-          datasets: [
-            {
-              label: "Задач",
-              data: ob.map((x) => x[1]),
-              backgroundColor: (context) => {
-                const base = colorRot(context.dataIndex + 3);
-                return reportBarGradientHorizontal(context.chart, base);
-              }
-            }
-          ]
+          labels: stacked.labels,
+          datasets: stacked.datasets
         },
         options: {
           ...common,
           ...REPORT_CHART_LABEL_SAFE_LAYOUT,
           indexAxis: "y",
+          datasets: {
+            bar: {
+              maxBarThickness: 28,
+              categoryPercentage: 0.82,
+              barPercentage: 0.9
+            }
+          },
           scales: {
-            x: { ...REPORT_HBAR_SCALE_X },
+            x: {
+              stacked: true,
+              ...REPORT_HBAR_SCALE_X
+            },
             y: {
+              stacked: true,
               ticks: {
                 autoSkip: false,
-                font: { size: n > 45 ? 8 : n > 25 ? 10 : 11 }
+                font: { size: typeof fontRule === "function" ? fontRule(labelsCount) : 11 }
               }
             }
           },
           plugins: {
-            legend: { display: false },
-            datalabels: hasDl ? makeDlBarHLong(n) : { display: false }
+            legend: {
+              display: true,
+              position: "top",
+              labels: { usePointStyle: true, padding: 12, font: { size: 11 } }
+            },
+            datalabels: dlStacked
+          }
+        }
+      })
+    );
+  };
+
+  const makeDonutSeries = (entries, colorOffset = 0) => {
+    const positive = entries.filter((x) => Number(x[1]) > 0);
+    const labels = positive.length ? positive.map((x) => x[0]) : ["Нет данных"];
+    const data = positive.length ? positive.map((x) => x[1]) : [0];
+    const colors = labels.map((_, i) => colorRot(i + colorOffset));
+    return { labels, data, colors };
+  };
+
+  const phaseDonutSeries = makeDonutSeries(s.phaseTop, 0);
+  const ctxPhaseDonut = document.getElementById("reportChartPhaseDonut");
+  if (ctxPhaseDonut) {
+    reportChartInstances.push(
+      new Chart(ctxPhaseDonut, {
+        type: "doughnut",
+        data: {
+          labels: phaseDonutSeries.labels,
+          datasets: [
+            {
+              data: phaseDonutSeries.data,
+              backgroundColor: phaseDonutSeries.colors,
+              borderColor: "#f8fafc",
+              borderWidth: 2
+            }
+          ]
+        },
+        options: {
+          ...common,
+          cutout: "52%",
+          plugins: {
+            legend: {
+              position: "bottom",
+              labels: { usePointStyle: true, padding: 10, font: { size: 11 } }
+            },
+            datalabels: dlDonut
           }
         }
       })
     );
   }
+
+  const phaseSectionDonutSeries = makeDonutSeries(s.phaseSectionAll, 1);
+  const ctxPhaseSectionDonut = document.getElementById("reportChartPhaseSectionDonut");
+  if (ctxPhaseSectionDonut) {
+    reportChartInstances.push(
+      new Chart(ctxPhaseSectionDonut, {
+        type: "doughnut",
+        data: {
+          labels: phaseSectionDonutSeries.labels,
+          datasets: [
+            {
+              data: phaseSectionDonutSeries.data,
+              backgroundColor: phaseSectionDonutSeries.colors,
+              borderColor: "#f8fafc",
+              borderWidth: 2
+            }
+          ]
+        },
+        options: {
+          ...common,
+          cutout: "52%",
+          plugins: {
+            legend: {
+              position: "bottom",
+              labels: { usePointStyle: true, padding: 10, font: { size: 11 } }
+            },
+            datalabels: dlDonut
+          }
+        }
+      })
+    );
+  }
+
+  const phaseSubsectionDonutSeries = makeDonutSeries(s.phaseSubsectionAll, 2);
+  const ctxPhaseSubsectionDonut = document.getElementById("reportChartPhaseSubsectionDonut");
+  if (ctxPhaseSubsectionDonut) {
+    reportChartInstances.push(
+      new Chart(ctxPhaseSubsectionDonut, {
+        type: "doughnut",
+        data: {
+          labels: phaseSubsectionDonutSeries.labels,
+          datasets: [
+            {
+              data: phaseSubsectionDonutSeries.data,
+              backgroundColor: phaseSubsectionDonutSeries.colors,
+              borderColor: "#f8fafc",
+              borderWidth: 2
+            }
+          ]
+        },
+        options: {
+          ...common,
+          cutout: "52%",
+          plugins: {
+            legend: {
+              position: "bottom",
+              labels: { usePointStyle: true, padding: 10, font: { size: 11 } }
+            },
+            datalabels: dlDonut
+          }
+        }
+      })
+    );
+  }
+
+  const phaseStack = s.phaseStacked;
+  const ctx4 = document.getElementById("reportChartPhase");
+  renderStatusStackedHBar(ctx4, phaseStack, phaseStack?.labels?.length || 1, (n) => (n > 20 ? 10 : 11));
+
+  const phaseSectionStack = s.phaseSectionStacked;
+  const ctxSec = document.getElementById("reportChartPhaseSection");
+  const nSec = phaseSectionStack?.labels?.length || 1;
+  renderStatusStackedHBar(ctxSec, phaseSectionStack, nSec, (n) => (n > 40 ? 9 : 11));
+
+  const phaseSubsectionStack = s.phaseSubsectionStacked;
+  const ctxSub = document.getElementById("reportChartPhaseSubsection");
+  const nSub = phaseSubsectionStack?.labels?.length || 1;
+  renderStatusStackedHBar(ctxSub, phaseSubsectionStack, nSub, (n) => (n > 40 ? 9 : 11));
+
+  const objectStack = s.objectStacked;
+  const wrapObj = document.getElementById("reportChartObjectWrap");
+  const nObj = objectStack?.labels?.length || 1;
+  setReportScrollableChartHeight(wrapObj, nObj, { maxPx: 1200, minPx: 280, rowPx: 24 });
+  const ctx5 = document.getElementById("reportChartObject");
+  renderStatusStackedHBar(ctx5, objectStack, nObj, (n) => (n > 45 ? 8 : n > 25 ? 10 : 11));
 
   const deptStack = s.departmentStacked;
   const wrapDept = document.getElementById("reportChartDepartmentWrap");
@@ -5254,6 +5311,37 @@ function attachReportCharts() {
               labels: { usePointStyle: true, padding: 12, font: { size: 11 } }
             },
             datalabels: dlRespStacked
+          }
+        }
+      })
+    );
+  }
+
+  const ctxPriorityDonut = document.getElementById("reportChartPriorityDonut");
+  if (ctxPriorityDonut) {
+    reportChartInstances.push(
+      new Chart(ctxPriorityDonut, {
+        type: "doughnut",
+        data: {
+          labels: prLabelsFinal,
+          datasets: [
+            {
+              data: prDataFinal,
+              backgroundColor: prLabelsFinal.map((_, i) => colorRot(i + 2)),
+              borderColor: "#f8fafc",
+              borderWidth: 2
+            }
+          ]
+        },
+        options: {
+          ...common,
+          cutout: "52%",
+          plugins: {
+            legend: {
+              position: "bottom",
+              labels: { usePointStyle: true, padding: 10, font: { size: 11 } }
+            },
+            datalabels: dlDonut
           }
         }
       })
