@@ -334,7 +334,7 @@ function buildFullTaskMessage(row) {
 }
 
 function taskCaptionWithPlan(row) {
-  const base = shortTaskCaption(row);
+  const base = buildFullTaskMessage(row);
   const plan = String(row[TASK_COLUMNS.plan] || "").trim();
   if (!plan) return base;
   const compactPlan = plan.length > 800 ? `${plan.slice(0, 797)}...` : plan;
