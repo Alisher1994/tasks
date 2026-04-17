@@ -10196,6 +10196,7 @@ function openExportFormatModal(section, filteredEntries) {
 
 function openTaskImportModal(section) {
   if (section.id !== "tasks") return;
+  const templateHeadHtml = TASK_IMPORT_COLUMNS.map((col) => `<th>${escapeHtmlText(col.label)}</th>`).join("");
   const overlay = document.createElement("div");
   overlay.className = "responsible-modal-overlay";
   overlay.innerHTML = `
@@ -10203,8 +10204,15 @@ function openTaskImportModal(section) {
       <h3>${withIcon("file-up", "Импорт задач")}</h3>
       <p class="hint">Скопируйте строки из Excel по шаблону ниже и вставьте сюда через Ctrl+V.</p>
       <div class="task-import-template-wrap">
-        <div class="task-import-template-head">Шаблон колонок для импорта</div>
-        <div class="task-import-template-row">${TASK_IMPORT_COLUMNS.map((col) => `<span>${escapeHtmlText(col.label)}</span>`).join("")}</div>
+        <div class="task-import-template-head">
+          <span>Шаблон колонок для импорта</span>
+          <button type="button" class="secondary task-import-download-template-btn" id="taskImportDownloadTemplateBtn">Скачать шаблон</button>
+        </div>
+        <div class="task-import-template-table-wrap">
+          <table class="task-import-template-table">
+            <thead><tr>${templateHeadHtml}</tr></thead>
+          </table>
+        </div>
       </div>
       <textarea id="taskImportPasteInput" class="task-import-paste-input" rows="7" placeholder="Вставьте таблицу из Excel..."></textarea>
       <div class="task-import-preview-head">
@@ -10230,6 +10238,7 @@ function openTaskImportModal(section) {
   const saveBtn = overlay.querySelector(".task-import-save-btn");
   const saveSendBtn = overlay.querySelector(".task-import-save-send-btn");
   const cancelBtn = overlay.querySelector(".task-import-cancel-btn");
+  const downloadTemplateBtn = overlay.querySelector("#taskImportDownloadTemplateBtn");
   const close = () => overlay.remove();
 
   let parsedRows = [];
@@ -10343,6 +10352,25 @@ function openTaskImportModal(section) {
         type: result.notSent.length ? "info" : "success"
       });
     })();
+  });
+
+  downloadTemplateBtn?.addEventListener("click", () => {
+    const header = TASK_IMPORT_COLUMNS.map((col) => col.label);
+    const rows = [
+      ["ЖК REGNUM PLAZA", "Высокий", "17.04.2026", "Инициация", "Первичный анализ ЗУ", "СТУ", "Проверить комплект документов", "Эльбек Ризаев", "Фамилия Имя", "Комментарий к задаче 1", "24.04.2026"],
+      ["Center one by MBC", "Средний", "17.04.2026", "Проработка", "Маркетинг", "Другое", "Подготовить витрину продаж", "Эльбек Ризаев", "Фамилия Имя", "Комментарий к задаче 2", "30.04.2026"],
+      ["ЖК Saadiyat", "Критический", "17.04.2026", "Реализация", "СМР", "Надземные конструкции", "Проверить замечания подрядчика", "Эльбек Ризаев", "Фамилия Имя", "Комментарий к задаче 3", "05.05.2026"]
+    ];
+    const lines = [header, ...rows]
+      .map((cols) => cols.map((v) => String(v || "").replace(/\r\n?/g, " ").trim()).join("\t"))
+      .join("\n");
+    const blob = new Blob([`\uFEFF${lines}`], { type: "text/tab-separated-values;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "template_task_import.xls";
+    a.click();
+    URL.revokeObjectURL(url);
   });
 
   input?.addEventListener("input", parseFromInput);

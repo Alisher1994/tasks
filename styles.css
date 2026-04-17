@@ -1591,7 +1591,7 @@ tr:nth-child(even) td {
 }
 
 .table-import-modal {
-  width: min(980px, 100%);
+  width: min(1380px, 96vw);
   max-height: min(88vh, 920px);
   overflow: hidden;
 }
@@ -1607,24 +1607,41 @@ tr:nth-child(even) td {
   font-size: 12px;
   color: #4f5f73;
   border-bottom: 1px solid #e2e8f0;
-}
-
-.task-import-template-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.task-import-template-row span {
-  padding: 6px 10px;
+.task-import-download-template-btn {
+  white-space: nowrap;
   font-size: 12px;
-  color: #2a3748;
-  border: 1px solid #dbe2ea;
-  border-radius: 999px;
+  padding: 6px 10px;
+}
+
+.task-import-template-table-wrap {
+  overflow-x: auto;
+}
+
+.task-import-template-table {
+  width: 100%;
+  min-width: 1220px;
+  border-collapse: collapse;
+}
+
+.task-import-template-table th {
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  color: #344357;
   background: #ffffff;
-  white-space: normal;
-  line-height: 1.25;
+  border-right: 1px solid #edf2f8;
+  white-space: nowrap;
+}
+
+.task-import-template-table th:last-child {
+  border-right: none;
 }
 
 .task-import-paste-input {
