@@ -2024,6 +2024,7 @@ let reportChartDragId = null;
 let sharedReportMode = false;
 let reportShareRowsOverride = null;
 let sharedReportExpiresAt = 0;
+let otherSettingsActiveTab = "general";
 
 let displaySettings = {
   highlightClosed: false,
@@ -7755,7 +7756,8 @@ function attachHeaderActionHandlers(section, filteredEntries) {
 }
 
 function renderOtherSettingsPanel() {
-  const activeSettingsTab = "general";
+  const allowedSettingsTabs = new Set(["general", "dateTime", "telegram", "routing", "notifications", "taskFormat", "globalDup"]);
+  const activeSettingsTab = allowedSettingsTabs.has(otherSettingsActiveTab) ? otherSettingsActiveTab : "general";
   const getStatusClass = (status) => {
     if (status === "Новый") return "status-legend-new";
     if (status === "В процессе") return "status-legend-progress";
@@ -7799,6 +7801,64 @@ function renderOtherSettingsPanel() {
     (o) => `<option value="${o.id}" ${o.id === tf ? "selected" : ""}>${escapeHtmlText(o.label)}</option>`
   ).join("");
   const dupPositionOptsHtml = buildDupPositionFilterOptionsHtml();
+  const routingSchemeHtml = `
+    <div class="msg-route-wrap">
+      <div class="msg-route-lane">
+        <h5>1) Отправка Задачи Из Веба</h5>
+        <div class="msg-route-row">
+          <div class="msg-route-node">Веб: кнопка «Отправить»</div>
+          <div class="msg-route-arrow">→</div>
+          <div class="msg-route-node">Сервер API</div>
+          <div class="msg-route-arrow">→</div>
+          <div class="msg-route-node">Telegram Bot API</div>
+          <div class="msg-route-arrow">→</div>
+          <div class="msg-route-node">Исполнитель + дубликаты</div>
+        </div>
+        <p class="msg-route-note">Для первого сообщения уходит краткое уведомление и inline-кнопка <strong>📖 Прочитать</strong>.</p>
+      </div>
+
+      <div class="msg-route-lane">
+        <h5>2) Чтение И Действия В Telegram</h5>
+        <div class="msg-route-row">
+          <div class="msg-route-node">Сотрудник нажимает кнопку / пишет сообщение</div>
+          <div class="msg-route-arrow">→</div>
+          <div class="msg-route-node">Telegram webhook</div>
+          <div class="msg-route-arrow">→</div>
+          <div class="msg-route-node">server/telegramWebhook.js</div>
+          <div class="msg-route-arrow">→</div>
+          <div class="msg-route-node">Обновление БД (status / plan / media / read)</div>
+        </div>
+        <p class="msg-route-note">После «📖 Прочитать» фиксируется «Ознакомление». После статуса/коммента/фото в карточке возвращаются кнопки действий.</p>
+      </div>
+
+      <div class="msg-route-lane">
+        <h5>3) Возврат Ответов В Веб</h5>
+        <div class="msg-route-row">
+          <div class="msg-route-node">Данные в app_state</div>
+          <div class="msg-route-arrow">→</div>
+          <div class="msg-route-node">Автоподтягивание (только раздел «Задачи»)</div>
+          <div class="msg-route-arrow">→</div>
+          <div class="msg-route-node">Таблица/карточка в вебе обновляется</div>
+        </div>
+      </div>
+
+      <div class="msg-route-lane">
+        <h5>4) Дубликаты И Подтверждение Закрытия</h5>
+        <div class="msg-route-row">
+          <div class="msg-route-node">Получатели копий (настройки) + руководитель отдела</div>
+          <div class="msg-route-arrow">→</div>
+          <div class="msg-route-node">Дубликат в Telegram</div>
+        </div>
+        <div class="msg-route-row">
+          <div class="msg-route-node">Исполнитель ставит «Закрыт»</div>
+          <div class="msg-route-arrow">→</div>
+          <div class="msg-route-node">Запрос на подтверждение</div>
+          <div class="msg-route-arrow">→</div>
+          <div class="msg-route-node">Руководитель отдела / Админ / Ген. директор</div>
+        </div>
+      </div>
+    </div>
+  `;
 
   return `
     <section class="table-card">
@@ -7810,6 +7870,7 @@ function renderOtherSettingsPanel() {
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "general" ? "active" : ""}" data-other-settings-tab="general">Основные</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "dateTime" ? "active" : ""}" data-other-settings-tab="dateTime">Дата и время</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "telegram" ? "active" : ""}" data-other-settings-tab="telegram">Telegram</button>
+          <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "routing" ? "active" : ""}" data-other-settings-tab="routing">Маршрут сообщений</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "notifications" ? "active" : ""}" data-other-settings-tab="notifications">Настройки оповещения</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "taskFormat" ? "active" : ""}" data-other-settings-tab="taskFormat">Шаблон сообщений</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "globalDup" ? "active" : ""}" data-other-settings-tab="globalDup">Получатели копий</button>
@@ -7912,6 +7973,14 @@ function renderOtherSettingsPanel() {
                 : "https://t.me/<бот>?start=e_<ID>"
             )}</code>, где <strong>ID</strong> — значение из первой колонки сотрудника (например <code>e_3</code> в ссылке для ID 3). Если открыть бота без параметра, сопоставление идёт по <strong>имени и фамилии</strong> в профиле Telegram и ФИО в таблице (полное совпадение токенов имени).</p>
             <p class="other-settings-hint">Поле «Chat ID» не заполняется из номера телефона — только реальный Telegram user id после команды /start у бота (или вручную).</p>
+          </div>
+        </div>
+
+        <div class="other-settings-section ${activeSettingsTab === "routing" ? "" : "hidden"}" data-other-settings-pane="routing">
+          <h4 class="other-settings-section-title">Маршрут сообщений</h4>
+          <div class="other-settings-block">
+            <h4>Схема маршрутизации Telegram</h4>
+            ${routingSchemeHtml}
           </div>
         </div>
 
@@ -8090,6 +8159,7 @@ function attachOtherSettingsHandlers() {
     button.addEventListener("click", () => {
       const tabId = String(button.dataset.otherSettingsTab || "");
       if (!tabId) return;
+      otherSettingsActiveTab = tabId;
       tabButtons.forEach((btn) => btn.classList.toggle("active", btn === button));
       tabPanes.forEach((pane) => {
         pane.classList.toggle("hidden", pane.dataset.otherSettingsPane !== tabId);
