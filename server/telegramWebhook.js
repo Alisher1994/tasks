@@ -563,10 +563,11 @@ function telegramDisplayName(from) {
 function normalizePhoneForMatch(raw) {
   let digits = String(raw || "").replace(/[^\d+]/g, "");
   if (!digits) return "";
+  if (digits.startsWith("00")) digits = `+${digits.slice(2)}`;
   if (digits.startsWith("+")) digits = digits.slice(1);
   digits = digits.replace(/\D/g, "");
   if (!digits) return "";
-  /** Локальный формат Узбекистана без кода страны → приводим к 998XXXXXXXXX. */
+  // Совместимость со старым локальным вводом UZ без кода страны.
   if (digits.length === 9) return `998${digits}`;
   return digits;
 }
@@ -1032,7 +1033,7 @@ async function handleMessage(msg, pool, token) {
       await tg(token, "sendMessage", {
         chat_id: chatId,
         text:
-          "Не найден сотрудник с таким номером в справочнике. Проверьте номер в карточке сотрудника (формат +998... или без +) и попробуйте снова."
+          "Не найден сотрудник с таким номером в справочнике. Проверьте номер в карточке сотрудника (международный формат, например +998..., +7..., +90...) и попробуйте снова."
       });
       return;
     }

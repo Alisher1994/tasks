@@ -33,13 +33,13 @@ const MEDIA_STORAGE_PATH = String(process.env.MEDIA_STORAGE_PATH || "").trim()
   || path.join(rootDir, "storage", "media");
 
 function normalizePhone(raw) {
-  const digits = String(raw || "").replace(/\D/g, "");
-  const c = "998";
-  let local = digits;
-  if (local.startsWith(c)) local = local.slice(3);
-  else if (local.startsWith("8")) local = local.slice(1);
-  local = local.slice(0, 9);
-  return `+998${local}`;
+  const src = String(raw || "").trim();
+  if (!src) return "";
+  let s = src.replace(/[^\d+]/g, "");
+  if (s.startsWith("00")) s = `+${s.slice(2)}`;
+  if (!s.startsWith("+")) s = `+${s.replace(/\D/g, "")}`;
+  const digits = s.slice(1).replace(/\D/g, "").slice(0, 15);
+  return digits ? `+${digits}` : "";
 }
 
 function last4DigitsPasswordFromPhone(rawPhone) {

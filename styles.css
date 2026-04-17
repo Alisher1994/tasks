@@ -104,6 +104,24 @@ h3 {
   gap: 8px;
 }
 
+.phone-input-wrap {
+  position: relative;
+}
+
+.phone-input-flag {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.phone-input-wrap input {
+  padding-left: 36px;
+}
+
 .password-field {
   position: relative;
 }

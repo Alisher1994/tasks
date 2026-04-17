@@ -18,7 +18,10 @@
       <img src="horizontal-v1.svg" alt="Логотип" class="login-logo" />
       <form id="loginForm" class="auth-form">
         <label for="phone">Номер телефона</label>
-        <input id="phone" name="phone" type="tel" placeholder="+998991234567" value="+998" inputmode="numeric" maxlength="13" autocomplete="tel" required />
+        <div class="phone-input-wrap">
+          <span id="loginPhoneFlag" class="phone-input-flag" aria-hidden="true">🌐</span>
+          <input id="phone" name="phone" type="tel" placeholder="+998991234567" value="+" inputmode="tel" maxlength="18" autocomplete="tel" required />
+        </div>
 
         <label for="password">Пароль</label>
         <div class="password-field">

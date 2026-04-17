@@ -11,12 +11,12 @@ const loginBtn = document.getElementById("loginBtn");
 const sidebarBrandToggle = document.getElementById("sidebarBrandToggle");
 const passwordInput = document.getElementById("password");
 const togglePasswordBtn = document.getElementById("togglePasswordBtn");
+const loginPhoneFlag = document.getElementById("loginPhoneFlag");
 
 const AUTH_PHONE = "+998994067406";
 const AUTH_PASSWORD = "7406";
-const UZ_PHONE_PREFIX = "+998";
-/** Ровно +998 (4 символа) и 9 цифр = 13 символов, напр. +998994067406 */
-const UZ_PHONE_FULL_LENGTH = UZ_PHONE_PREFIX.length + 9;
+const DEFAULT_PHONE_PREFIX = "+";
+const PHONE_MAX_LENGTH = 18;
 const REPORT_SHARE_STORAGE_KEY = "mbc_report_share_links";
 /** JWT при работе с сервером (Railway) */
 const AUTH_TOKEN_KEY = "mbc_jwt";
@@ -4897,31 +4897,64 @@ function getEmployeesList() {
 }
 
 function normalizeUzPhone(rawValue) {
-  const digits = String(rawValue || "").replace(/\D/g, "");
-  const countryDigits = UZ_PHONE_PREFIX.replace("+", "");
-  let localDigits = digits;
-
-  if (localDigits.startsWith(countryDigits)) {
-    localDigits = localDigits.slice(countryDigits.length);
-  } else if (localDigits.startsWith("8")) {
-    localDigits = localDigits.slice(1);
-  }
-
-  localDigits = localDigits.slice(0, 9);
-  return `${UZ_PHONE_PREFIX}${localDigits}`;
+  const raw = String(rawValue || "").trim();
+  if (!raw) return DEFAULT_PHONE_PREFIX;
+  let s = raw.replace(/[^\d+]/g, "");
+  if (s.startsWith("00")) s = `+${s.slice(2)}`;
+  if (!s.startsWith("+")) s = `+${s.replace(/\D/g, "")}`;
+  const digits = s.slice(1).replace(/\D/g, "").slice(0, 15);
+  return `+${digits}`;
 }
 
 function formatUzPhoneDisplay(normalizedPhone) {
-  const d = String(normalizedPhone || "").replace(/\D/g, "");
-  const rest = d.startsWith("998") ? d.slice(3, 12) : d.slice(0, 9);
-  return `${UZ_PHONE_PREFIX}${rest}`;
+  const n = normalizeUzPhone(normalizedPhone);
+  return n === "+" ? DEFAULT_PHONE_PREFIX : n;
 }
 
-/** Локальная часть номера после +998 заполнена полностью (9 цифр). */
+/** Номер считается пригодным для сравнения, когда в нём есть хотя бы 8 цифр. */
 function employeePhoneLocalCompleteNormalized(normalizedPhone) {
   const digits = String(normalizedPhone || "").replace(/\D/g, "");
-  const local = digits.startsWith("998") ? digits.slice(3) : digits;
-  return local.length === 9;
+  return digits.length >= 8;
+}
+
+const DIAL_TO_ISO = [
+  ["998", "UZ"], ["7", "RU"], ["380", "UA"], ["375", "BY"], ["1", "US"],
+  ["90", "TR"], ["971", "AE"], ["966", "SA"], ["44", "GB"], ["49", "DE"],
+  ["33", "FR"], ["39", "IT"], ["34", "ES"], ["48", "PL"], ["995", "GE"],
+  ["994", "AZ"], ["996", "KG"], ["992", "TJ"], ["993", "TM"], ["20", "EG"],
+  ["91", "IN"], ["92", "PK"], ["86", "CN"], ["81", "JP"], ["82", "KR"],
+  ["61", "AU"], ["55", "BR"], ["52", "MX"], ["62", "ID"], ["63", "PH"],
+  ["65", "SG"], ["60", "MY"], ["66", "TH"], ["84", "VN"], ["98", "IR"]
+];
+
+function flagEmojiFromIso2(iso2) {
+  const code = String(iso2 || "").trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(code)) return "🌐";
+  return String.fromCodePoint(...Array.from(code).map((c) => 127397 + c.charCodeAt(0)));
+}
+
+function detectCountryIsoByPhone(rawPhone) {
+  const digits = normalizeUzPhone(rawPhone).replace(/\D/g, "");
+  if (!digits) return "";
+  let best = "";
+  let bestIso = "";
+  for (const [dial, iso] of DIAL_TO_ISO) {
+    if (digits.startsWith(dial) && dial.length > best.length) {
+      best = dial;
+      bestIso = iso;
+    }
+  }
+  return bestIso;
+}
+
+function phoneFlagByValue(rawPhone) {
+  const iso = detectCountryIsoByPhone(rawPhone);
+  return flagEmojiFromIso2(iso);
+}
+
+function updateLoginPhoneFlag() {
+  if (!loginPhoneFlag || !phoneInput) return;
+  loginPhoneFlag.textContent = phoneFlagByValue(phoneInput.value);
 }
 
 function firstRowIndexWithSameCompletePhone(rows, phoneNormalized) {
@@ -4956,7 +4989,7 @@ function dedupeEmployeesInPlace(employeesSection) {
     if (employeePhoneLocalCompleteNormalized(p)) {
       const first = firstRowIndexWithSameCompletePhone(rows, p);
       if (first !== -1 && first !== rowIndex) {
-        row[EMPLOYEE_COLUMNS.phone] = UZ_PHONE_PREFIX;
+        row[EMPLOYEE_COLUMNS.phone] = DEFAULT_PHONE_PREFIX;
         row[EMPLOYEE_COLUMNS.chatId] = "";
         row[EMPLOYEE_COLUMNS.activity] = row[EMPLOYEE_COLUMNS.telegram] === "Подключен" ? "Активен" : "Не активен";
       }
@@ -4984,7 +5017,7 @@ function enforceEmployeeUniquenessAfterEdit(section, rowIndex) {
     const first = firstRowIndexWithSameCompletePhone(rows, p);
     if (first !== -1 && first !== rowIndex) {
       window.alert("Этот номер телефона уже указан у другого сотрудника. Поле очищено.");
-      row[EMPLOYEE_COLUMNS.phone] = UZ_PHONE_PREFIX;
+      row[EMPLOYEE_COLUMNS.phone] = DEFAULT_PHONE_PREFIX;
       row[EMPLOYEE_COLUMNS.chatId] = "";
       row[EMPLOYEE_COLUMNS.activity] = row[EMPLOYEE_COLUMNS.telegram] === "Подключен" ? "Активен" : "Не активен";
       changed = true;
@@ -5013,9 +5046,10 @@ function getEmployeeByPhone(phoneValue) {
 
 function maskEmployeePhoneForMessage(phoneRaw) {
   const normalized = normalizeUzPhone(phoneRaw);
-  const local = normalized.replace(/\D/g, "").slice(3);
-  if (!local) return "—";
-  return `${local.slice(0, 2)}${"*".repeat(Math.max(0, local.length - 2))}`;
+  const digits = normalized.replace(/\D/g, "");
+  if (!digits) return "—";
+  const head = digits.slice(0, 2);
+  return `${head}${"*".repeat(Math.max(0, digits.length - 2))}`;
 }
 
 function buildEmployeeOnboardingMessage(row) {
@@ -6460,11 +6494,11 @@ function createDateEditor(currentValue) {
 function createUzPhoneCellEditor(currentValue) {
   const input = document.createElement("input");
   input.type = "tel";
-  input.inputMode = "numeric";
+  input.inputMode = "tel";
   input.className = "cell-editor";
-  input.maxLength = UZ_PHONE_FULL_LENGTH;
+  input.maxLength = PHONE_MAX_LENGTH;
   input.autocomplete = "off";
-  input.value = formatUzPhoneDisplay(normalizeUzPhone(currentValue || UZ_PHONE_PREFIX));
+  input.value = formatUzPhoneDisplay(normalizeUzPhone(currentValue || DEFAULT_PHONE_PREFIX));
   input.addEventListener("input", () => {
     const n = normalizeUzPhone(input.value);
     input.value = formatUzPhoneDisplay(n);
@@ -6493,7 +6527,7 @@ function createSearchableSelectEditor(options, currentValue) {
 
 function makeChatIdFromPhone(phoneValue) {
   const normalized = normalizeUzPhone(phoneValue);
-  const digits = normalized.replace(/\D/g, "").slice(3);
+  const digits = normalized.replace(/\D/g, "");
   return digits || "";
 }
 
@@ -6580,7 +6614,7 @@ function syncEmployeesDerivedFields() {
   if (!employeesSection) return;
   const defaultDepartment = String(getSectionById("departments")?.rows?.[0]?.[1] || "");
   employeesSection.rows.forEach((row) => {
-    row[EMPLOYEE_COLUMNS.phone] = formatUzPhoneDisplay(normalizeUzPhone(row[EMPLOYEE_COLUMNS.phone] || UZ_PHONE_PREFIX));
+    row[EMPLOYEE_COLUMNS.phone] = formatUzPhoneDisplay(normalizeUzPhone(row[EMPLOYEE_COLUMNS.phone] || DEFAULT_PHONE_PREFIX));
     if (!String(row[EMPLOYEE_COLUMNS.department] || "").trim()) {
       row[EMPLOYEE_COLUMNS.department] = defaultDepartment;
     }
@@ -8847,7 +8881,8 @@ function showLogin() {
   loginSection.classList.remove("hidden");
   loginForm.reset();
   if (phoneInput) {
-    phoneInput.value = UZ_PHONE_PREFIX;
+    phoneInput.value = DEFAULT_PHONE_PREFIX;
+    updateLoginPhoneFlag();
   }
   if (passwordInput) {
     passwordInput.type = "password";
@@ -8877,7 +8912,8 @@ function enforceUzPhonePrefix() {
   if (!phoneInput) return;
   const normalized = normalizeUzPhone(phoneInput.value);
   phoneInput.value = formatUzPhoneDisplay(normalized);
-  if (phoneInput.value.length === UZ_PHONE_FULL_LENGTH && passwordInput) {
+  updateLoginPhoneFlag();
+  if (normalized.replace(/\D/g, "").length >= 8 && passwordInput) {
     requestAnimationFrame(() => passwordInput.focus());
   }
 }
@@ -8898,7 +8934,7 @@ function addEmptyRow(section) {
   }
   if (section.id === "employees") {
     row[EMPLOYEE_COLUMNS.department] = String(getSectionById("departments")?.rows?.[0]?.[1] || "");
-    row[EMPLOYEE_COLUMNS.phone] = UZ_PHONE_PREFIX;
+    row[EMPLOYEE_COLUMNS.phone] = DEFAULT_PHONE_PREFIX;
     row[EMPLOYEE_COLUMNS.telegram] = "Не подключен";
     row[EMPLOYEE_COLUMNS.chatId] = "";
     row[EMPLOYEE_COLUMNS.activity] = "Не активен";
@@ -9096,7 +9132,7 @@ function migrateRowForSection(baseSection, row) {
   if (baseSection.id === "employees") {
     // Старый формат: ID, ФИО, Отдел, Роль, Активность.
     if (source.length === 5) {
-      return [source[0] || "", source[1] || "", source[2] || "", source[3] || "", UZ_PHONE_PREFIX, "Не подключен", "", source[4] || ""];
+      return [source[0] || "", source[1] || "", source[2] || "", source[3] || "", DEFAULT_PHONE_PREFIX, "Не подключен", "", source[4] || ""];
     }
   }
 
@@ -9296,8 +9332,9 @@ logoutBtn.addEventListener("click", () => {
 togglePasswordBtn?.addEventListener("click", togglePasswordVisibility);
 phoneInput?.addEventListener("focus", () => {
   if (!phoneInput.value.trim()) {
-    phoneInput.value = UZ_PHONE_PREFIX;
+    phoneInput.value = DEFAULT_PHONE_PREFIX;
   }
+  updateLoginPhoneFlag();
 });
 phoneInput?.addEventListener("input", enforceUzPhonePrefix);
 phoneInput?.addEventListener("blur", enforceUzPhonePrefix);
@@ -9317,6 +9354,7 @@ sidebarBrandToggle?.addEventListener("click", () => toggleSidebarCollapse());
 sidebarBrandToggle?.setAttribute("aria-expanded", String(!isSidebarCollapsed));
 initLucideIcons();
 document.body.classList.add("login-mode");
+updateLoginPhoneFlag();
 
 const initialShareIdBoot = new URLSearchParams(location.search).get("share");
 if (initialShareIdBoot) {
