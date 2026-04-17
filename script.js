@@ -133,7 +133,9 @@ const SYSTEM_DEPARTMENTS = [
   "Аналитика",
   "Отдел развития ИТ"
 ];
-const STATUS_OPTIONS = ["Новый", "В процессе", "Треб. реш. рук.", "Закрыт"];
+const STATUS_DECISION_OLD = "Треб. реш. рук.";
+const STATUS_DECISION = "Требует решение руководителя";
+const STATUS_OPTIONS = ["Новый", "В процессе", STATUS_DECISION, "Закрыт"];
 
 /** Подписи месяцев для графика «Добавление задач по месяцам» (текущий год, ось X). */
 const REPORT_MONTH_LABELS_RU = ["Янв.", "Февр.", "Мар.", "Апр.", "Май", "Июн.", "Июл.", "Авг.", "Сен.", "Окт.", "Ноя.", "Дек."];
@@ -145,7 +147,8 @@ const REPORT_FILTER_ALL_STATUSES = [...STATUS_OPTIONS];
 const STATUS_CHART_COLORS = {
   Новый: "#a8b4f0",
   "В процессе": "#e8c9a8",
-  "Треб. реш. рук.": "#e0a8a8",
+  [STATUS_DECISION]: "#e0a8a8",
+  [STATUS_DECISION_OLD]: "#e0a8a8",
   Закрыт: "#9dceb0",
   [REPORT_NO_STATUS_LABEL]: "#c5cad3",
   Прочее: "#b8c5d6"
@@ -154,7 +157,8 @@ const STATUS_CHART_COLORS = {
 const STATUS_CHART_COLORS_ACCENT = {
   Новый: "#5c6bc0",
   "В процессе": "#c08457",
-  "Треб. реш. рук.": "#b06a6a",
+  [STATUS_DECISION]: "#b06a6a",
+  [STATUS_DECISION_OLD]: "#b06a6a",
   Закрыт: "#4a9d6a",
   [REPORT_NO_STATUS_LABEL]: "#64748b",
   Прочее: "#6b7c93"
@@ -163,15 +167,29 @@ const STATUS_CHART_COLORS_ACCENT = {
 const REMINDER_CARD_UI = {
   Новый: "new",
   "В процессе": "progress",
-  "Треб. реш. рук.": "decision",
+  [STATUS_DECISION]: "decision",
+  [STATUS_DECISION_OLD]: "decision",
   Закрыт: "closed"
 };
 const TELEGRAM_STATUS_EMOJI = {
   Новый: "🟣",
   "В процессе": "🟡",
-  "Треб. реш. рук.": "🔴",
+  [STATUS_DECISION]: "🔴",
+  [STATUS_DECISION_OLD]: "🔴",
   Закрыт: "🟢"
 };
+
+function normalizeTaskStatusValue(raw) {
+  const value = String(raw || "").trim();
+  if (value === STATUS_DECISION_OLD) return STATUS_DECISION;
+  return value;
+}
+
+function normalizeTaskPriorityValue(raw) {
+  const value = String(raw || "").trim();
+  if (value === "Низкий") return "Средний";
+  return value;
+}
 
 const DATE_DISPLAY_FORMAT_OPTIONS = [
   { id: "DMY_DOT", label: "ДД.ММ.ГГГГ (31.12.2025)" },
@@ -1976,12 +1994,12 @@ function parseRuDate(value) {
   const date = new Date(parts.year, parts.month - 1, parts.day);
   return Number.isNaN(date.getTime()) ? null : date;
 }
-const PRIORITY_OPTIONS = ["Низкий", "Средний", "Высокий", "Критический"];
+const PRIORITY_OPTIONS = ["Средний", "Высокий", "Критический"];
 const STATUS_TABS = [
   { id: "all", label: "Все статусы" },
   { id: "Новый", label: "Новый" },
   { id: "В процессе", label: "В процессе" },
-  { id: "Треб. реш. рук.", label: "Треб. реш. рук." },
+  { id: STATUS_DECISION, label: STATUS_DECISION },
   { id: "Закрыт", label: "Закрыт" },
   { id: "trash", label: "Корзина" }
 ];
@@ -2086,7 +2104,7 @@ let sections = [
         "3",
         "Архив Юг",
         "Закрыт",
-        "Низкий",
+        "Средний",
         "12.04.2026",
         "Завершение",
         "Тех.приемка УК",
@@ -6374,7 +6392,7 @@ function getRowHighlightClass(section, row) {
     return "row-highlight-closed";
   }
 
-  if (displaySettings.highlightNeedDecision && status === "Треб. реш. рук.") {
+  if (displaySettings.highlightNeedDecision && status === STATUS_DECISION) {
     return "row-highlight-need-decision";
   }
 
@@ -8297,7 +8315,7 @@ function renderOtherSettingsPanel() {
   const getStatusClass = (status) => {
     if (status === "Новый") return "status-legend-new";
     if (status === "В процессе") return "status-legend-progress";
-    if (status === "Треб. реш. рук.") return "status-legend-decision";
+    if (status === STATUS_DECISION) return "status-legend-decision";
     if (status === "Закрыт") return "status-legend-closed";
     return "";
   };
@@ -8368,7 +8386,7 @@ function renderOtherSettingsPanel() {
             </label>
             <label class="settings-option">
               <input class="other-settings-checkbox" type="checkbox" data-setting="highlightNeedDecision" ${displaySettings.highlightNeedDecision ? "checked" : ""} />
-              <span>Треб. реш. рук.: светло-красный фон</span>
+              <span>${STATUS_DECISION}: светло-красный фон</span>
             </label>
           </div>
           <div class="other-settings-block other-settings-block--tasks-list">
@@ -9086,16 +9104,25 @@ function restoreDisplaySettings() {
       parsed && typeof parsed === "object" && parsed.taskMessageTemplatesByStatus && typeof parsed.taskMessageTemplatesByStatus === "object"
         ? parsed.taskMessageTemplatesByStatus
         : null;
+    const remapStatusKeyObject = (obj) => {
+      if (!obj || typeof obj !== "object") return {};
+      const out = {};
+      Object.entries(obj).forEach(([k, v]) => {
+        const nk = normalizeTaskStatusValue(k);
+        out[nk] = v;
+      });
+      return out;
+    };
     displaySettings = {
       ...displaySettings,
       ...parsed,
       reminderSettings: {
         ...defaultReminderSettings,
-        ...(parsedReminderSettings && typeof parsedReminderSettings === "object" ? parsedReminderSettings : {})
+        ...remapStatusKeyObject(parsedReminderSettings)
       },
       taskMessageTemplatesByStatus: {
         ...defaultTaskTemplates,
-        ...(parsedTaskTemplates || {})
+        ...remapStatusKeyObject(parsedTaskTemplates)
       }
     };
     if (typeof displaySettings.serverTimezone !== "string") {
@@ -9665,7 +9692,7 @@ function resolveMediaPreviewForSlot(storedName, preview) {
 }
 
 function renderStatusStepper(currentStatus) {
-  const steps = ["Новый", "В процессе", "Треб. реш. рук.", "Закрыт"];
+  const steps = ["Новый", "В процессе", STATUS_DECISION, "Закрыт"];
   const currentIndex = getStatusStepIndex(currentStatus);
   const safeIndex = currentIndex >= 0 ? currentIndex : 0;
   const progress = steps.length > 1 ? (safeIndex / (steps.length - 1)) * 100 : 0;
@@ -9680,7 +9707,7 @@ function renderStatusStepper(currentStatus) {
 
 function getStatusStepIndex(status) {
   if (status === "Закрыт") return 3;
-  if (status === "Треб. реш. рук.") return 2;
+  if (status === STATUS_DECISION || status === STATUS_DECISION_OLD) return 2;
   if (status === "В процессе") return 1;
   return 0;
 }
@@ -10493,6 +10520,8 @@ function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
   setByIndex(TASK_COLUMNS.mediaAfter, pick(["Медиа после (5)", "Медиа после"]), 17);
   setByIndex(TASK_COLUMNS.readState, pick(["Ознакомление"]), 18);
   setByIndex(TASK_COLUMNS.lastSentAt, pick(["Дата последней отправки"]), 19);
+  out[TASK_COLUMNS.status] = normalizeTaskStatusValue(out[TASK_COLUMNS.status]);
+  out[TASK_COLUMNS.priority] = normalizeTaskPriorityValue(out[TASK_COLUMNS.priority]);
   return out;
 }
 
@@ -10503,6 +10532,9 @@ function migrateRowForSection(baseSection, row, sourceColumns = null) {
     if (Array.isArray(sourceColumns) && sourceColumns.length) {
       source = remapTaskRowToCurrentOrder(source, sourceColumns);
     }
+
+    source[TASK_COLUMNS.status] = normalizeTaskStatusValue(source[TASK_COLUMNS.status]);
+    source[TASK_COLUMNS.priority] = normalizeTaskPriorityValue(source[TASK_COLUMNS.priority]);
 
     // Старый формат задач без колонки «Исполнитель».
     if (source.length === 17) {

@@ -4,11 +4,14 @@
  * Токен: TELEGRAM_BOT_TOKEN в окружении или displaySettings.telegramBotToken в JSON приложения (после синхронизации).
  */
 
-const EMPLOYEE_STATUS_OPTIONS = ["В процессе", "Треб. реш. рук.", "Закрыт"];
+const STATUS_DECISION_OLD = "Треб. реш. рук.";
+const STATUS_DECISION = "Требует решение руководителя";
+const EMPLOYEE_STATUS_OPTIONS = ["В процессе", STATUS_DECISION, "Закрыт"];
 const STATUS_EMOJI = {
   Новый: "🟣",
   "В процессе": "🟡",
-  "Треб. реш. рук.": "🔴",
+  [STATUS_DECISION]: "🔴",
+  [STATUS_DECISION_OLD]: "🔴",
   Закрыт: "🟢"
 };
 const TASK_COLUMNS = {
@@ -62,6 +65,18 @@ function normalizeTaskColumnLabel(raw) {
     .replace(/[^a-zа-я0-9]+/giu, "");
 }
 
+function normalizeTaskStatusValue(raw) {
+  const value = String(raw || "").trim();
+  if (value === STATUS_DECISION_OLD) return STATUS_DECISION;
+  return value;
+}
+
+function normalizeTaskPriorityValue(raw) {
+  const value = String(raw || "").trim();
+  if (value === "Низкий") return "Средний";
+  return value;
+}
+
 function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
   const row = Array.isArray(sourceRow) ? sourceRow : [];
   const cols = Array.isArray(sourceColumns) ? sourceColumns : [];
@@ -113,13 +128,20 @@ function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
   setByIndex(TASK_COLUMNS.mediaAfter, pick(["Медиа после (5)", "Медиа после"]), 17);
   setByIndex(TASK_COLUMNS.readState, pick(["Ознакомление"]), 18);
   setByIndex(TASK_COLUMNS.lastSentAt, pick(["Дата последней отправки"]), 19);
+  out[TASK_COLUMNS.status] = normalizeTaskStatusValue(out[TASK_COLUMNS.status]);
+  out[TASK_COLUMNS.priority] = normalizeTaskPriorityValue(out[TASK_COLUMNS.priority]);
   return out;
 }
 
 function normalizeTasksSectionByColumns(payload) {
   const tasks = payload?.sections?.find?.((s) => s.id === "tasks");
   if (!tasks || !Array.isArray(tasks.rows) || !Array.isArray(tasks.columns) || !tasks.columns.length) return;
-  tasks.rows = tasks.rows.map((row) => remapTaskRowToCurrentOrder(row, tasks.columns));
+  tasks.rows = tasks.rows.map((row) => {
+    const next = remapTaskRowToCurrentOrder(row, tasks.columns);
+    next[TASK_COLUMNS.status] = normalizeTaskStatusValue(next[TASK_COLUMNS.status]);
+    next[TASK_COLUMNS.priority] = normalizeTaskPriorityValue(next[TASK_COLUMNS.priority]);
+    return next;
+  });
 }
 
 function getTasksSection(payload) {
