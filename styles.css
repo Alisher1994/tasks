@@ -1581,6 +1581,27 @@ tr:nth-child(even) td {
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: #9fb0c4 #edf2f8;
+}
+
+.table-settings-dnd-list::-webkit-scrollbar {
+  width: 10px;
+}
+
+.table-settings-dnd-list::-webkit-scrollbar-track {
+  background: #edf2f8;
+  border-radius: 999px;
+}
+
+.table-settings-dnd-list::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #b4c1d2 0%, #8fa3bb 100%);
+  border-radius: 999px;
+  border: 2px solid #edf2f8;
+}
+
+.table-settings-dnd-list::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #a8b8cb 0%, #7f96b1 100%);
 }
 
 .table-settings-dnd-item {
