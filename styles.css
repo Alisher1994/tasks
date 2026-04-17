@@ -1195,6 +1195,7 @@ th {
   font-weight: 500;
   font-size: 11px;
   line-height: 1.1;
+  text-align: center;
 }
 
 .checkbox-col {
@@ -1587,10 +1588,10 @@ tr:nth-child(even) td {
   border-radius: 8px;
   background: #fff;
   padding: 8px 10px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 34px 18px minmax(0, 1fr) 20px;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   cursor: grab;
 }
 
@@ -1608,13 +1609,6 @@ tr:nth-child(even) td {
   box-shadow: 0 0 0 2px rgba(75, 85, 214, 0.15);
 }
 
-.table-settings-dnd-main {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .table-settings-dnd-pos {
   width: 26px;
   min-width: 26px;
@@ -1629,20 +1623,20 @@ tr:nth-child(even) td {
   color: #3f4b5b;
 }
 
-.table-settings-dnd-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  font-size: 13px;
-  color: #2a3748;
+.table-settings-col-visible {
+  width: 14px;
+  height: 14px;
+  margin: 0;
 }
 
-.table-settings-dnd-check span {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.table-settings-dnd-title {
+  font-size: 13px;
+  color: #2a3748;
+  min-width: 0;
+  line-height: 1.35;
+  overflow: visible;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .table-settings-dnd-handle {

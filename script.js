@@ -9837,15 +9837,12 @@ function openTableSettingsModal(section) {
         const title = String(section.columns[colIndex] || `Колонка ${colIndex + 1}`);
         const checked = draftVisibility[colIndex] !== false;
         const isFixed = colIndex === FIXED_COLUMN_INDEX;
+        const cbId = `tableSettingsColVisible_${section.id}_${colIndex}`;
         return `
           <div class="table-settings-dnd-item${isFixed ? " is-fixed" : ""}" data-col-index="${colIndex}" draggable="${isFixed ? "false" : "true"}">
-            <div class="table-settings-dnd-main">
-              <span class="table-settings-dnd-pos">${position + 1}</span>
-              <label class="table-settings-dnd-check">
-                <input type="checkbox" class="table-settings-col-visible" data-col-index="${colIndex}" ${checked ? "checked" : ""} ${isFixed ? "disabled" : ""} />
-                <span>${escapeHtmlText(title)}</span>
-              </label>
-            </div>
+            <span class="table-settings-dnd-pos">${position + 1}</span>
+            <input id="${escapeHtmlAttr(cbId)}" type="checkbox" class="table-settings-col-visible" data-col-index="${colIndex}" ${checked ? "checked" : ""} ${isFixed ? "disabled" : ""} />
+            <label for="${escapeHtmlAttr(cbId)}" class="table-settings-dnd-title">${escapeHtmlText(title)}</label>
             <span class="table-settings-dnd-handle" title="${isFixed ? "Фиксированный столбец" : "Перетащите мышью"}">
               <i data-lucide="${isFixed ? "lock" : "grip-vertical"}" class="lucide-icon" aria-hidden="true"></i>
             </span>
