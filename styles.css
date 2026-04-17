@@ -141,7 +141,6 @@ h3 {
   height: 14px;
   object-fit: cover;
   border-radius: 2px;
-  border: 1px solid #d6deea;
   background: #fff;
   position: static;
 }
@@ -151,7 +150,6 @@ h3 {
   height: 14px;
   object-fit: cover;
   border-radius: 2px;
-  border: 1px solid #d6deea;
   margin-right: 6px;
   vertical-align: middle;
 }

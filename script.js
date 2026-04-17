@@ -5129,6 +5129,19 @@ function applyCountryDialToPhone(rawPhone, selectedDial) {
   return normalizeUzPhone(`+${selectedDial}${national}`);
 }
 
+function setCaretAfterDialCode(input) {
+  if (!(input instanceof HTMLInputElement)) return;
+  const dial = detectDialCodeByPhone(input.value);
+  const pos = Math.max(1, 1 + String(dial || "").length);
+  requestAnimationFrame(() => {
+    try {
+      input.setSelectionRange(pos, pos);
+    } catch (_) {
+      /* noop */
+    }
+  });
+}
+
 function openLoginCountryPickerModal() {
   if (!phoneInput) return;
   const options = buildCountryPhoneOptions();
@@ -5187,6 +5200,7 @@ function openLoginCountryPickerModal() {
     enforceUzPhonePrefix();
     overlay.remove();
     phoneInput.focus();
+    setCaretAfterDialCode(phoneInput);
   });
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) {
@@ -7317,7 +7331,7 @@ function openEmployeePhoneEditorModal(section, rowIndex, colIndex) {
         </button>
         <input type="tel" inputmode="tel" class="cell-editor" id="employeePhoneInput" value="${escapeHtmlAttr(
           formatUzPhoneDisplay(normalizeUzPhone(prevValue || DEFAULT_PHONE_PREFIX))
-        )}" maxlength="${PHONE_MAX_LENGTH}" pattern="^\\+[0-9]{8,15}$" autocomplete="off" />
+        )}" maxlength="${PHONE_MAX_LENGTH}" autocomplete="off" />
       </div>
       <div class="responsible-option-empty" style="margin-top:8px">Формат: +код_страны номер (длина зависит от страны).</div>
       <div class="responsible-modal-actions">
@@ -7397,6 +7411,7 @@ function openEmployeePhoneEditorModal(section, rowIndex, colIndex) {
       updateLocalFlag();
       second.remove();
       input.focus();
+      setCaretAfterDialCode(input);
     });
     second.addEventListener("click", (event) => {
       if (event.target === second) second.remove();
@@ -7436,6 +7451,7 @@ function openEmployeePhoneEditorModal(section, rowIndex, colIndex) {
 
   updateLocalFlag();
   input?.focus();
+  setCaretAfterDialCode(input);
 }
 
 function openReportFilterPickerModal(title, allLabel, items, currentValue, onApply) {
@@ -9728,6 +9744,7 @@ phoneInput?.addEventListener("focus", () => {
     phoneInput.value = DEFAULT_PHONE_PREFIX;
   }
   updateLoginPhoneFlag();
+  setCaretAfterDialCode(phoneInput);
 });
 phoneInput?.addEventListener("blur", enforceUzPhonePrefix);
 if (phoneInput instanceof HTMLInputElement) {
