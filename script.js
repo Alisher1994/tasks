@@ -2242,6 +2242,8 @@ const statusTabBySection = {};
 let isSidebarCollapsed = false;
 const activeRowBySection = {};
 const visibleColumnsBySection = {};
+const columnOrderBySection = {};
+const headerNumberingBySection = {};
 const columnPanelOpenBySection = {};
 const mediaPreviewStore = {};
 /** Превью фото объекта: ключ obj-ph-{id строки объекта} */
@@ -2854,15 +2856,20 @@ function renderTable() {
         <th class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}">
           <input type="checkbox" id="selectAllRows" ${isAllFilteredSelected ? "checked" : ""} />
         </th>
-        ${visibleColumnIndexes.map((columnIndex) => {
+        ${visibleColumnIndexes.map((columnIndex, viewOrder) => {
           const column = section.columns[columnIndex];
-          const numberClass = columnIndex === 0 ? "number-col" : "";
-          const rolesNumberClass = section.id === "roles" && columnIndex === 0 ? "roles-number-col" : "";
+          const numberClass = columnIndex === 0 && viewOrder === 0 ? "number-col" : "";
+          const rolesNumberClass = section.id === "roles" && columnIndex === 0 && viewOrder === 0 ? "roles-number-col" : "";
           const statusClass = columnIndex === TASK_COLUMNS.status ? "status-col" : "";
           const objectClass = columnIndex === TASK_COLUMNS.object ? "object-col" : "";
           const mediaClass = isMediaColumn(columnIndex) ? "media-col" : "";
           const objectPhotoClass = section.id === "objects" && columnIndex === OBJECT_COLUMNS.photo ? "object-photo-col" : "";
-          return `<th class="${numberClass} ${rolesNumberClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass}">${column}</th>`;
+          const showHeaderNumbers = headerNumberingBySection[section.id] !== false;
+          const headerMeta = showHeaderNumbers ? `<span class="table-th-order">${viewOrder + 1}</span>` : "";
+          return `<th class="${numberClass} ${rolesNumberClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass}">
+            <span class="table-th-title">${escapeHtmlText(column)}</span>
+            ${headerMeta}
+          </th>`;
         }).join("")}
         ${trashHeaders}
         <th class="actions-col ${section.id === "roles" ? "roles-compact-actions-col" : ""}">Действие</th>
@@ -2874,12 +2881,11 @@ function renderTable() {
     <tbody>
       ${entriesForTbody
         .map((entry) => {
-          const rowCells = entry.row
-            .filter((_, colIndex) => visibleColumnIndexes.includes(colIndex))
-            .map((cell, colIndexInView) => {
-              const colIndex = visibleColumnIndexes[colIndexInView];
-              const stickyClass = colIndex === 0 ? "number-col" : "";
-              const rolesNumberClass = section.id === "roles" && colIndex === 0 ? "roles-number-col" : "";
+          const rowCells = visibleColumnIndexes
+            .map((colIndex, viewOrder) => {
+              const cell = entry.row[colIndex];
+              const stickyClass = colIndex === 0 && viewOrder === 0 ? "number-col" : "";
+              const rolesNumberClass = section.id === "roles" && colIndex === 0 && viewOrder === 0 ? "roles-number-col" : "";
               const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
               const objectClass = colIndex === TASK_COLUMNS.object ? "object-col" : "";
               const mediaClass = isMediaColumn(colIndex) ? "media-col" : "";
@@ -2913,11 +2919,14 @@ function renderTable() {
 
   const tableHeaderIconButtons = `
         <div class="table-header-right">
-          <button type="button" class="icon-action-btn refresh-section-btn" id="refreshSectionBtn" title="Обновить">
-            <i data-lucide="refresh-cw" class="lucide-icon" aria-hidden="true"></i>
+          <button type="button" class="icon-action-btn add-row-btn" id="addRowBtn" title="Добавить">
+            <i data-lucide="plus" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="icon-action-btn filter-toggle-btn" id="toggleFiltersBtn" title="Фильтр">
+            <i data-lucide="filter" class="lucide-icon" aria-hidden="true"></i>
           </button>
           ${section.id === "tasks" ? `
-          <button type="button" class="icon-action-btn" id="googleSheetsSyncTasksBtn" title="Синхронизировать в Google Sheets">
+          <button type="button" class="icon-action-btn" id="googleSheetsSyncTasksBtn" title="Синхронизация">
             <span class="gs-mini-icon" aria-hidden="true">
               <svg viewBox="0 0 48 48" fill="none">
                 <path d="M8 5h20l12 12v24a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" fill="#0F9D58"/>
@@ -2928,20 +2937,14 @@ function renderTable() {
               </svg>
             </span>
           </button>` : ""}
-          <button type="button" class="icon-action-btn add-row-btn" id="addRowBtn" title="Добавить строку">
-            <i data-lucide="plus" class="lucide-icon" aria-hidden="true"></i>
+          <button type="button" class="icon-action-btn refresh-section-btn" id="refreshSectionBtn" title="Обновить">
+            <i data-lucide="refresh-cw" class="lucide-icon" aria-hidden="true"></i>
           </button>
-          <button type="button" class="icon-action-btn filter-toggle-btn" id="toggleFiltersBtn" title="Показать/скрыть фильтры">
-            <i data-lucide="filter" class="lucide-icon" aria-hidden="true"></i>
+          <button type="button" class="icon-action-btn export-open-btn" id="openExportModalBtn" title="Скачать">
+            <i data-lucide="download" class="lucide-icon" aria-hidden="true"></i>
           </button>
-          <button type="button" class="icon-action-btn columns-toggle-btn" id="toggleColumnsBtn" title="Показать/скрыть столбцы">
-            <i data-lucide="columns-3" class="lucide-icon" aria-hidden="true"></i>
-          </button>
-          <button type="button" class="icon-action-btn export-pdf-btn" id="exportPdfBtn" title="Экспорт в PDF">
-            <i data-lucide="file-text" class="lucide-icon" aria-hidden="true"></i>
-          </button>
-          <button type="button" class="icon-action-btn export-xls-btn" id="exportXlsBtn" title="Экспорт в XLS">
-            <i data-lucide="sheet" class="lucide-icon" aria-hidden="true"></i>
+          <button type="button" class="icon-action-btn settings-toggle-btn" id="toggleTableSettingsBtn" title="Настройки таблицы">
+            <i data-lucide="settings" class="lucide-icon" aria-hidden="true"></i>
           </button>
         </div>`;
 
@@ -5975,14 +5978,39 @@ function isReadonlyColumn(section, colIndex) {
 }
 
 function getVisibleColumnIndexes(section) {
+  ensureColumnDisplayState(section);
+  const visibility = visibleColumnsBySection[section.id];
+  const order = columnOrderBySection[section.id];
+  return order.filter((index) => visibility[index] !== false);
+}
+
+function ensureColumnDisplayState(section) {
+  const size = section.columns.length;
   if (!visibleColumnsBySection[section.id]) {
     visibleColumnsBySection[section.id] = section.columns.map(() => true);
   }
-
   const visibility = visibleColumnsBySection[section.id];
-  return section.columns
-    .map((_, index) => index)
-    .filter((index) => visibility[index] !== false);
+  if (visibility.length !== size) {
+    while (visibility.length < size) visibility.push(true);
+    visibility.length = size;
+  }
+
+  if (!Array.isArray(columnOrderBySection[section.id])) {
+    columnOrderBySection[section.id] = section.columns.map((_, index) => index);
+  }
+  const rawOrder = columnOrderBySection[section.id];
+  const seen = new Set();
+  const normalized = [];
+  for (const index of rawOrder) {
+    const n = Number(index);
+    if (!Number.isInteger(n) || n < 0 || n >= size || seen.has(n)) continue;
+    seen.add(n);
+    normalized.push(n);
+  }
+  for (let i = 0; i < size; i += 1) {
+    if (!seen.has(i)) normalized.push(i);
+  }
+  columnOrderBySection[section.id] = normalized;
 }
 
 function renderColumnsPanel(section) {
@@ -5990,17 +6018,32 @@ function renderColumnsPanel(section) {
     return "";
   }
 
-  const visibility = visibleColumnsBySection[section.id] || section.columns.map(() => true);
-  const options = section.columns
-    .map((column, index) => `
-      <label class="column-option">
-        <input type="checkbox" class="column-toggle-checkbox" data-column-index="${index}" ${visibility[index] !== false ? "checked" : ""} />
-        <span>${column}</span>
-      </label>
+  ensureColumnDisplayState(section);
+  const visibility = visibleColumnsBySection[section.id];
+  const order = columnOrderBySection[section.id];
+  const showHeaderNumbers = headerNumberingBySection[section.id] !== false;
+  const options = order
+    .map((columnIndex, position) => `
+      <div class="column-option column-option--settings">
+        <label class="column-option-check">
+          <input type="checkbox" class="column-toggle-checkbox" data-column-index="${columnIndex}" ${visibility[columnIndex] !== false ? "checked" : ""} />
+          <span>${escapeHtmlText(section.columns[columnIndex])}</span>
+        </label>
+        <label class="column-order-wrap">
+          <span>Порядок</span>
+          <input type="number" class="column-order-input" data-column-index="${columnIndex}" min="1" max="${section.columns.length}" value="${position + 1}" />
+        </label>
+      </div>
     `)
     .join("");
 
-  return `<div class="columns-panel">${options}</div>`;
+  return `<div class="columns-panel table-settings-panel">
+    <label class="settings-option table-settings-flag">
+      <input type="checkbox" id="toggleHeaderNumbering" ${showHeaderNumbers ? "checked" : ""} />
+      <span>Отобразить нумерацию заголовка</span>
+    </label>
+    <div class="table-settings-options">${options}</div>
+  </div>`;
 }
 
 function renderStatusTabs(section) {
@@ -8174,9 +8217,8 @@ function attachHeaderActionHandlers(section, filteredEntries) {
   const googleSheetsSyncTasksBtn = document.getElementById("googleSheetsSyncTasksBtn");
   const addRowBtn = document.getElementById("addRowBtn");
   const toggleFiltersBtn = document.getElementById("toggleFiltersBtn");
-  const toggleColumnsBtn = document.getElementById("toggleColumnsBtn");
-  const exportPdfBtn = document.getElementById("exportPdfBtn");
-  const exportXlsBtn = document.getElementById("exportXlsBtn");
+  const toggleTableSettingsBtn = document.getElementById("toggleTableSettingsBtn");
+  const openExportModalBtn = document.getElementById("openExportModalBtn");
 
   if (refreshSectionBtn) {
     refreshSectionBtn.addEventListener("click", () => {
@@ -8206,23 +8248,17 @@ function attachHeaderActionHandlers(section, filteredEntries) {
     });
   }
 
-  if (toggleColumnsBtn) {
-    toggleColumnsBtn.classList.toggle("is-active", columnPanelOpenBySection[section.id] === true);
-    toggleColumnsBtn.addEventListener("click", () => {
+  if (toggleTableSettingsBtn) {
+    toggleTableSettingsBtn.classList.toggle("is-active", columnPanelOpenBySection[section.id] === true);
+    toggleTableSettingsBtn.addEventListener("click", () => {
       columnPanelOpenBySection[section.id] = !(columnPanelOpenBySection[section.id] === true);
       renderTablePreserveScroll();
     });
   }
 
-  if (exportPdfBtn) {
-    exportPdfBtn.addEventListener("click", () => {
-      window.print();
-    });
-  }
-
-  if (exportXlsBtn) {
-    exportXlsBtn.addEventListener("click", () => {
-      exportRowsToCsv(section, filteredEntries);
+  if (openExportModalBtn) {
+    openExportModalBtn.addEventListener("click", () => {
+      openExportFormatModal(section, filteredEntries);
     });
   }
 
@@ -8248,6 +8284,7 @@ function attachHeaderActionHandlers(section, filteredEntries) {
   const columnCheckboxes = Array.from(document.querySelectorAll(".column-toggle-checkbox"));
   columnCheckboxes.forEach((checkbox) => {
     checkbox.addEventListener("change", () => {
+      ensureColumnDisplayState(section);
       const visibility = visibleColumnsBySection[section.id] || section.columns.map(() => true);
       const columnIndex = Number(checkbox.dataset.columnIndex);
       visibility[columnIndex] = checkbox.checked;
@@ -8258,6 +8295,32 @@ function attachHeaderActionHandlers(section, filteredEntries) {
       }
 
       visibleColumnsBySection[section.id] = visibility;
+      renderTablePreserveScroll();
+    });
+  });
+
+  const headerNumberingToggle = document.getElementById("toggleHeaderNumbering");
+  if (headerNumberingToggle) {
+    headerNumberingToggle.addEventListener("change", () => {
+      headerNumberingBySection[section.id] = headerNumberingToggle.checked;
+      renderTablePreserveScroll();
+    });
+  }
+
+  const columnOrderInputs = Array.from(document.querySelectorAll(".column-order-input"));
+  columnOrderInputs.forEach((input) => {
+    input.addEventListener("change", () => {
+      ensureColumnDisplayState(section);
+      const colIndex = Number(input.dataset.columnIndex);
+      if (!Number.isInteger(colIndex) || colIndex < 0) return;
+      const max = section.columns.length;
+      const desired = Math.min(max, Math.max(1, Number(input.value) || 1));
+      const order = [...columnOrderBySection[section.id]];
+      const from = order.indexOf(colIndex);
+      if (from === -1) return;
+      order.splice(from, 1);
+      order.splice(desired - 1, 0, colIndex);
+      columnOrderBySection[section.id] = order;
       renderTablePreserveScroll();
     });
   });
@@ -9769,6 +9832,38 @@ function exportRowsToCsv(section, filteredEntries, downloadName) {
   link.download = downloadName || `${section.title}.xls`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function openExportFormatModal(section, filteredEntries) {
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal">
+      <h3>${withIcon("file-text", "Скачать")}</h3>
+      <p class="hint">Выберите формат выгрузки таблицы.</p>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary export-format-pdf-btn">PDF</button>
+        <button type="button" class="secondary export-format-xls-btn">Excel</button>
+        <button type="button" class="primary export-format-cancel-btn">Отмена</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  initLucideIcons();
+
+  const close = () => overlay.remove();
+  overlay.querySelector(".export-format-pdf-btn")?.addEventListener("click", () => {
+    close();
+    window.print();
+  });
+  overlay.querySelector(".export-format-xls-btn")?.addEventListener("click", () => {
+    close();
+    exportRowsToCsv(section, filteredEntries);
+  });
+  overlay.querySelector(".export-format-cancel-btn")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
 }
 
 function attachFilterHandlers(section) {
