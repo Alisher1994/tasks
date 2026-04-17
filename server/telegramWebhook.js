@@ -342,7 +342,7 @@ function taskCaptionWithPlan(row) {
   const plan = String(row[TASK_COLUMNS.plan] || "").trim();
   if (!plan) return base;
   const compactPlan = plan.length > 800 ? `${plan.slice(0, 797)}...` : plan;
-  return `${base}\n🧩 План решения (коммент сотрудника):\n${compactPlan.replace(/\r\n?/g, "\n")}`;
+  return `${base}\n🧩 Комментарии сотрудника (Результат):\n${compactPlan.replace(/\r\n?/g, "\n")}`;
 }
 
 function ensureLastTaskStore(payload) {
@@ -1186,14 +1186,14 @@ async function handleMessage(msg, pool, token) {
         payload,
         taskId,
         empName,
-        `Telegram: обновлён «План решения (коммент сотрудника)»\nБыло: ${prevPlan.slice(0, 2000)}\nСтало: ${nextPlan.slice(0, 2000)}`
+        `Telegram: обновлены «Комментарии сотрудника (Результат)»\nБыло: ${prevPlan.slice(0, 2000)}\nСтало: ${nextPlan.slice(0, 2000)}`
       );
     } else {
       appendTaskHistory(
         payload,
         taskId,
         empName,
-        `Telegram: заполнен «План решения (коммент сотрудника)» — ${nextPlan.slice(0, 2000)}`
+        `Telegram: заполнены «Комментарии сотрудника (Результат)» — ${nextPlan.slice(0, 2000)}`
       );
     }
     clearSession(payload, chatKey);
