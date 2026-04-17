@@ -215,6 +215,99 @@ function findEmployeeByFullName(empSection, fullName) {
   );
 }
 
+function parseTaskAssigneeNames(rawValue) {
+  const seen = new Set();
+  return String(rawValue || "")
+    .split(",")
+    .map((x) => normalizePersonName(x))
+    .filter(Boolean)
+    .filter((name) => {
+      const key = name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function ensureTaskMultiStateStore(payload) {
+  if (!payload.taskMultiState || typeof payload.taskMultiState !== "object" || Array.isArray(payload.taskMultiState)) {
+    payload.taskMultiState = {};
+  }
+  return payload.taskMultiState;
+}
+
+function getTaskMultiStateForRow(payload, row, { create = false } = {}) {
+  const taskId = String(row?.[TASK_COLUMNS.number] ?? "").trim();
+  if (!taskId) return null;
+  const store = ensureTaskMultiStateStore(payload);
+  if (!store[taskId] || typeof store[taskId] !== "object" || Array.isArray(store[taskId])) {
+    if (!create) return null;
+    store[taskId] = {};
+  }
+  return store[taskId];
+}
+
+function syncTaskMultiStateForRow(payload, row) {
+  const assignees = parseTaskAssigneeNames(row?.[TASK_COLUMNS.assignedResponsible]);
+  const taskId = String(row?.[TASK_COLUMNS.number] ?? "").trim();
+  if (!taskId) return;
+  const store = ensureTaskMultiStateStore(payload);
+  if (assignees.length <= 1) {
+    delete store[taskId];
+    return;
+  }
+  const state = getTaskMultiStateForRow(payload, row, { create: true });
+  const known = new Set(assignees.map((x) => x.toLowerCase()));
+  assignees.forEach((name) => {
+    if (!state[name] || typeof state[name] !== "object" || Array.isArray(state[name])) {
+      state[name] = {};
+    }
+    if (!String(state[name].status || "").trim()) {
+      state[name].status = String(row[TASK_COLUMNS.status] || "").trim() || "Новый";
+    }
+  });
+  Object.keys(state).forEach((name) => {
+    if (!known.has(String(name).toLowerCase())) delete state[name];
+  });
+}
+
+function getEmployeeNameByChatId(empSection, chatId) {
+  const emp = findEmployeeByChatId(empSection, chatId);
+  return normalizePersonName(emp?.[EMPLOYEE_COLUMNS.fullName] || "");
+}
+
+function getTaskAssigneeNameByChat(payload, row, chatId) {
+  const employees = getEmployeesSection(payload);
+  const clickName = getEmployeeNameByChatId(employees, chatId);
+  if (!clickName) return "";
+  const assignees = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
+  const wanted = new Set(assignees.map((x) => x.toLowerCase()));
+  if (!wanted.has(clickName.toLowerCase())) return "";
+  return assignees.find((x) => x.toLowerCase() === clickName.toLowerCase()) || "";
+}
+
+function updateTaskAggregateStatusFromMulti(payload, row, appTimeZone) {
+  const assignees = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
+  if (assignees.length <= 1) return;
+  syncTaskMultiStateForRow(payload, row);
+  const state = getTaskMultiStateForRow(payload, row) || {};
+  const statuses = assignees.map((name) => String(state?.[name]?.status || "").trim() || "Новый");
+  if (!statuses.length) return;
+  if (statuses.every((s) => s === "Закрыт")) {
+    row[TASK_COLUMNS.status] = "Закрыт";
+    if (!String(row[TASK_COLUMNS.closedDate] || "").trim()) {
+      row[TASK_COLUMNS.closedDate] = formatRuDate(new Date(), appTimeZone || "UTC");
+    }
+    return;
+  }
+  row[TASK_COLUMNS.closedDate] = "";
+  if (statuses.some((s) => s === "В процессе")) {
+    row[TASK_COLUMNS.status] = "В процессе";
+    return;
+  }
+  row[TASK_COLUMNS.status] = "Новый";
+}
+
 function findDepartmentRowByName(payload, departmentName) {
   const want = String(departmentName || "")
     .trim()
@@ -228,21 +321,24 @@ function findDepartmentRowByName(payload, departmentName) {
 
 function getDepartmentHeadChatIdsForTask(payload, row) {
   const employees = getEmployeesSection(payload);
-  const assignedName = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
-  if (!assignedName) return [];
-  const assignedEmp = findEmployeeByFullName(employees, assignedName);
-  if (!assignedEmp) return [];
-  const departmentName = String(assignedEmp[EMPLOYEE_COLUMNS.department] || "").trim();
-  if (!departmentName) return [];
-  const depRow = findDepartmentRowByName(payload, departmentName);
-  if (!depRow) return [];
-  const headName = String(depRow[2] || "").trim();
-  if (!headName) return [];
-  const headEmp = findEmployeeByFullName(employees, headName);
-  if (!headEmp) return [];
-  if (String(headEmp[EMPLOYEE_COLUMNS.telegram] || "").trim() !== "Подключен") return [];
-  const chatId = String(headEmp[EMPLOYEE_COLUMNS.chatId] || "").trim();
-  return chatId ? [chatId] : [];
+  const out = new Set();
+  const assignees = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
+  for (const assignedName of assignees) {
+    const assignedEmp = findEmployeeByFullName(employees, assignedName);
+    if (!assignedEmp) continue;
+    const departmentName = String(assignedEmp[EMPLOYEE_COLUMNS.department] || "").trim();
+    if (!departmentName) continue;
+    const depRow = findDepartmentRowByName(payload, departmentName);
+    if (!depRow) continue;
+    const headName = String(depRow[2] || "").trim();
+    if (!headName) continue;
+    const headEmp = findEmployeeByFullName(employees, headName);
+    if (!headEmp) continue;
+    if (String(headEmp[EMPLOYEE_COLUMNS.telegram] || "").trim() !== "Подключен") continue;
+    const chatId = String(headEmp[EMPLOYEE_COLUMNS.chatId] || "").trim();
+    if (chatId) out.add(chatId);
+  }
+  return Array.from(out);
 }
 
 function getAlwaysConfirmChatIds(payload) {
@@ -400,16 +496,16 @@ function isAssignedEmployeeReader(payload, row, chatId) {
   if (String(clickEmp[EMPLOYEE_COLUMNS.telegram] || "").trim() !== "Подключен") return false;
 
   const clickName = String(clickEmp[EMPLOYEE_COLUMNS.fullName] || "").trim();
-  const assignedName = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
+  const assignedNames = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
   const responsibleName = String(row[TASK_COLUMNS.responsible] || "").trim();
 
   // Строгий путь: исполнитель или ответственный по задаче.
-  if (assignedName && findEmployeeByFullName(employees, assignedName) === clickEmp) return true;
+  if (assignedNames.some((name) => findEmployeeByFullName(employees, name) === clickEmp)) return true;
   if (responsibleName && findEmployeeByFullName(employees, responsibleName) === clickEmp) return true;
 
   // Фолбэк: если исполнитель не сопоставился со справочником (например, старые/шаблонные ФИО),
   // считаем прочтение по факту нажатия у подключённого сотрудника, чтобы не блокировать процесс.
-  const assignedEmp = assignedName ? findEmployeeByFullName(employees, assignedName) : null;
+  const assignedEmp = assignedNames.map((name) => findEmployeeByFullName(employees, name)).find(Boolean) || null;
   if (!assignedEmp) return true;
 
   // Если у исполнителя не заполнен/неверен chat_id, также разрешаем отметку текущему подключённому сотруднику.
@@ -487,9 +583,9 @@ function resolveTaskUpdateRecipientChatIds(payload, row, excludeChatId = "") {
   };
 
   const names = new Set();
-  const assigned = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
+  const assigned = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
   const responsible = String(row[TASK_COLUMNS.responsible] || "").trim();
-  if (assigned) names.add(assigned);
+  assigned.forEach((name) => names.add(name));
   if (responsible) names.add(responsible);
   for (const er of empRows) {
     const fio = String(er[EMPLOYEE_COLUMNS.fullName] || "").trim();
@@ -516,11 +612,13 @@ function resolveTaskUpdateRecipientChatIds(payload, row, excludeChatId = "") {
 function getTaskActionChatIds(payload, row) {
   const employees = getEmployeesSection(payload);
   const out = new Set();
-  const assignedName = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
-  const assignedEmp = assignedName ? findEmployeeByFullName(employees, assignedName) : null;
-  const assignedChat = String(assignedEmp?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
-  if (assignedChat && String(assignedEmp?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен") {
-    out.add(assignedChat);
+  const assignedNames = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
+  for (const assignedName of assignedNames) {
+    const assignedEmp = assignedName ? findEmployeeByFullName(employees, assignedName) : null;
+    const assignedChat = String(assignedEmp?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
+    if (assignedChat && String(assignedEmp?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен") {
+      out.add(assignedChat);
+    }
   }
   if (!out.size) {
     const responsibleName = String(row[TASK_COLUMNS.responsible] || "").trim();
@@ -878,6 +976,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "answerCallbackQuery", { callback_query_id: q.id, text: "Задача не найдена" });
     return;
   }
+  syncTaskMultiStateForRow(payload, row);
 
   const taskId = String(row[TASK_COLUMNS.number] ?? "").trim();
   const emp = findEmployeeByChatId(employees, String(chatId));
@@ -892,6 +991,14 @@ async function handleCallback(q, pool, token) {
     // Кнопка «📖 Прочитать» приходит только адресату сообщения по задаче,
     // поэтому отмечаем ознакомление сразу по факту нажатия.
     row[TASK_COLUMNS.readState] = composeReadStateValue(true, nowText);
+    const assigneeName = getTaskAssigneeNameByChat(payload, row, chatId);
+    if (assigneeName) {
+      const state = getTaskMultiStateForRow(payload, row, { create: true });
+      if (state && state[assigneeName]) {
+        state[assigneeName].readAt = nowText;
+        state[assigneeName].updatedAt = nowText;
+      }
+    }
     appendTaskHistory(payload, taskId, empName, `Telegram: задача прочитана (${nowText})`);
     setLastTaskContext(payload, chatId, taskId, messageId);
     await savePayload(pool, payload);
@@ -935,6 +1042,7 @@ async function handleCallback(q, pool, token) {
     }
     const newStatus = EMPLOYEE_STATUS_OPTIONS[idx];
     const isClose = newStatus === "Закрыт";
+    const assigneeName = getTaskAssigneeNameByChat(payload, row, chatId);
 
     if (isClose) {
       if (!payload.telegramCloseRequests) payload.telegramCloseRequests = {};
@@ -964,6 +1072,7 @@ async function handleCallback(q, pool, token) {
       payload.telegramCloseRequests[taskId] = {
         chatId: String(chatId),
         employeeName: empName,
+        requesterAssigneeName: assigneeName || "",
         at: Date.now(),
         sourceMessageId: Number(messageId) || null,
         allowedConfirmChatIds: Array.from(requestAllowed)
@@ -989,7 +1098,19 @@ async function handleCallback(q, pool, token) {
     }
 
     const oldStatus = String(row[TASK_COLUMNS.status] ?? "").trim();
-    row[TASK_COLUMNS.status] = newStatus;
+    if (assigneeName) {
+      const appTz = resolveAppTimeZone(payload);
+      const nowText = formatRuDateTime(new Date(), appTz);
+      const state = getTaskMultiStateForRow(payload, row, { create: true });
+      if (state && state[assigneeName]) {
+        state[assigneeName].status = newStatus;
+        state[assigneeName].updatedAt = nowText;
+        if (newStatus === "Закрыт") state[assigneeName].closedAt = nowText;
+      }
+      updateTaskAggregateStatusFromMulti(payload, row, appTz);
+    } else {
+      row[TASK_COLUMNS.status] = newStatus;
+    }
     appendTaskHistory(payload, taskId, empName, `Telegram: статус «${oldStatus || "—"}» → «${newStatus}»`);
     setLastTaskContext(payload, chatId, taskId, messageId);
     await savePayload(pool, payload);
@@ -1077,12 +1198,26 @@ async function handleCallback(q, pool, token) {
     }
 
     if (decision === "y") {
-      row[TASK_COLUMNS.status] = "Закрыт";
       const appTz = resolveAppTimeZone(payload);
       const now = new Date();
       const confirmedAt = formatRuDateTime(now, appTz);
-      row[TASK_COLUMNS.closedDate] = formatRuDate(now, appTz);
-      const confirmInfo = `Закрытие подтверждено: ${empName || "—"}, ${confirmedAt}`;
+      const requesterAssignee = normalizePersonName(req.requesterAssigneeName || "");
+      const assignees = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
+      if (requesterAssignee && assignees.length > 1) {
+        const state = getTaskMultiStateForRow(payload, row, { create: true });
+        if (state && state[requesterAssignee]) {
+          state[requesterAssignee].status = "Закрыт";
+          state[requesterAssignee].closedAt = confirmedAt;
+          state[requesterAssignee].updatedAt = confirmedAt;
+        }
+        updateTaskAggregateStatusFromMulti(payload, row, appTz);
+      } else {
+        row[TASK_COLUMNS.status] = "Закрыт";
+        row[TASK_COLUMNS.closedDate] = formatRuDate(now, appTz);
+      }
+      const confirmInfo = requesterAssignee && assignees.length > 1
+        ? `Закрытие подтверждено: ${requesterAssignee} (${empName || "—"}), ${confirmedAt}`
+        : `Закрытие подтверждено: ${empName || "—"}, ${confirmedAt}`;
       delete payload.telegramCloseRequests[taskId];
       const ds = payload.displaySettings || {};
       const tpl = String(ds.telegramCloseAcceptedTemplate || "").trim() || defaultAcceptTemplate();
@@ -1289,6 +1424,17 @@ async function handleMessage(msg, pool, token) {
     const prevPlan = String(row[TASK_COLUMNS.plan] || "").trim();
     const nextPlan = String(text || "").trim().slice(0, 4000);
     row[TASK_COLUMNS.plan] = nextPlan;
+    const assigneeName = getTaskAssigneeNameByChat(payload, row, chatId);
+    if (assigneeName) {
+      const appTz = resolveAppTimeZone(payload);
+      const nowText = formatRuDateTime(new Date(), appTz);
+      const state = getTaskMultiStateForRow(payload, row, { create: true });
+      if (state && state[assigneeName]) {
+        state[assigneeName].comment = nextPlan;
+        state[assigneeName].updatedAt = nowText;
+      }
+      updateTaskAggregateStatusFromMulti(payload, row, appTz);
+    }
     if (prevPlan) {
       appendTaskHistory(
         payload,
@@ -1331,6 +1477,7 @@ async function handleMessage(msg, pool, token) {
     await broadcastTaskCardUpdate(payload, token, row, "Комментарий сотрудника обновлён.", chatKey);
     return;
   }
+  syncTaskMultiStateForRow(payload, row);
 
   if (sess.expect === "comment" && !text) {
     await tg(token, "sendMessage", { chat_id: chatId, text: "Пожалуйста, отправьте комментарий текстом или /отмена." });
@@ -1349,6 +1496,15 @@ async function handleMessage(msg, pool, token) {
       storedName = String(media?.fileName || "");
     } catch (_) {
       storedName = "";
+    }
+    const assigneeName = getTaskAssigneeNameByChat(payload, row, chatKey);
+    if (assigneeName) {
+      const appTz = resolveAppTimeZone(payload);
+      const nowText = formatRuDateTime(new Date(), appTz);
+      const state = getTaskMultiStateForRow(payload, row, { create: true });
+      if (state && state[assigneeName]) {
+        state[assigneeName].updatedAt = nowText;
+      }
     }
     appendTaskHistory(
       payload,

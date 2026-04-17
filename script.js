@@ -38,6 +38,7 @@ const OBJECT_PHOTO_THUMBS_STORAGE_KEY = "mbc_object_photo_thumbs";
 const TRASH_STORAGE_KEY = "mbc_task_trash_data";
 /** История действий по задачам: { [taskId]: Array<{ t, who, action }> } */
 const TASK_HISTORY_STORAGE_KEY = "mbc_task_action_history";
+const TASK_MULTI_STATE_STORAGE_KEY = "mbc_task_multi_state";
 const TASK_HISTORY_MAX_PER_TASK = 300;
 const REPORT_CHART_ORDER_STORAGE_KEY = "mbc_report_chart_tile_order";
 /** «row» — Топ фаз / Разделы / Подразделы в одной строке; «separate» — каждый график на всю ширину */
@@ -447,11 +448,13 @@ function stopSessionIdleWatcher() {
 }
 
 function buildAppPayload() {
+  normalizeTaskMultiStateStore();
   return {
     sections: JSON.parse(JSON.stringify(sections)),
     displaySettings: JSON.parse(JSON.stringify(displaySettings)),
     trashBySection: JSON.parse(JSON.stringify(trashBySection)),
     taskHistory: loadTaskHistoryStore(),
+    taskMultiState: JSON.parse(JSON.stringify(taskMultiState)),
     reportShares: loadReportShares(),
     reportChartOrder: loadReportChartOrder(),
     reportPhaseLayout: loadReportPhaseGroupLayout()
@@ -667,6 +670,9 @@ async function mergeTaskReadStateFromServer(localPayload) {
       if (!remoteRow) return;
       mergeBotManagedTaskFieldsIntoLocalRow(row, remoteRow);
     });
+    if (remotePayload?.taskMultiState && typeof remotePayload.taskMultiState === "object" && !Array.isArray(remotePayload.taskMultiState)) {
+      localPayload.taskMultiState = JSON.parse(JSON.stringify(remotePayload.taskMultiState));
+    }
   } catch (_) {
     /* noop */
   }
@@ -703,14 +709,28 @@ async function pullTaskReadStateFromServerIntoLocal({ rerender = true } = {}) {
       if (!remoteRow) return;
       changed = mergeBotManagedTaskFieldsIntoLocalRow(row, remoteRow) || changed;
     });
+    let multiChanged = false;
+    try {
+      if (json?.data?.taskMultiState && typeof json.data.taskMultiState === "object" && !Array.isArray(json.data.taskMultiState)) {
+        const nextMulti = JSON.stringify(json.data.taskMultiState);
+        const prevMulti = JSON.stringify(taskMultiState || {});
+        if (nextMulti !== prevMulti) {
+          taskMultiState = JSON.parse(nextMulti);
+          localStorage.setItem(TASK_MULTI_STATE_STORAGE_KEY, JSON.stringify(taskMultiState));
+          multiChanged = true;
+        }
+      }
+    } catch (_) {
+      /* noop */
+    }
     if (changed) {
       try {
         localStorage.setItem(DATA_STORAGE_KEY, JSON.stringify(sections));
       } catch (_) {
         /* noop */
       }
-      if (rerender) renderTablePreserveScroll();
     }
+    if ((changed || multiChanged) && rerender) renderTablePreserveScroll();
     return changed;
   } catch (_) {
     return false;
@@ -923,6 +943,14 @@ function applyServerBundle(data, options = {}) {
   if (data.taskHistory && typeof data.taskHistory === "object") {
     try {
       localStorage.setItem(TASK_HISTORY_STORAGE_KEY, JSON.stringify(data.taskHistory));
+    } catch (_) {
+      /* noop */
+    }
+  }
+  if (data.taskMultiState && typeof data.taskMultiState === "object" && !Array.isArray(data.taskMultiState)) {
+    try {
+      localStorage.setItem(TASK_MULTI_STATE_STORAGE_KEY, JSON.stringify(data.taskMultiState));
+      restoreTaskMultiState();
     } catch (_) {
       /* noop */
     }
@@ -1233,13 +1261,14 @@ function collectTaskCloseApproverNames(taskRow) {
   };
 
   // 1) Руководитель отдела исполнителя.
-  const headName = getDepartmentHeadNameByEmployeeName(taskRow[TASK_COLUMNS.assignedResponsible]);
-  if (headName) {
+  parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible]).forEach((assigneeName) => {
+    const headName = getDepartmentHeadNameByEmployeeName(assigneeName);
+    if (!headName) return;
     const headRows = getEmployeeRowsByDisplayName(headName);
     if (headRows.some((r) => employeeHasTelegramBinding(r))) {
       add(headName, "руководитель отдела");
     }
-  }
+  });
 
   // 2) Админ и директор (по должности), если подключены в Telegram.
   const alwaysPositions = new Set(["Администратор", "Генеральный директор"]);
@@ -1286,10 +1315,12 @@ function collectTaskTelegramRecipientNames(taskRow) {
     const n = normalizePersonName(v);
     if (n) base.add(n);
   };
-  addBase(taskRow[TASK_COLUMNS.assignedResponsible]);
+  parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible]).forEach((name) => addBase(name));
   addBase(taskRow[TASK_COLUMNS.responsible]);
-  const departmentHead = getDepartmentHeadNameByEmployeeName(taskRow[TASK_COLUMNS.assignedResponsible]);
-  if (departmentHead) base.add(departmentHead);
+  parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible]).forEach((name) => {
+    const departmentHead = getDepartmentHeadNameByEmployeeName(name);
+    if (departmentHead) base.add(departmentHead);
+  });
 
   const names = new Set(base);
   const oz = getObjectRpZrpForTask(taskRow);
@@ -1536,8 +1567,7 @@ function resolveEmployeeTelegramTargetsByFullNames(names) {
 
 function resolveTaskActionChatIds(taskRow) {
   const names = [];
-  const assigned = normalizePersonName(taskRow?.[TASK_COLUMNS.assignedResponsible]);
-  if (assigned) names.push(assigned);
+  parseTaskAssigneeNames(taskRow?.[TASK_COLUMNS.assignedResponsible]).forEach((name) => names.push(name));
   let targets = resolveEmployeeTelegramTargetsByFullNames(names);
   if (!targets.length) {
     const responsible = normalizePersonName(taskRow?.[TASK_COLUMNS.responsible]);
@@ -1671,6 +1701,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
     });
   };
   const token = String(displaySettings.telegramBotToken || "").trim();
+  cleanupTaskMultiStateForRow(taskRow);
   if (!token) {
     const msg = "Укажите токен Telegram-бота в прочих настройках.";
     notify(msg, "error");
@@ -2691,6 +2722,8 @@ let displaySettings = {
   /** flat | byObject — таблица сразу или сначала выбор объекта */
   tasksListBrowseMode: "flat"
 };
+let taskMultiState = {};
+const expandedTaskAssigneeRows = new Set();
 
 function iconSvg(name) {
   const attrs = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide-icon" aria-hidden="true"';
@@ -3562,6 +3595,8 @@ function renderTable() {
           const trashMetaCells = isTrashView
             ? `<td class="trash-meta-col">${formatTrashDate(entry.deletedAt)}</td><td class="trash-meta-col">${formatTrashRemaining(entry.expiresAt)}</td>`
             : "";
+          const accordionRow =
+            section.id === "tasks" ? renderTaskAssigneesAccordionRow(entry.row, visibleColumnIndexes.length, isTrashView) : "";
           return `
             <tr class="${rowFocusClass} ${rowHighlightClass}">
               <td class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}">
@@ -3573,6 +3608,7 @@ function renderTable() {
                 ${renderRowActions(section.id, isTrashView, entry.rowIndex, entry.row)}
               </td>
             </tr>
+            ${accordionRow}
           `;
         })
         .join("") || `<tr><td colspan="${visibleColumnIndexes.length + (isTrashView ? 4 : 2)}" class="empty-state">Нет данных по выбранным фильтрам</td></tr>`}
@@ -3661,6 +3697,7 @@ function renderTable() {
   attachMediaSlotHandlers(section);
   attachObjectPhotoHandlers(section);
   if (section.id === "tasks") {
+    attachTaskAccordionHandlers(section);
     attachTasksListFooterHandlers(section);
     attachTasksObjectPickerHandlers(section);
   }
@@ -6520,6 +6557,81 @@ function parseEmployeesCell(value) {
     .filter(Boolean);
 }
 
+function parseTaskAssigneeNames(value) {
+  const out = [];
+  const seen = new Set();
+  parseEmployeesCell(value).forEach((nameRaw) => {
+    const name = normalizePersonName(nameRaw);
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(name);
+  });
+  return out;
+}
+
+function getTaskIdForMultiState(taskRow) {
+  return String(taskRow?.[TASK_COLUMNS.number] ?? "").trim();
+}
+
+function getTaskMultiAssigneeMap(taskId, { create = false } = {}) {
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  if (!taskMultiState || typeof taskMultiState !== "object") {
+    taskMultiState = {};
+  }
+  if (!taskMultiState[id] || typeof taskMultiState[id] !== "object" || Array.isArray(taskMultiState[id])) {
+    if (!create) return null;
+    taskMultiState[id] = {};
+  }
+  return taskMultiState[id];
+}
+
+function cleanupTaskMultiStateForRow(taskRow) {
+  const taskId = getTaskIdForMultiState(taskRow);
+  if (!taskId) return;
+  const assignees = parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible]);
+  if (assignees.length <= 1) {
+    delete taskMultiState[taskId];
+    return;
+  }
+  const map = getTaskMultiAssigneeMap(taskId, { create: true });
+  const known = new Set(assignees.map((x) => x.toLowerCase()));
+  assignees.forEach((name) => {
+    if (!map[name] || typeof map[name] !== "object" || Array.isArray(map[name])) {
+      map[name] = {};
+    }
+    if (!String(map[name].status || "").trim()) {
+      const baseStatus = String(taskRow[TASK_COLUMNS.status] || "").trim();
+      map[name].status = baseStatus || "Новый";
+    }
+    if (!String(map[name].updatedAt || "").trim()) {
+      map[name].updatedAt = String(taskRow[TASK_COLUMNS.lastSentAt] || "").trim() || "—";
+    }
+  });
+  Object.keys(map).forEach((name) => {
+    if (!known.has(String(name).toLowerCase())) delete map[name];
+  });
+}
+
+function normalizeTaskMultiStateStore() {
+  if (!taskMultiState || typeof taskMultiState !== "object" || Array.isArray(taskMultiState)) {
+    taskMultiState = {};
+  }
+  const tasksRows = getSectionById("tasks")?.rows || [];
+  const existingTaskIds = new Set();
+  tasksRows.forEach((row) => {
+    const id = getTaskIdForMultiState(row);
+    if (!id) return;
+    existingTaskIds.add(id);
+    cleanupTaskMultiStateForRow(row);
+  });
+  Object.keys(taskMultiState).forEach((taskId) => {
+    if (!existingTaskIds.has(taskId)) delete taskMultiState[taskId];
+  });
+}
+
 function normalizeTaskIdValue(value) {
   return String(value ?? "").trim();
 }
@@ -7094,6 +7206,88 @@ function renderObjectPhotoCell(row, value, rowIndex) {
   </div>`;
 }
 
+function getTaskAssigneeProgressSummary(taskRow) {
+  const names = parseTaskAssigneeNames(taskRow?.[TASK_COLUMNS.assignedResponsible]);
+  const total = names.length;
+  if (total <= 1) return null;
+  const taskId = getTaskIdForMultiState(taskRow);
+  const map = getTaskMultiAssigneeMap(taskId) || {};
+  let closed = 0;
+  names.forEach((name) => {
+    const st = String(map?.[name]?.status || taskRow?.[TASK_COLUMNS.status] || "").trim();
+    if (st === "Закрыт") closed += 1;
+  });
+  return { total, closed };
+}
+
+function renderTaskTitleCell(taskRow, rowIndex) {
+  const text = escapeHtmlText(String(taskRow?.[TASK_COLUMNS.task] || ""));
+  const summary = getTaskAssigneeProgressSummary(taskRow);
+  if (!summary) return text;
+  const taskId = getTaskIdForMultiState(taskRow);
+  const expanded = expandedTaskAssigneeRows.has(taskId);
+  return `
+    <div class="task-accordion-title">
+      <button type="button" class="task-assignees-toggle-btn" data-task-assignees-toggle="${escapeHtmlAttr(taskId)}" aria-expanded="${expanded ? "true" : "false"}">${expanded ? "▼" : "►"}</button>
+      <span>${text}</span>
+    </div>
+    <div class="task-accordion-meta">${summary.closed}/${summary.total} закрыто</div>
+  `;
+}
+
+function renderTaskAssigneesAccordionRow(taskRow, visibleColumnsCount, isTrashView = false) {
+  const names = parseTaskAssigneeNames(taskRow?.[TASK_COLUMNS.assignedResponsible]);
+  if (isTrashView || names.length <= 1) return "";
+  const taskId = getTaskIdForMultiState(taskRow);
+  const expanded = expandedTaskAssigneeRows.has(taskId);
+  const map = getTaskMultiAssigneeMap(taskId) || {};
+  const summary = getTaskAssigneeProgressSummary(taskRow) || { closed: 0, total: names.length };
+  const rowsHtml = names
+    .map((name, idx) => {
+      const state = map?.[name] || {};
+      const st = String(state.status || taskRow[TASK_COLUMNS.status] || "Новый").trim() || "Новый";
+      const stClass = `status-badge status-${slugify(st)}`;
+      const comment = String(state.comment || "").trim() || "—";
+      const readAt = String(state.readAt || "").trim() || "—";
+      const upd = String(state.updatedAt || "").trim() || "—";
+      const subId = `${String(taskRow[TASK_COLUMNS.number] || "—")}.${idx + 1}`;
+      return `
+        <tr>
+          <td>${escapeHtmlText(subId)}</td>
+          <td>${escapeHtmlText(name)}</td>
+          <td><span class="${stClass}">${escapeHtmlText(st)}</span></td>
+          <td title="${escapeHtmlAttr(comment)}">${escapeHtmlText(comment.length > 120 ? `${comment.slice(0, 117)}...` : comment)}</td>
+          <td>${escapeHtmlText(readAt)}</td>
+          <td>${escapeHtmlText(upd)}</td>
+        </tr>
+      `;
+    })
+    .join("");
+  const colSpan = Number(visibleColumnsCount) + 2 + (isTrashView ? 2 : 0);
+  return `
+    <tr class="task-assignees-accordion-row ${expanded ? "" : "hidden"}" data-task-assignees-row="${escapeHtmlAttr(taskId)}">
+      <td colspan="${colSpan}">
+        <div class="task-assignees-accordion-wrap">
+          <div class="task-assignees-accordion-title">Подзадачи исполнителей (${summary.closed}/${summary.total} закрыто)</div>
+          <table class="task-assignees-accordion-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Ответственный</th>
+                <th>Статус</th>
+                <th>Комментарий</th>
+                <th>Ознакомление</th>
+                <th>Обновлено</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
 function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1) {
   if (section.id === "objects" && colIndex === OBJECT_COLUMNS.photo) {
     return renderObjectPhotoCell(row, value, rowIndexForPhoto);
@@ -7133,6 +7327,10 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
 
   if (colIndex === TASK_COLUMNS.dueDate) {
     return renderDueDateCell(value);
+  }
+
+  if (colIndex === TASK_COLUMNS.task) {
+    return renderTaskTitleCell(row, rowIndexForPhoto);
   }
 
   if (isMediaColumn(colIndex)) {
@@ -7817,20 +8015,18 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
     return;
   }
   if (section.id === "tasks" && colIndex === TASK_COLUMNS.assignedResponsible) {
-    const options = getResponsibleByHierarchy(
-      row[TASK_COLUMNS.phase],
-      row[TASK_COLUMNS.phaseSection],
-      row[TASK_COLUMNS.phaseSubsection]
-    );
-    openSingleLookupModal(
-      "Выбор исполнителя",
-      options.length ? options : getEmployeesList(),
-      row[TASK_COLUMNS.assignedResponsible],
-      (value) => {
-        row[TASK_COLUMNS.assignedResponsible] = value;
-      },
-      taskHistoryCtx(section, rowIndex, colIndex)
-    );
+    openTaskAssignedMultiSelectModal(row, (value) => {
+      const prev = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
+      row[TASK_COLUMNS.assignedResponsible] = value;
+      cleanupTaskMultiStateForRow(row);
+      if (prev !== String(value || "").trim()) {
+        appendTaskHistoryEntry(
+          String(row[TASK_COLUMNS.number] || ""),
+          `Ответственный: «${shortenHistorySnippet(prev)}» → «${shortenHistorySnippet(value)}»`
+        );
+      }
+      saveSectionsData();
+    });
     return;
   }
   if (section.id === "tasks" && colIndex === TASK_COLUMNS.responsible) {
@@ -8136,17 +8332,24 @@ function normalizeRowAfterEdit(section, rowIndex, colIndex) {
       row[TASK_COLUMNS.phaseSection] = "";
       row[TASK_COLUMNS.phaseSubsection] = "";
       row[TASK_COLUMNS.assignedResponsible] = "";
+      cleanupTaskMultiStateForRow(row);
       return;
     }
 
     if (colIndex === TASK_COLUMNS.phaseSection) {
       row[TASK_COLUMNS.phaseSubsection] = "";
       row[TASK_COLUMNS.assignedResponsible] = "";
+      cleanupTaskMultiStateForRow(row);
       return;
     }
 
     if (colIndex === TASK_COLUMNS.phaseSubsection) {
       row[TASK_COLUMNS.assignedResponsible] = "";
+      cleanupTaskMultiStateForRow(row);
+      return;
+    }
+    if (colIndex === TASK_COLUMNS.assignedResponsible || colIndex === TASK_COLUMNS.status || colIndex === TASK_COLUMNS.number) {
+      cleanupTaskMultiStateForRow(row);
     }
     return;
   }
@@ -8405,6 +8608,21 @@ function ensureSystemDepartments() {
       const nextId = String(departmentsSection.rows.length + 1);
       departmentsSection.rows.push([nextId, department, "", "Системный"]);
     }
+  });
+}
+
+function attachTaskAccordionHandlers(section) {
+  if (section.id !== "tasks") return;
+  document.querySelectorAll(".task-assignees-toggle-btn").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const taskId = String(button.getAttribute("data-task-assignees-toggle") || "").trim();
+      if (!taskId) return;
+      if (expandedTaskAssigneeRows.has(taskId)) expandedTaskAssigneeRows.delete(taskId);
+      else expandedTaskAssigneeRows.add(taskId);
+      renderTablePreserveScroll();
+    });
   });
 }
 
@@ -8737,6 +8955,118 @@ function openSingleLookupModal(title, options, currentValue, onApply, historyCtx
     }
     onApply?.(newVal);
     saveSectionsData();
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      overlay.remove();
+      renderTablePreserveScroll();
+    }
+  });
+
+  renderOptions();
+  search?.focus();
+}
+
+function openTaskAssignedMultiSelectModal(taskRow, onApply) {
+  if (!taskRow) return;
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  const baseOptions = getResponsibleByHierarchy(
+    taskRow[TASK_COLUMNS.phase],
+    taskRow[TASK_COLUMNS.phaseSection],
+    taskRow[TASK_COLUMNS.phaseSubsection]
+  );
+  const allEmployees = getEmployeesForSelection();
+  const fallback = allEmployees.map((x) => x.fullName);
+  const names = (baseOptions.length ? baseOptions : fallback).map((x) => normalizePersonName(x)).filter(Boolean);
+  const selected = new Set(parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible]));
+  const options = names.map((fullName) => {
+    const found = allEmployees.find((e) => normalizePersonName(e.fullName) === fullName);
+    return { fullName, role: String(found?.role || "").trim() || "—" };
+  });
+
+  overlay.innerHTML = `
+    <div class="responsible-modal">
+      <h4>Выбор ответственных (мультивыбор)</h4>
+      <input type="text" class="responsible-modal-search" placeholder="Поиск сотрудника..." />
+      <label class="responsible-select-all">
+        <input type="checkbox" class="responsible-select-all-checkbox" />
+        <span>Выбрать всех</span>
+      </label>
+      <div class="responsible-modal-list"></div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary responsible-cancel-btn">Отмена</button>
+        <button type="button" class="responsible-apply-btn">Готово</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const list = overlay.querySelector(".responsible-modal-list");
+  const search = overlay.querySelector(".responsible-modal-search");
+  const selectAllCheckbox = overlay.querySelector(".responsible-select-all-checkbox");
+  const cancelBtn = overlay.querySelector(".responsible-cancel-btn");
+  const applyBtn = overlay.querySelector(".responsible-apply-btn");
+  let lastFiltered = options;
+
+  const refreshSelectAllState = (filtered) => {
+    if (!selectAllCheckbox) return;
+    if (!filtered.length) {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = false;
+      return;
+    }
+    const selectedCount = filtered.filter((item) => selected.has(item.fullName)).length;
+    selectAllCheckbox.checked = selectedCount === filtered.length;
+    selectAllCheckbox.indeterminate = selectedCount > 0 && selectedCount < filtered.length;
+  };
+
+  const renderOptions = (query = "") => {
+    const q = String(query || "").trim().toLowerCase();
+    const filtered = options.filter((item) => (
+      item.fullName.toLowerCase().includes(q) || item.role.toLowerCase().includes(q)
+    ));
+    lastFiltered = filtered;
+    list.innerHTML = filtered.length
+      ? filtered.map((item) => `
+        <label class="responsible-option-item">
+          <input type="checkbox" value="${escapeHtmlAttr(item.fullName)}" ${selected.has(item.fullName) ? "checked" : ""} />
+          <span class="responsible-option-name">${escapeHtmlText(item.fullName)}</span>
+          <span class="responsible-option-role">${escapeHtmlText(item.role)}</span>
+        </label>
+      `).join("")
+      : '<div class="responsible-option-empty">Ничего не найдено</div>';
+    refreshSelectAllState(filtered);
+  };
+
+  list.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
+    const value = normalizePersonName(target.value);
+    if (!value) return;
+    if (target.checked) selected.add(value);
+    else selected.delete(value);
+    refreshSelectAllState(lastFiltered);
+  });
+  search?.addEventListener("input", () => renderOptions(search.value));
+  selectAllCheckbox?.addEventListener("change", () => {
+    const shouldSelect = Boolean(selectAllCheckbox.checked);
+    lastFiltered.forEach((item) => {
+      if (shouldSelect) selected.add(item.fullName);
+      else selected.delete(item.fullName);
+    });
+    renderOptions(search?.value || "");
+  });
+
+  cancelBtn?.addEventListener("click", () => {
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
+  applyBtn?.addEventListener("click", () => {
+    const values = options.map((o) => o.fullName).filter((name) => selected.has(name));
+    onApply?.(values.join(", "));
     overlay.remove();
     renderTablePreserveScroll();
   });
@@ -11601,8 +11931,31 @@ function getTodayRuDate() {
 }
 
 function saveSectionsData() {
+  normalizeTaskMultiStateStore();
   localStorage.setItem(DATA_STORAGE_KEY, JSON.stringify(sections));
+  localStorage.setItem(TASK_MULTI_STATE_STORAGE_KEY, JSON.stringify(taskMultiState));
   scheduleServerSync();
+}
+
+function saveTaskMultiState(opts = {}) {
+  normalizeTaskMultiStateStore();
+  localStorage.setItem(TASK_MULTI_STATE_STORAGE_KEY, JSON.stringify(taskMultiState));
+  if (!opts.skipServerSync) {
+    scheduleServerSync();
+  }
+}
+
+function restoreTaskMultiState() {
+  const raw = localStorage.getItem(TASK_MULTI_STATE_STORAGE_KEY);
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+    taskMultiState = parsed;
+    normalizeTaskMultiStateStore();
+  } catch (_) {
+    // ignore broken storage
+  }
 }
 
 function getTrashRows(sectionId) {
@@ -11744,6 +12097,7 @@ function restoreSectionsData() {
         repairTaskRowCells(row, employeeSet);
       });
     }
+    normalizeTaskMultiStateStore();
     ensureTaskIdCounter();
     saveDisplaySettings({ skipServerSync: true });
     // Фиксируем нормализованный порядок колонок задач в localStorage.
@@ -12207,6 +12561,7 @@ loginBtn.innerHTML = withLucideIcon("log-in", "Войти");
 logoutBtn.innerHTML = withLucideIcon("log-out", "Выйти");
 restoreDisplaySettings();
 restoreSectionsData();
+restoreTaskMultiState();
 cleanupPendingImportedTaskIds({ save: false });
 applyObjectsSeedIfNeeded();
 loadObjectPhotoThumbsFromStorage();
