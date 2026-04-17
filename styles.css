@@ -4590,6 +4590,11 @@ td.object-photo-col {
   }
 }
 
+.object-photo-slot--nostore .object-photo-slot-actions,
+.object-photo-slot--has-img .object-photo-remove {
+  opacity: 1 !important;
+}
+
 .object-photo-slot--has-img .object-photo-remove {
   position: absolute;
   top: 4px;

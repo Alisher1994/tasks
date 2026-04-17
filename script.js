@@ -3663,6 +3663,15 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
       </div>
     `;
   }
+  if (sectionId === "objects") {
+    return `
+      <div class="action-buttons">
+        <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
+          <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+      </div>
+    `;
+  }
   return `
     <div class="action-buttons">
       <button type="button" class="icon-action-btn view-row-btn" title="Просмотр" data-row-index="${rowIndex}">
@@ -6887,6 +6896,7 @@ function renderTasksScreenModeSwitch(section) {
 function resolveObjectPhotoSourceUrl(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
+  if (raw === "-" || raw === "—" || raw.toLowerCase() === "null" || raw.toLowerCase() === "undefined") return "";
   if (/^(data:|blob:)/i.test(raw)) return raw;
   if (/^https?:\/\//i.test(raw)) return raw;
   if (raw.startsWith("/media/")) return raw;
@@ -6900,7 +6910,8 @@ function renderObjectPhotoCell(row, value, rowIndex) {
   const pkey = oid ? `obj-ph-${oid}` : "";
   const preview = pkey ? objectPhotoPreviewStore[pkey] : null;
   const fileName = String(value || "").trim();
-  const displayName = getMediaDisplayName(fileName);
+  const safeFileName = resolveObjectPhotoSourceUrl(fileName) ? fileName : "";
+  const displayName = getMediaDisplayName(safeFileName);
   const fallbackSrc = resolveObjectPhotoSourceUrl(fileName);
   const imgSrcRaw = preview?.url || fallbackSrc;
   const imgSrc = imgSrcRaw ? escapeHtmlAttr(imgSrcRaw) : "";
@@ -6912,9 +6923,9 @@ function renderObjectPhotoCell(row, value, rowIndex) {
       </div>
     </div>`;
   }
-  if (fileName) {
+  if (safeFileName) {
     return `<div class="object-photo-slot object-photo-slot--nostore" data-object-id="${escapeHtmlAttr(oid)}">
-      <span class="object-photo-filename-hint" title="${escapeHtmlAttr(fileName)}">Файл: ${escapeHtmlText(displayName)}</span>
+      <span class="object-photo-filename-hint" title="${escapeHtmlAttr(safeFileName)}">Файл: ${escapeHtmlText(displayName)}</span>
       <div class="object-photo-slot-actions">
         <button type="button" class="object-photo-add" data-object-photo-add="1" title="Заменить фото">Заменить</button>
         <button type="button" class="object-photo-remove" data-object-photo-remove="1" title="Удалить">×</button>
@@ -7292,6 +7303,7 @@ function attachTableActionHandlers(section, filteredEntries) {
 
   viewButtons.forEach((button) => {
     button.addEventListener("click", () => {
+      if (section.id !== "tasks") return;
       const rowIndex = Number(button.dataset.rowIndex);
       const row = section.rows[rowIndex];
       if (!row) return;
@@ -11752,6 +11764,12 @@ function migrateRowForSection(baseSection, row, sourceColumns = null) {
     // Старый формат: ID, Наименование, Тип, Адрес, Статус.
     if (source.length === 5) {
       return [source[0] || "", source[1] || "", source[3] || "", source[4] || "", "", "", ""];
+    }
+    if (source.length >= 7) {
+      const photoRaw = String(source[OBJECT_COLUMNS.photo] || "").trim();
+      if (photoRaw === "-" || photoRaw === "—" || photoRaw.toLowerCase() === "null" || photoRaw.toLowerCase() === "undefined") {
+        source[OBJECT_COLUMNS.photo] = "";
+      }
     }
   }
 
