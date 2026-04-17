@@ -321,18 +321,19 @@ function buildFullTaskMessage(row) {
   const lines = [];
   const st = String(row[TASK_COLUMNS.status] || "").trim();
   const statusLine = st ? `${STATUS_EMOJI[st] || "⚪"} ${st}` : "—";
-  lines.push(`№ ${String(row[TASK_COLUMNS.number] || "").trim() || "—"}: ${String(row[TASK_COLUMNS.task] || "").trim() || "—"}`);
-  lines.push(`Объект: ${String(row[TASK_COLUMNS.object] || "").trim() || "—"}`);
+  lines.push(`📝 Задача №${String(row[TASK_COLUMNS.number] || "").trim() || "—"}: ${String(row[TASK_COLUMNS.task] || "").trim() || "—"}`);
+  lines.push(`🏢 Объект: ${String(row[TASK_COLUMNS.object] || "").trim() || "—"}`);
   lines.push(`Статус: ${statusLine}`);
-  lines.push(`Приоритет: ${String(row[TASK_COLUMNS.priority] || "").trim() || "—"}`);
+  lines.push(`⚡ Приоритет: ${String(row[TASK_COLUMNS.priority] || "").trim() || "—"}`);
+  lines.push(`📅 Дата: ${String(row[TASK_COLUMNS.addedDate] || "").trim() || "—"}`);
   lines.push(`Фаза: ${String(row[TASK_COLUMNS.phase] || "").trim() || "—"}`);
   lines.push(`Раздел: ${String(row[TASK_COLUMNS.phaseSection] || "").trim() || "—"}`);
   lines.push(`Подраздел: ${String(row[TASK_COLUMNS.phaseSubsection] || "").trim() || "—"}`);
-  lines.push(`Исполнитель: ${String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—"}`);
-  lines.push(`Ответственный: ${String(row[TASK_COLUMNS.responsible] || "").trim() || "—"}`);
-  lines.push(`Срок: ${String(row[TASK_COLUMNS.dueDate] || "").trim() || "—"}`);
+  lines.push(`👤 Исполнитель: ${String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—"}`);
+  lines.push(`👤 Ответственный: ${String(row[TASK_COLUMNS.responsible] || "").trim() || "—"}`);
+  lines.push(`⏳ Срок: ${String(row[TASK_COLUMNS.dueDate] || "").trim() || "—"}`);
   const note = String(row[TASK_COLUMNS.note] || "").trim();
-  if (note) lines.push(`Примечание: ${note}`);
+  if (note) lines.push(`💬 Комментарий: ${note}`);
   return lines.join("\n");
 }
 

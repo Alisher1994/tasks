@@ -31,6 +31,9 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const NODE_ENV = process.env.NODE_ENV || "development";
 const MEDIA_STORAGE_PATH = String(process.env.MEDIA_STORAGE_PATH || "").trim()
   || path.join(rootDir, "storage", "media");
+const TASK_NUMBER_COL = 0;
+const TASK_READ_STATE_COL = 18;
+const TASK_LAST_SENT_AT_COL = 19;
 
 function normalizePhone(raw) {
   const src = String(raw || "").trim();
@@ -61,6 +64,49 @@ function findEmployeeByPhoneInPayload(payload, phone) {
     if (rowPhone === phone) return row;
   }
   return null;
+}
+
+function getTaskRows(payload) {
+  const sections = Array.isArray(payload?.sections) ? payload.sections : [];
+  const tasks = sections.find((s) => s && s.id === "tasks");
+  return Array.isArray(tasks?.rows) ? tasks.rows : [];
+}
+
+function isReadStateValue(value) {
+  const firstLine = String(value || "").split(/\r?\n/)[0].trim().toLowerCase();
+  return firstLine.startsWith("прочитано");
+}
+
+function hasLastSentValue(value) {
+  const s = String(value || "").trim();
+  return Boolean(s && s !== "—");
+}
+
+function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
+  const next = incomingPayload && typeof incomingPayload === "object"
+    ? JSON.parse(JSON.stringify(incomingPayload))
+    : incomingPayload;
+  const incomingRows = getTaskRows(next);
+  const currentRows = getTaskRows(currentPayload);
+  if (!incomingRows.length || !currentRows.length) return next;
+  const currentById = new Map();
+  for (const row of currentRows) {
+    const taskId = String(row?.[TASK_NUMBER_COL] || "").trim();
+    if (taskId) currentById.set(taskId, row);
+  }
+  for (const row of incomingRows) {
+    const taskId = String(row?.[TASK_NUMBER_COL] || "").trim();
+    if (!taskId) continue;
+    const currentRow = currentById.get(taskId);
+    if (!currentRow) continue;
+    if (isReadStateValue(currentRow[TASK_READ_STATE_COL]) && !isReadStateValue(row[TASK_READ_STATE_COL])) {
+      row[TASK_READ_STATE_COL] = currentRow[TASK_READ_STATE_COL];
+    }
+    if (hasLastSentValue(currentRow[TASK_LAST_SENT_AT_COL]) && !hasLastSentValue(row[TASK_LAST_SENT_AT_COL])) {
+      row[TASK_LAST_SENT_AT_COL] = currentRow[TASK_LAST_SENT_AT_COL];
+    }
+  }
+  return next;
 }
 
 function authMiddleware(req, res, next) {
@@ -510,6 +556,11 @@ app.put("/api/data", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: v.error || "Некорректные данные" });
     }
     const data = typeof incomingData === "object" && incomingData ? { ...incomingData } : incomingData;
+    const { rows: currentRows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
+    const currentPayload = currentRows[0]?.payload && typeof currentRows[0].payload === "object"
+      ? currentRows[0].payload
+      : {};
+    const mergedData = mergeTaskSyncSafeFields(currentPayload, data);
     // Служебные поля Telegram живут только на сервере. На клиентском PUT /api/data
     // мы всегда сохраняем их из текущего payload в БД (без доверия клиентскому слепку),
     // чтобы гонки между webhook и авто-sync не ломали сценарии комментариев/фото.
@@ -534,7 +585,7 @@ app.put("/api/data", authMiddleware, async (req, res) => {
            true
          ),
          updated_at = NOW()`,
-      [JSON.stringify(data)]
+      [JSON.stringify(mergedData)]
     );
     return res.json({ ok: true });
   } catch (e) {

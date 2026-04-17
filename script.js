@@ -159,6 +159,12 @@ const REMINDER_CARD_UI = {
   "Треб. реш. рук.": "decision",
   Закрыт: "closed"
 };
+const TELEGRAM_STATUS_EMOJI = {
+  Новый: "🟣",
+  "В процессе": "🟡",
+  "Треб. реш. рук.": "🔴",
+  Закрыт: "🟢"
+};
 
 const DATE_DISPLAY_FORMAT_OPTIONS = [
   { id: "DMY_DOT", label: "ДД.ММ.ГГГГ (31.12.2025)" },
@@ -784,6 +790,11 @@ function applyTaskMessageTemplate(template, row) {
   if (!template || !row) return "";
   let out = String(template);
   const formatTokenValue = (colKey, rawValue) => {
+    if (colKey === "status") {
+      const st = String(rawValue ?? "").trim();
+      if (!st) return "";
+      return `${TELEGRAM_STATUS_EMOJI[st] || "⚪"} ${st}`;
+    }
     if (colKey !== "mediaBefore" && colKey !== "mediaAfter") {
       return String(rawValue ?? "");
     }
