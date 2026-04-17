@@ -99,7 +99,7 @@ function applySimpleTemplate(template, row) {
     const val = String(row[col] ?? "");
     out = out.split(token).join(val);
   }
-  return out;
+  return out.replace(/\r\n?/g, "\n");
 }
 
 function mainKeyboard(taskNumber) {
@@ -323,12 +323,12 @@ function buildFullTaskMessage(row) {
   const statusLine = st ? `${STATUS_EMOJI[st] || "⚪"} ${st}` : "—";
   lines.push(`📝 Задача №${String(row[TASK_COLUMNS.number] || "").trim() || "—"}: ${String(row[TASK_COLUMNS.task] || "").trim() || "—"}`);
   lines.push(`🏢 Объект: ${String(row[TASK_COLUMNS.object] || "").trim() || "—"}`);
-  lines.push(`Статус: ${statusLine}`);
+  lines.push(`📌 Статус: ${statusLine}`);
   lines.push(`⚡ Приоритет: ${String(row[TASK_COLUMNS.priority] || "").trim() || "—"}`);
   lines.push(`📅 Дата: ${String(row[TASK_COLUMNS.addedDate] || "").trim() || "—"}`);
-  lines.push(`Фаза: ${String(row[TASK_COLUMNS.phase] || "").trim() || "—"}`);
-  lines.push(`Раздел: ${String(row[TASK_COLUMNS.phaseSection] || "").trim() || "—"}`);
-  lines.push(`Подраздел: ${String(row[TASK_COLUMNS.phaseSubsection] || "").trim() || "—"}`);
+  lines.push(`🏗 Фаза: ${String(row[TASK_COLUMNS.phase] || "").trim() || "—"}`);
+  lines.push(`📂 Раздел: ${String(row[TASK_COLUMNS.phaseSection] || "").trim() || "—"}`);
+  lines.push(`🗂 Подраздел: ${String(row[TASK_COLUMNS.phaseSubsection] || "").trim() || "—"}`);
   lines.push(`👤 Исполнитель: ${String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—"}`);
   lines.push(`👤 Ответственный: ${String(row[TASK_COLUMNS.responsible] || "").trim() || "—"}`);
   lines.push(`⏳ Срок: ${String(row[TASK_COLUMNS.dueDate] || "").trim() || "—"}`);
@@ -342,7 +342,7 @@ function taskCaptionWithPlan(row) {
   const plan = String(row[TASK_COLUMNS.plan] || "").trim();
   if (!plan) return base;
   const compactPlan = plan.length > 800 ? `${plan.slice(0, 797)}...` : plan;
-  return `${base}\nПлан решения (коммент сотрудника): ${compactPlan}`;
+  return `${base}\n🧩 План решения (коммент сотрудника):\n${compactPlan.replace(/\r\n?/g, "\n")}`;
 }
 
 function ensureLastTaskStore(payload) {
@@ -454,7 +454,7 @@ async function broadcastTaskCardUpdate(payload, token, row, reasonText, excludeC
 }
 
 function defaultAcceptTemplate() {
-  return "Задача [ид_задачи] ([название_задачи]): запрос на закрытие принят администратором.";
+  return "✅ Закрытие подтверждено.\n📝 Задача [ид_задачи] ([название_задачи]).";
 }
 
 export async function handleTelegramWebhook(req, res, pool) {

@@ -808,7 +808,7 @@ function applyTaskMessageTemplate(template, row) {
     const val = formatTokenValue(item.col, row[col]);
     out = out.split(item.token).join(val);
   }
-  return out;
+  return out.replace(/\r\n?/g, "\n");
 }
 
 function normalizePersonName(s) {
@@ -1366,7 +1366,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
     targets.map(async (t) => {
       try {
         const isActionRecipient = actionChatIds.has(String(t.chatId || "").trim());
-        const outgoingText = isActionRecipient ? shortText : text;
+        const outgoingText = String(isActionRecipient ? shortText : text).replace(/\r\n?/g, "\n");
         const replyMarkup = !options.skipInlineKeyboard && isActionRecipient
           ? buildTelegramReadInlineKeyboardForTask(taskRow[TASK_COLUMNS.number])
           : undefined;
