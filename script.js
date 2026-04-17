@@ -13,6 +13,8 @@ const passwordInput = document.getElementById("password");
 const togglePasswordBtn = document.getElementById("togglePasswordBtn");
 const loginPhoneFlag = document.getElementById("loginPhoneFlag");
 const loginPhoneCountryBtn = document.getElementById("loginPhoneCountryBtn");
+const turboTopLoader = document.getElementById("turboTopLoader");
+const turboTopLoaderBar = document.getElementById("turboTopLoaderBar");
 
 const AUTH_PHONE = "+998994067406";
 const AUTH_PASSWORD = "7406";
@@ -300,6 +302,55 @@ function hideBootLoaderAfterRender() {
   });
 }
 
+function setTurboLoaderProgress(progress) {
+  if (!turboTopLoaderBar) return;
+  const safe = Math.max(0, Math.min(100, Number(progress) || 0));
+  turboTopLoaderBar.style.width = `${safe}%`;
+}
+
+function startTurboLoader() {
+  if (!turboTopLoader || !turboTopLoaderBar) return;
+  if (document.body.classList.contains("app-booting")) return;
+  clearTimeout(turboLoaderHideTimer);
+  turboTopLoader.classList.add("is-active");
+  if (turboLoaderProgress <= 0 || turboLoaderProgress >= 100) {
+    turboLoaderProgress = 8;
+    setTurboLoaderProgress(turboLoaderProgress);
+  }
+  clearInterval(turboLoaderProgressTimer);
+  turboLoaderProgressTimer = setInterval(() => {
+    turboLoaderProgress = Math.min(90, turboLoaderProgress + (turboLoaderProgress < 45 ? 12 : turboLoaderProgress < 75 ? 6 : 2));
+    setTurboLoaderProgress(turboLoaderProgress);
+    if (turboLoaderProgress >= 90) {
+      clearInterval(turboLoaderProgressTimer);
+      turboLoaderProgressTimer = null;
+    }
+  }, 90);
+}
+
+function finishTurboLoader() {
+  if (!turboTopLoader || !turboTopLoaderBar) return;
+  clearInterval(turboLoaderProgressTimer);
+  turboLoaderProgressTimer = null;
+  turboLoaderProgress = 100;
+  setTurboLoaderProgress(100);
+  clearTimeout(turboLoaderHideTimer);
+  turboLoaderHideTimer = setTimeout(() => {
+    turboTopLoader.classList.remove("is-active");
+    turboLoaderProgress = 0;
+    setTurboLoaderProgress(0);
+  }, 170);
+}
+
+function pulseTurboLoader() {
+  startTurboLoader();
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      finishTurboLoader();
+    });
+  });
+}
+
 function readLastSessionActivityTs() {
   try {
     const raw = sessionStorage.getItem(SESSION_LAST_ACTIVITY_KEY);
@@ -405,6 +456,9 @@ let bootLoaderCloseTimer = null;
 let sessionIdleCheckTimer = null;
 let sessionActivityListenersBound = false;
 let lastSessionActivityWriteAt = 0;
+let turboLoaderProgress = 0;
+let turboLoaderProgressTimer = null;
+let turboLoaderHideTimer = null;
 
 function handleServerAuthExpired() {
   if (authExpiredNoticeShown) return;
@@ -2645,6 +2699,7 @@ function getSectionIcon(sectionId) {
 }
 
 function selectSection(sectionId) {
+  startTurboLoader();
   if (sectionId === "report" && activeSectionId !== "report") {
     reportWeekRowsVisible = REPORT_WEEK_ROWS_STEP;
   }
@@ -2655,6 +2710,11 @@ function selectSection(sectionId) {
   }
   renderSidebarMenu();
   renderTable();
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      finishTurboLoader();
+    });
+  });
 }
 
 function renderSidebarMenu() {
@@ -9910,6 +9970,7 @@ function restoreDisplaySettings() {
 }
 
 function renderTablePreserveScroll() {
+  startTurboLoader();
   const tableWrap = document.querySelector(".table-wrap");
   const scrollTop = tableWrap ? tableWrap.scrollTop : 0;
   const scrollLeft = tableWrap ? tableWrap.scrollLeft : 0;
@@ -9919,6 +9980,11 @@ function renderTablePreserveScroll() {
     nextWrap.scrollTop = scrollTop;
     nextWrap.scrollLeft = scrollLeft;
   }
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      finishTurboLoader();
+    });
+  });
 }
 
 function markFocusedRow(cell) {
