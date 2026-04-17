@@ -260,7 +260,8 @@ function shortTaskCaption(row) {
   const num = String(row[TASK_COLUMNS.number] ?? "").trim();
   const title = String(row[TASK_COLUMNS.task] ?? "").trim();
   const st = String(row[TASK_COLUMNS.status] ?? "").trim();
-  return `№ ${num}${title ? `: ${title}` : ""}\nСтатус: ${st || "—"}`;
+  const stLine = st ? `${STATUS_EMOJI[st] || "⚪"} ${st}` : "—";
+  return `№ ${num}${title ? `: ${title}` : ""}\nСтатус: ${stLine}`;
 }
 
 function resolveAppTimeZone(payload) {
@@ -318,9 +319,11 @@ function isAssignedEmployeeReader(payload, row, chatId) {
 
 function buildFullTaskMessage(row) {
   const lines = [];
+  const st = String(row[TASK_COLUMNS.status] || "").trim();
+  const statusLine = st ? `${STATUS_EMOJI[st] || "⚪"} ${st}` : "—";
   lines.push(`№ ${String(row[TASK_COLUMNS.number] || "").trim() || "—"}: ${String(row[TASK_COLUMNS.task] || "").trim() || "—"}`);
   lines.push(`Объект: ${String(row[TASK_COLUMNS.object] || "").trim() || "—"}`);
-  lines.push(`Статус: ${String(row[TASK_COLUMNS.status] || "").trim() || "—"}`);
+  lines.push(`Статус: ${statusLine}`);
   lines.push(`Приоритет: ${String(row[TASK_COLUMNS.priority] || "").trim() || "—"}`);
   lines.push(`Фаза: ${String(row[TASK_COLUMNS.phase] || "").trim() || "—"}`);
   lines.push(`Раздел: ${String(row[TASK_COLUMNS.phaseSection] || "").trim() || "—"}`);
