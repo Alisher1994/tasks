@@ -5984,7 +5984,7 @@ function parseTabularText(rawText) {
   return rows.filter((row) => row.some((cell) => cell !== ""));
 }
 
-function mapTaskImportColumnsFromHeader(headerRow) {
+function mapTaskImportColumnsFromHeader(headerRow, { allowIndexFallback = false } = {}) {
   const out = {};
   const byNorm = new Map();
   (headerRow || []).forEach((label, index) => {
@@ -6002,7 +6002,7 @@ function mapTaskImportColumnsFromHeader(headerRow) {
         break;
       }
     }
-    if (idx < 0 && fallbackIndex < (headerRow || []).length) idx = fallbackIndex;
+    if (allowIndexFallback && idx < 0 && fallbackIndex < (headerRow || []).length) idx = fallbackIndex;
     if (idx >= 0) matched += 1;
     out[col.key] = idx;
   });
@@ -6014,10 +6014,10 @@ function parseTaskImportPayload(rawText) {
   if (!matrix.length) return { ok: false, message: "Вставьте данные из Excel (Ctrl+V)." };
 
   const firstRow = matrix[0];
-  const mapped = mapTaskImportColumnsFromHeader(firstRow);
+  const mapped = mapTaskImportColumnsFromHeader(firstRow, { allowIndexFallback: false });
   const hasHeader = mapped.matched >= Math.ceil(TASK_IMPORT_COLUMNS.length * 0.6);
   const dataRows = hasHeader ? matrix.slice(1) : matrix;
-  const colMap = hasHeader ? mapped.map : mapTaskImportColumnsFromHeader([]).map;
+  const colMap = hasHeader ? mapped.map : mapTaskImportColumnsFromHeader([], { allowIndexFallback: true }).map;
   const parsedRows = dataRows
     .map((row) => {
       const item = {};
