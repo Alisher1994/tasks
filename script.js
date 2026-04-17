@@ -70,7 +70,8 @@ const TASK_COLUMNS = {
   closedDate: 15,
   mediaBefore: 16,
   mediaAfter: 17,
-  readState: 18
+  readState: 18,
+  lastSentAt: 19
 };
 const OBJECT_COLUMNS = {
   id: 0,
@@ -944,7 +945,7 @@ function buildTelegramReadInlineKeyboardForTask(taskNumber) {
 
 /** Пример строки задачи для предпросмотра шаблонов в настройках (не влияет на данные). */
 function buildDemoTaskRowForPreview(status) {
-  const row = new Array(19).fill("");
+  const row = new Array(20).fill("");
   const st = String(status || "").trim() || "Новый";
   row[TASK_COLUMNS.number] = "42";
   row[TASK_COLUMNS.object] = "Офис Центр";
@@ -965,6 +966,7 @@ function buildDemoTaskRowForPreview(status) {
   row[TASK_COLUMNS.mediaBefore] = "";
   row[TASK_COLUMNS.mediaAfter] = "";
   row[TASK_COLUMNS.readState] = "Не прочитано\n—";
+  row[TASK_COLUMNS.lastSentAt] = "—";
   return row;
 }
 
@@ -1408,6 +1410,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
   const ok = okCount > 0;
   if (ok && taskRow) {
     taskRow[TASK_COLUMNS.readState] = composeTaskReadState(false, "—");
+    taskRow[TASK_COLUMNS.lastSentAt] = formatTrashDate(Date.now());
     saveSectionsData();
   }
 
@@ -1827,7 +1830,8 @@ let sections = [
       "Дата устранения",
       "Медиа до (5)",
       "Медиа после (5)",
-      "Ознакомление"
+      "Ознакомление",
+      "Дата последней отправки"
     ],
     rows: [
       [
@@ -1849,7 +1853,8 @@ let sections = [
         "",
         "",
         "",
-        "Не прочитано\n—"
+        "Не прочитано\n—",
+        "—"
       ],
       [
         "2",
@@ -1870,7 +1875,8 @@ let sections = [
         "",
         "",
         "",
-        "Не прочитано\n—"
+        "Не прочитано\n—",
+        "—"
       ],
       [
         "3",
@@ -5649,6 +5655,9 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
     const rs = getTaskReadStateParts(value);
     return `<span class="task-read-state ${rs.isRead ? "is-read" : "is-unread"}">${escapeHtmlText(rs.statusText)}</span><br><span class="task-read-time">${escapeHtmlText(rs.whenText)}</span>`;
   }
+  if (colIndex === TASK_COLUMNS.lastSentAt) {
+    return String(value || "").trim() || "—";
+  }
 
   if (colIndex === TASK_COLUMNS.status) {
     const className = `status-badge status-${slugify(value)}`;
@@ -9414,6 +9423,7 @@ function addEmptyRow(section) {
     row[TASK_COLUMNS.priority] = "Средний";
     row[TASK_COLUMNS.addedDate] = getTodayRuDate();
     row[TASK_COLUMNS.readState] = composeTaskReadState(false, "—");
+    row[TASK_COLUMNS.lastSentAt] = "—";
   }
   if (section.id === "employees") {
     row[EMPLOYEE_COLUMNS.department] = String(getSectionById("departments")?.rows?.[0]?.[1] || "");
@@ -9595,6 +9605,12 @@ function migrateRowForSection(baseSection, row) {
     }
     if (source.length === 18) {
       source.push("Не прочитано\n—");
+    }
+    if (source.length === 19) {
+      source.push("—");
+    }
+    if (source.length > TASK_COLUMNS.lastSentAt && !String(source[TASK_COLUMNS.lastSentAt] || "").trim()) {
+      source[TASK_COLUMNS.lastSentAt] = "—";
     }
   }
 
