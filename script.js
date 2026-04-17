@@ -1506,9 +1506,11 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
   const okCount = results.filter((r) => r.ok).length;
   const ok = okCount > 0;
   if (ok && taskRow) {
+    markTaskAsSentImported(taskRow[TASK_COLUMNS.number], { save: false });
     taskRow[TASK_COLUMNS.readState] = composeTaskReadState(false, "—");
     taskRow[TASK_COLUMNS.lastSentAt] = formatTrashDate(Date.now());
     saveSectionsData();
+    saveDisplaySettings();
     // Избегаем гонки: отложенный debounce-пуш может перезаписать серверное
     // «Прочитано», если сотрудник нажмёт «📖 Прочитать» сразу после отправки.
     clearTimeout(serverSyncTimer);
@@ -1995,12 +1997,27 @@ function parseRuDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 const PRIORITY_OPTIONS = ["Средний", "Высокий", "Критический"];
+const TASKS_UNSENT_TAB_ID = "unsent_import";
 const STATUS_TABS = [
   { id: "all", label: "Все статусы" },
   { id: "Новый", label: "Новый" },
   { id: "В процессе", label: "В процессе" },
   { id: "Закрыт", label: "Закрыт" },
+  { id: TASKS_UNSENT_TAB_ID, label: "Не отправленные" },
   { id: "trash", label: "Корзина" }
+];
+const TASK_IMPORT_COLUMNS = [
+  { key: "object", label: "Название объекта", aliases: ["Название объекта", "Объект"] },
+  { key: "priority", label: "Приоритет", aliases: ["Приоритет"] },
+  { key: "addedDate", label: "Дата постановки задачи", aliases: ["Дата постановки задачи", "Дата добавления"] },
+  { key: "phase", label: "Фаза", aliases: ["Фаза"] },
+  { key: "phaseSection", label: "Раздел", aliases: ["Раздел"] },
+  { key: "phaseSubsection", label: "Подраздел", aliases: ["Подраздел"] },
+  { key: "task", label: "Задача", aliases: ["Задача", "Название задачи"] },
+  { key: "responsible", label: "Постановщик задачи", aliases: ["Постановщик задачи", "Контролирующий ответственный"] },
+  { key: "assignedResponsible", label: "Ответственный", aliases: ["Ответственный", "Исполнитель"] },
+  { key: "note", label: "Коментарии к задаче", aliases: ["Коментарии к задаче", "Комментарии к задаче", "Примичание", "Примечание"] },
+  { key: "dueDate", label: "Плановый срок устранения", aliases: ["Плановый срок устранения", "Срок устранения", "Срок"] }
 ];
 const SECTION_GROUPS = {
   reference: {
@@ -2334,6 +2351,8 @@ let displaySettings = {
   googleSheetsLastSyncMessage: "",
   googleSheetsLastSyncRows: 0,
   googleSheetsLastSyncMode: "",
+  /** ID задач, импортированных без отправки в Telegram (или с ошибкой отправки). */
+  pendingImportedTaskIds: [],
   /** pagination | chunks — страницы или «Показать ещё» */
   tasksListPagingMode: "pagination",
   /** Размер страницы / одной порции (5–500) */
@@ -2952,6 +2971,10 @@ function renderTable() {
           <button type="button" class="icon-action-btn filter-toggle-btn" id="toggleFiltersBtn" title="Фильтр">
             <i data-lucide="filter" class="lucide-icon" aria-hidden="true"></i>
           </button>
+          ${section.id === "tasks" ? `
+          <button type="button" class="icon-action-btn import-tasks-btn" id="openTaskImportModalBtn" title="Импорт задач">
+            <i data-lucide="file-up" class="lucide-icon" aria-hidden="true"></i>
+          </button>` : ""}
           ${section.id === "tasks" ? `
           <button type="button" class="icon-action-btn" id="googleSheetsSyncTasksBtn" title="Синхронизация">
             <span class="gs-mini-icon" aria-hidden="true">
@@ -5852,6 +5875,189 @@ function parseEmployeesCell(value) {
     .filter(Boolean);
 }
 
+function normalizeTaskIdValue(value) {
+  return String(value ?? "").trim();
+}
+
+function getPendingImportedTaskIdsSet() {
+  if (!Array.isArray(displaySettings.pendingImportedTaskIds)) {
+    displaySettings.pendingImportedTaskIds = [];
+  }
+  return new Set(displaySettings.pendingImportedTaskIds.map((id) => normalizeTaskIdValue(id)).filter(Boolean));
+}
+
+function syncPendingImportedTaskIds(taskIdSet, { save = true } = {}) {
+  displaySettings.pendingImportedTaskIds = Array.from(taskIdSet)
+    .map((id) => normalizeTaskIdValue(id))
+    .filter(Boolean);
+  if (save) saveDisplaySettings();
+}
+
+function cleanupPendingImportedTaskIds({ save = true } = {}) {
+  const tasks = getSectionById("tasks")?.rows || [];
+  const actual = new Set(tasks.map((row) => normalizeTaskIdValue(row?.[TASK_COLUMNS.number])).filter(Boolean));
+  const pending = getPendingImportedTaskIdsSet();
+  let changed = false;
+  for (const id of Array.from(pending)) {
+    if (!actual.has(id)) {
+      pending.delete(id);
+      changed = true;
+    }
+  }
+  if (changed) syncPendingImportedTaskIds(pending, { save });
+  return pending;
+}
+
+function markTaskAsPendingImported(taskId, { save = true } = {}) {
+  const id = normalizeTaskIdValue(taskId);
+  if (!id) return;
+  const pending = cleanupPendingImportedTaskIds({ save: false });
+  if (!pending.has(id)) {
+    pending.add(id);
+    syncPendingImportedTaskIds(pending, { save });
+  }
+}
+
+function markTaskAsSentImported(taskId, { save = true } = {}) {
+  const id = normalizeTaskIdValue(taskId);
+  if (!id) return;
+  const pending = cleanupPendingImportedTaskIds({ save: false });
+  if (pending.delete(id)) {
+    syncPendingImportedTaskIds(pending, { save });
+  }
+}
+
+function getEmployeeNameSet() {
+  const rows = getSectionById("employees")?.rows || [];
+  return new Set(rows.map((row) => normalizePersonName(row?.[EMPLOYEE_COLUMNS.fullName])).filter(Boolean));
+}
+
+function hasSystemEmployeeName(fullName, employeeNameSet = null) {
+  const name = normalizePersonName(fullName);
+  if (!name) return false;
+  const set = employeeNameSet || getEmployeeNameSet();
+  return set.has(name);
+}
+
+function normalizeTaskImportPriority(raw) {
+  const v = normalizeTaskPriorityValue(raw);
+  if (!v) return "Средний";
+  if (PRIORITY_OPTIONS.includes(v)) return v;
+  const n = String(v).trim().toLowerCase();
+  if (n.includes("крит")) return "Критический";
+  if (n.includes("выс")) return "Высокий";
+  if (n.includes("сред") || n.includes("низ")) return "Средний";
+  return "Средний";
+}
+
+function normalizeTaskImportDate(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const ru = parseRuDateStringToParts(text);
+  if (ru) return formatDatePartsStorage(ru.day, ru.month, ru.year);
+  const iso = parseHtmlDateValue(text);
+  if (iso) return formatDatePartsStorage(iso.day, iso.month, iso.year);
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
+  if (slash) {
+    const day = Number(slash[1]);
+    const month = Number(slash[2]);
+    const year = Number(slash[3]);
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      return formatDatePartsStorage(day, month, year);
+    }
+  }
+  return text;
+}
+
+function normalizeTaskImportCellValue(raw) {
+  return String(raw ?? "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .trim();
+}
+
+function parseTabularText(rawText) {
+  const text = String(rawText || "").replace(/\r\n?/g, "\n");
+  const rows = text
+    .split("\n")
+    .map((line) => line.split("\t").map((cell) => normalizeTaskImportCellValue(cell)));
+  return rows.filter((row) => row.some((cell) => cell !== ""));
+}
+
+function mapTaskImportColumnsFromHeader(headerRow) {
+  const out = {};
+  const byNorm = new Map();
+  (headerRow || []).forEach((label, index) => {
+    const key = normalizeTaskColumnLabel(label);
+    if (!key || byNorm.has(key)) return;
+    byNorm.set(key, index);
+  });
+  let matched = 0;
+  TASK_IMPORT_COLUMNS.forEach((col, fallbackIndex) => {
+    let idx = -1;
+    for (const alias of col.aliases) {
+      const probe = byNorm.get(normalizeTaskColumnLabel(alias));
+      if (Number.isInteger(probe)) {
+        idx = probe;
+        break;
+      }
+    }
+    if (idx < 0 && fallbackIndex < (headerRow || []).length) idx = fallbackIndex;
+    if (idx >= 0) matched += 1;
+    out[col.key] = idx;
+  });
+  return { map: out, matched };
+}
+
+function parseTaskImportPayload(rawText) {
+  const matrix = parseTabularText(rawText);
+  if (!matrix.length) return { ok: false, message: "Вставьте данные из Excel (Ctrl+V)." };
+
+  const firstRow = matrix[0];
+  const mapped = mapTaskImportColumnsFromHeader(firstRow);
+  const hasHeader = mapped.matched >= Math.ceil(TASK_IMPORT_COLUMNS.length * 0.6);
+  const dataRows = hasHeader ? matrix.slice(1) : matrix;
+  const colMap = hasHeader ? mapped.map : mapTaskImportColumnsFromHeader([]).map;
+  const parsedRows = dataRows
+    .map((row) => {
+      const item = {};
+      TASK_IMPORT_COLUMNS.forEach((col, index) => {
+        const sourceIndex = hasHeader ? colMap[col.key] : index;
+        item[col.key] = Number.isInteger(sourceIndex) && sourceIndex >= 0 && sourceIndex < row.length ? row[sourceIndex] : "";
+      });
+      return item;
+    })
+    .filter((item) => Object.values(item).some((v) => String(v || "").trim() !== ""));
+
+  if (!parsedRows.length) return { ok: false, message: "Не удалось найти строки задач в вставленных данных." };
+  return { ok: true, rows: parsedRows, hasHeader };
+}
+
+function createTaskRowFromImport(values, nextId) {
+  const row = new Array(TASK_COLUMNS.lastSentAt + 1).fill("");
+  row[TASK_COLUMNS.number] = String(nextId);
+  row[TASK_COLUMNS.object] = normalizeTaskImportCellValue(values.object);
+  row[TASK_COLUMNS.status] = "Новый";
+  row[TASK_COLUMNS.priority] = normalizeTaskImportPriority(values.priority);
+  row[TASK_COLUMNS.addedDate] = normalizeTaskImportDate(values.addedDate) || getTodayRuDate();
+  row[TASK_COLUMNS.phase] = normalizeTaskImportCellValue(values.phase);
+  row[TASK_COLUMNS.phaseSection] = normalizeTaskImportCellValue(values.phaseSection);
+  row[TASK_COLUMNS.phaseSubsection] = normalizeTaskImportCellValue(values.phaseSubsection);
+  row[TASK_COLUMNS.task] = normalizeTaskImportCellValue(values.task);
+  row[TASK_COLUMNS.responsible] = normalizeTaskImportCellValue(values.responsible);
+  row[TASK_COLUMNS.assignedResponsible] = normalizeTaskImportCellValue(values.assignedResponsible);
+  row[TASK_COLUMNS.note] = normalizeTaskImportCellValue(values.note);
+  row[TASK_COLUMNS.plan] = "";
+  row[TASK_COLUMNS.fact] = "";
+  row[TASK_COLUMNS.dueDate] = normalizeTaskImportDate(values.dueDate);
+  row[TASK_COLUMNS.closedDate] = "";
+  row[TASK_COLUMNS.mediaBefore] = "";
+  row[TASK_COLUMNS.mediaAfter] = "";
+  row[TASK_COLUMNS.readState] = composeTaskReadState(false, "—");
+  row[TASK_COLUMNS.lastSentAt] = "—";
+  return row;
+}
+
 function getDataRowByHierarchy(phase, phaseSection, phaseSubsection) {
   const dataSection = getSectionById("data");
   if (!dataSection) return null;
@@ -5965,6 +6171,7 @@ function getFilteredRows(section, sectionFilters) {
       .filter(({ row }) => !normalizedSearch || row.some((cell) => String(cell).toLowerCase().includes(normalizedSearch)));
   }
 
+  const pendingImportedIds = section.id === "tasks" ? cleanupPendingImportedTaskIds({ save: false }) : null;
   return section.rows
     .map((row, rowIndex) => ({ row, rowIndex }))
     .filter(({ row }) => {
@@ -5975,7 +6182,10 @@ function getFilteredRows(section, sectionFilters) {
 
     if (section.id !== "tasks") return true;
 
-    const statusTabMatch = activeStatusTab === "all" || row[TASK_COLUMNS.status] === activeStatusTab;
+    const taskId = normalizeTaskIdValue(row[TASK_COLUMNS.number]);
+    const isPendingImported = pendingImportedIds?.has(taskId) === true;
+    const statusTabMatch = activeStatusTab === "all"
+      || (activeStatusTab === TASKS_UNSENT_TAB_ID ? isPendingImported : row[TASK_COLUMNS.status] === activeStatusTab);
     if (!statusTabMatch) return false;
 
     const statusMatch = !sectionFilters.status || row[TASK_COLUMNS.status] === sectionFilters.status;
@@ -6066,12 +6276,15 @@ function ensureColumnDisplayState(section) {
 
 function renderStatusTabs(section) {
   if (section.id !== "tasks") return "";
+  const pendingImportedIds = cleanupPendingImportedTaskIds({ save: false });
   const activeStatusTab = statusTabBySection[section.id] || "all";
 
   const tabsHtml = STATUS_TABS.map((tab) => {
     const count = tab.id === "trash"
       ? getTrashRows(section.id).length
-      : section.rows.filter((row) => tab.id === "all" || row[TASK_COLUMNS.status] === tab.id).length;
+      : tab.id === TASKS_UNSENT_TAB_ID
+        ? section.rows.filter((row) => pendingImportedIds.has(normalizeTaskIdValue(row[TASK_COLUMNS.number]))).length
+        : section.rows.filter((row) => tab.id === "all" || row[TASK_COLUMNS.status] === tab.id).length;
     const activeClass = activeStatusTab === tab.id ? "active" : "";
     return `<button type="button" class="status-tab-btn ${activeClass}" data-status-tab="${tab.id}">${tab.label} <span>${count}</span></button>`;
   }).join("");
@@ -6520,6 +6733,7 @@ function attachTableActionHandlers(section, filteredEntries) {
                 );
                 button.classList.add("is-sent");
                 button.title = `Отправлено: ${rowTitle}`;
+                renderTablePreserveScroll();
               }
             })();
           }
@@ -6593,6 +6807,7 @@ function attachTableActionHandlers(section, filteredEntries) {
           moveTaskToTrash(section.id, rowIndex);
           normalizeSelectedRowsAfterDelete(getSelectionKey(section.id), rowIndex);
           saveSectionsData();
+          if (section.id === "tasks") saveDisplaySettings();
           saveTrashData();
           renderTable();
         }
@@ -6641,6 +6856,7 @@ function attachTableActionHandlers(section, filteredEntries) {
           });
           selectedRows.clear();
           saveSectionsData();
+          if (section.id === "tasks") saveDisplaySettings();
           saveTrashData();
           renderTable();
         }
@@ -6696,6 +6912,7 @@ function attachTableActionHandlers(section, filteredEntries) {
                 ? `Готово: успешно обработано задач: ${okTasks} из ${rowIndices.length}.`
                 : `Обработано: ${okTasks} из ${rowIndices.length}.\n\nОшибки:\n${errors.slice(0, 12).join("\n")}${errors.length > 12 ? `\n… и ещё ${errors.length - 12}` : ""}`;
             window.alert(summary);
+            renderTablePreserveScroll();
           })();
         }
       });
@@ -8233,6 +8450,7 @@ function fromInputDate(value) {
 function attachHeaderActionHandlers(section, filteredEntries) {
   const refreshSectionBtn = document.getElementById("refreshSectionBtn");
   const googleSheetsSyncTasksBtn = document.getElementById("googleSheetsSyncTasksBtn");
+  const openTaskImportModalBtn = document.getElementById("openTaskImportModalBtn");
   const addRowBtn = document.getElementById("addRowBtn");
   const toggleFiltersBtn = document.getElementById("toggleFiltersBtn");
   const toggleTableSettingsBtn = document.getElementById("toggleTableSettingsBtn");
@@ -8247,6 +8465,12 @@ function attachHeaderActionHandlers(section, filteredEntries) {
   if (googleSheetsSyncTasksBtn) {
     googleSheetsSyncTasksBtn.addEventListener("click", async () => {
       await triggerGoogleSheetsManualSync();
+    });
+  }
+
+  if (openTaskImportModalBtn && section.id === "tasks") {
+    openTaskImportModalBtn.addEventListener("click", () => {
+      openTaskImportModal(section);
     });
   }
 
@@ -9150,6 +9374,13 @@ function restoreDisplaySettings() {
     if (typeof displaySettings.telegramAdminChatId !== "string") {
       displaySettings.telegramAdminChatId = "";
     }
+    if (!Array.isArray(displaySettings.pendingImportedTaskIds)) {
+      displaySettings.pendingImportedTaskIds = [];
+    } else {
+      displaySettings.pendingImportedTaskIds = displaySettings.pendingImportedTaskIds
+        .map((x) => String(x || "").trim())
+        .filter(Boolean);
+    }
     displaySettings.googleSheetsEnabled = Boolean(displaySettings.googleSheetsEnabled);
     displaySettings.googleSheetsAutoSyncEnabled = Boolean(displaySettings.googleSheetsAutoSyncEnabled);
     displaySettings.googleSheetsIncludeObjectSheets = displaySettings.googleSheetsIncludeObjectSheets !== false;
@@ -9963,6 +10194,166 @@ function openExportFormatModal(section, filteredEntries) {
   });
 }
 
+function openTaskImportModal(section) {
+  if (section.id !== "tasks") return;
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal table-import-modal">
+      <h3>${withIcon("file-up", "Импорт задач")}</h3>
+      <p class="hint">Скопируйте строки из Excel по шаблону ниже и вставьте сюда через Ctrl+V.</p>
+      <div class="task-import-template-wrap">
+        <div class="task-import-template-head">Шаблон колонок для импорта</div>
+        <div class="task-import-template-row">${TASK_IMPORT_COLUMNS.map((col) => `<span>${escapeHtmlText(col.label)}</span>`).join("")}</div>
+      </div>
+      <textarea id="taskImportPasteInput" class="task-import-paste-input" rows="7" placeholder="Вставьте таблицу из Excel..."></textarea>
+      <div class="task-import-preview-head">
+        <strong>Превью</strong>
+        <span id="taskImportPreviewMeta" class="hint">Строк: 0</span>
+      </div>
+      <div id="taskImportPreviewWrap" class="task-import-preview-wrap">
+        <p class="hint">Данные ещё не вставлены.</p>
+      </div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary task-import-cancel-btn">Отмена</button>
+        <button type="button" class="secondary task-import-save-btn" disabled>Сохранить</button>
+        <button type="button" class="responsible-apply-btn task-import-save-send-btn" disabled>Сохранить и отправить</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  initLucideIcons();
+
+  const input = overlay.querySelector("#taskImportPasteInput");
+  const previewWrap = overlay.querySelector("#taskImportPreviewWrap");
+  const previewMeta = overlay.querySelector("#taskImportPreviewMeta");
+  const saveBtn = overlay.querySelector(".task-import-save-btn");
+  const saveSendBtn = overlay.querySelector(".task-import-save-send-btn");
+  const cancelBtn = overlay.querySelector(".task-import-cancel-btn");
+  const close = () => overlay.remove();
+
+  let parsedRows = [];
+
+  const renderPreview = () => {
+    if (!previewWrap || !previewMeta || !saveBtn || !saveSendBtn) return;
+    previewMeta.textContent = `Строк: ${parsedRows.length}`;
+    if (!parsedRows.length) {
+      previewWrap.innerHTML = '<p class="hint">Данные ещё не вставлены.</p>';
+      saveBtn.disabled = true;
+      saveSendBtn.disabled = true;
+      return;
+    }
+    const head = TASK_IMPORT_COLUMNS.map((col) => `<th>${escapeHtmlText(col.label)}</th>`).join("");
+    const body = parsedRows
+      .map((row, index) => `<tr><td>${index + 1}</td>${TASK_IMPORT_COLUMNS.map((col) => `<td>${escapeHtmlText(row[col.key] || "—")}</td>`).join("")}</tr>`)
+      .join("");
+    previewWrap.innerHTML = `
+      <table class="task-import-preview-table">
+        <thead><tr><th>#</th>${head}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    `;
+    saveBtn.disabled = false;
+    saveSendBtn.disabled = false;
+  };
+
+  const parseFromInput = () => {
+    const res = parseTaskImportPayload(input?.value || "");
+    if (!res.ok) {
+      parsedRows = [];
+      renderPreview();
+      return;
+    }
+    parsedRows = res.rows;
+    renderPreview();
+  };
+
+  const buildRows = () => {
+    const ids = section.rows
+      .map((row) => Number(row?.[TASK_COLUMNS.number]))
+      .filter((n) => Number.isFinite(n));
+    let nextId = ids.length ? Math.max(...ids) + 1 : section.rows.length + 1;
+    return parsedRows.map((item) => createTaskRowFromImport(item, nextId++));
+  };
+
+  const appendImportedRows = (rows, { markPending = true } = {}) => {
+    if (!rows.length) return;
+    rows.forEach((row) => {
+      section.rows.push(row);
+      if (markPending) markTaskAsPendingImported(row[TASK_COLUMNS.number], { save: false });
+    });
+    saveSectionsData();
+    saveDisplaySettings();
+  };
+
+  const sendImportedRows = async (rows) => {
+    const employeeSet = getEmployeeNameSet();
+    let sentOk = 0;
+    const notSent = [];
+    for (const row of rows) {
+      const taskId = normalizeTaskIdValue(row[TASK_COLUMNS.number]);
+      const assignedName = normalizePersonName(row[TASK_COLUMNS.assignedResponsible]);
+      if (!assignedName || !hasSystemEmployeeName(assignedName, employeeSet)) {
+        notSent.push(`№${taskId || "—"}: не найден сотрудник «${assignedName || "—"}»`);
+        markTaskAsPendingImported(taskId, { save: false });
+        continue;
+      }
+      const result = await sendTaskRowTelegramNotification(row, { suppressAlerts: true });
+      if (result.ok) {
+        markTaskAsSentImported(taskId, { save: false });
+        sentOk += 1;
+      } else {
+        notSent.push(`№${taskId || "—"}: ${result.message || result.reason || "ошибка отправки"}`);
+        markTaskAsPendingImported(taskId, { save: false });
+      }
+    }
+    saveDisplaySettings();
+    return { sentOk, total: rows.length, notSent };
+  };
+
+  saveBtn?.addEventListener("click", () => {
+    if (!parsedRows.length) return;
+    const rows = buildRows();
+    appendImportedRows(rows, { markPending: true });
+    close();
+    resetTasksListPagingWindow();
+    renderTablePreserveScroll();
+    showStatusDialog({
+      title: "Импорт задач",
+      message: `Сохранено задач: ${rows.length}.\nОни добавлены во вкладку «Не отправленные».`,
+      type: "success"
+    });
+  });
+
+  saveSendBtn?.addEventListener("click", () => {
+    if (!parsedRows.length) return;
+    void (async () => {
+      const rows = buildRows();
+      appendImportedRows(rows, { markPending: true });
+      const result = await sendImportedRows(rows);
+      close();
+      resetTasksListPagingWindow();
+      renderTablePreserveScroll();
+      const message = result.notSent.length
+        ? `Отправлено: ${result.sentOk} из ${result.total}.\n\nОстались в «Не отправленные»:\n${result.notSent.slice(0, 10).join("\n")}${result.notSent.length > 10 ? `\n… и ещё ${result.notSent.length - 10}` : ""}`
+        : `Отправлено: ${result.sentOk} из ${result.total}.\nВсе задачи успешно доставлены.`;
+      showStatusDialog({
+        title: "Импорт задач",
+        message,
+        type: result.notSent.length ? "info" : "success"
+      });
+    })();
+  });
+
+  input?.addEventListener("input", parseFromInput);
+  cancelBtn?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  renderPreview();
+  input?.focus();
+}
+
 function openTableSettingsModal(section) {
   ensureColumnDisplayState(section);
   const FIXED_COLUMN_INDEX = 0;
@@ -10325,6 +10716,9 @@ function moveTaskToTrash(sectionId, rowIndex) {
   if (!section) return;
   const row = section.rows[rowIndex];
   if (!row) return;
+  if (sectionId === "tasks") {
+    markTaskAsSentImported(row[TASK_COLUMNS.number], { save: false });
+  }
   section.rows.splice(rowIndex, 1);
   const now = Date.now();
   const expiresAt = now + (365 * 24 * 60 * 60 * 1000);
@@ -10820,6 +11214,7 @@ loginBtn.innerHTML = withLucideIcon("log-in", "Войти");
 logoutBtn.innerHTML = withLucideIcon("log-out", "Выйти");
 restoreDisplaySettings();
 restoreSectionsData();
+cleanupPendingImportedTaskIds({ save: false });
 applyObjectsSeedIfNeeded();
 loadObjectPhotoThumbsFromStorage();
 ensureSystemRoles();
