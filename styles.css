@@ -1591,8 +1591,9 @@ tr:nth-child(even) td {
 }
 
 .table-import-modal {
-  width: min(1220px, 100%);
+  width: min(980px, 100%);
   max-height: min(88vh, 920px);
+  overflow: hidden;
 }
 
 .task-import-template-wrap {
@@ -1609,22 +1610,21 @@ tr:nth-child(even) td {
 }
 
 .task-import-template-row {
-  display: grid;
-  grid-template-columns: repeat(11, minmax(140px, 1fr));
-  gap: 0;
-  overflow: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
 }
 
 .task-import-template-row span {
-  padding: 8px 10px;
+  padding: 6px 10px;
   font-size: 12px;
   color: #2a3748;
-  border-right: 1px solid #edf2f8;
-  white-space: nowrap;
-}
-
-.task-import-template-row span:last-child {
-  border-right: none;
+  border: 1px solid #dbe2ea;
+  border-radius: 999px;
+  background: #ffffff;
+  white-space: normal;
+  line-height: 1.25;
 }
 
 .task-import-paste-input {
@@ -1636,6 +1636,12 @@ tr:nth-child(even) td {
   line-height: 1.35;
   resize: vertical;
   min-height: 120px;
+}
+
+.task-import-paste-input:focus {
+  outline: none;
+  border-color: var(--brand-border-mid);
+  box-shadow: 0 0 0 3px rgba(75, 85, 214, 0.12);
 }
 
 .task-import-preview-head {
