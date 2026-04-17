@@ -21,6 +21,7 @@ const PHONE_MIN_DIGITS = 8;
 const PHONE_MAX_DIGITS = 15;
 const PHONE_MAX_LENGTH = PHONE_MAX_DIGITS + 1;
 const REPORT_SHARE_STORAGE_KEY = "mbc_report_share_links";
+const OVERDUE_NOTIFY_RUNTIME_KEY = "mbc_overdue_notify_runtime";
 /** JWT при работе с сервером (Railway) */
 const AUTH_TOKEN_KEY = "mbc_jwt";
 const SESSION_STORAGE_KEY = "mbc_task_auth_user";
@@ -284,6 +285,8 @@ function buildAppPayload() {
 
 let serverSyncTimer = null;
 let remotePullTimer = null;
+let overdueNotifyTimer = null;
+let overdueNotifyInFlight = false;
 let hasUnsyncedLocalChanges = false;
 let serverPushInFlight = false;
 
@@ -609,6 +612,7 @@ function applyServerBundle(data, options = {}) {
     try {
       localStorage.setItem(DISPLAY_SETTINGS_KEY, JSON.stringify(data.displaySettings));
       restoreDisplaySettings();
+      startOverdueTaskNotificationsScheduler();
     } catch (_) {
       /* noop */
     }
@@ -2328,6 +2332,8 @@ let displaySettings = {
   dateDisplayFormat: "DMY_DOT",
   timeDisplayFormat: "24",
   timeShowSeconds: false,
+  overdueNotificationsEnabled: false,
+  overdueNotificationsTime: "09:00",
   reminderSettings: Object.fromEntries(
     STATUS_OPTIONS.map((status) => [status, { days: "none", text: "" }])
   ),
@@ -2771,6 +2777,169 @@ function attachTasksObjectPickerHandlers(section) {
       renderTable();
     });
   });
+}
+
+function getClockPartsInTimeZone(date, timeZone) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return null;
+  const tz = timeZone || getServerTimezone();
+  try {
+    const fmt = new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    });
+    const parts = fmt.formatToParts(d);
+    const h = Number(parts.find((p) => p.type === "hour")?.value);
+    const m = Number(parts.find((p) => p.type === "minute")?.value);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return { hour: h, minute: m };
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizeOverdueNotifyTimeValue(value) {
+  const s = String(value || "").trim();
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s);
+  if (!m) return "09:00";
+  const hh = Math.min(23, Math.max(0, Number(m[1])));
+  const mm = Math.min(59, Math.max(0, Number(m[2])));
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function loadOverdueNotifyRuntime() {
+  try {
+    const raw = localStorage.getItem(OVERDUE_NOTIFY_RUNTIME_KEY);
+    if (!raw) return { lastRunDate: "" };
+    const parsed = JSON.parse(raw);
+    return {
+      lastRunDate: String(parsed?.lastRunDate || "")
+    };
+  } catch (_) {
+    return { lastRunDate: "" };
+  }
+}
+
+function saveOverdueNotifyRuntime(runtime) {
+  try {
+    localStorage.setItem(OVERDUE_NOTIFY_RUNTIME_KEY, JSON.stringify({
+      lastRunDate: String(runtime?.lastRunDate || "")
+    }));
+  } catch (_) {
+    /* noop */
+  }
+}
+
+function getTodayStorageDateInTimezone() {
+  const p = getCalendarDatePartsInTimeZone(new Date(), getServerTimezone());
+  if (!p) return getTodayRuDate();
+  return formatDatePartsStorage(p.day, p.month, p.year);
+}
+
+function getCurrentMinutesInTimezone() {
+  const p = getClockPartsInTimeZone(new Date(), getServerTimezone());
+  if (!p) return 0;
+  return p.hour * 60 + p.minute;
+}
+
+function buildOverdueTaskTelegramText(row, overdueDays) {
+  const taskId = String(row[TASK_COLUMNS.number] || "").trim() || "—";
+  const task = String(row[TASK_COLUMNS.task] || "").trim() || "—";
+  const obj = String(row[TASK_COLUMNS.object] || "").trim() || "—";
+  const due = String(row[TASK_COLUMNS.dueDate] || "").trim() || "—";
+  const assigned = String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—";
+  return [
+    "⚠️ Уведомление о просрочке задачи",
+    "",
+    `№: ${taskId}`,
+    `Задача: ${task}`,
+    `Объект: ${obj}`,
+    `Ответственный: ${assigned}`,
+    `Срок: ${due}`,
+    `Просрочено: ${overdueDays} дн.`
+  ].join("\n");
+}
+
+async function sendOverdueTaskNotification(row, overdueDays, token) {
+  const recipientNames = collectTaskTelegramRecipientNames(row);
+  if (!recipientNames.length) return { ok: false, reason: "no_recipients" };
+  const targets = resolveEmployeeTelegramTargetsByFullNames(recipientNames);
+  if (!targets.length) return { ok: false, reason: "no_targets" };
+  const text = buildOverdueTaskTelegramText(row, overdueDays);
+  const results = await Promise.all(
+    targets.map(async (t) => {
+      try {
+        const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: t.chatId,
+            text
+          })
+        });
+        const apiJson = await response.json().catch(() => ({}));
+        return response.ok && apiJson.ok === true;
+      } catch (_) {
+        return false;
+      }
+    })
+  );
+  return { ok: results.some(Boolean), sentCount: results.filter(Boolean).length, total: results.length };
+}
+
+async function runOverdueTaskNotificationTick() {
+  if (overdueNotifyInFlight) return;
+  if (!getAuthToken()) return;
+  if (!displaySettings.overdueNotificationsEnabled) return;
+  const token = String(displaySettings.telegramBotToken || "").trim();
+  if (!token) return;
+
+  const nowMinutes = getCurrentMinutesInTimezone();
+  const targetMinutes = (() => {
+    const [hh, mm] = normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime).split(":").map(Number);
+    return hh * 60 + mm;
+  })();
+  const today = getTodayStorageDateInTimezone();
+  const runtime = loadOverdueNotifyRuntime();
+  if (runtime.lastRunDate === today) return;
+  if (nowMinutes < targetMinutes) return;
+
+  overdueNotifyInFlight = true;
+  try {
+    const todayParts = parseRuDateStringToParts(today);
+    const rows = getSectionById("tasks")?.rows || [];
+    for (const row of rows) {
+      const status = String(row[TASK_COLUMNS.status] || "").trim();
+      if (status === "Закрыт") continue;
+      const due = parseRuDateStringToParts(String(row[TASK_COLUMNS.dueDate] || "").trim());
+      if (!due || !todayParts) continue;
+      const diff = calendarDiffDays(due, todayParts);
+      if (diff <= 0) continue;
+      await sendOverdueTaskNotification(row, diff, token);
+    }
+    runtime.lastRunDate = today;
+    saveOverdueNotifyRuntime(runtime);
+  } finally {
+    overdueNotifyInFlight = false;
+  }
+}
+
+function startOverdueTaskNotificationsScheduler() {
+  clearInterval(overdueNotifyTimer);
+  overdueNotifyTimer = null;
+  if (!isHostedRuntime() || !getAuthToken()) return;
+  overdueNotifyTimer = setInterval(() => {
+    if (document.hidden) return;
+    runOverdueTaskNotificationTick().catch(() => {});
+  }, 60000);
+  runOverdueTaskNotificationTick().catch(() => {});
+}
+
+function stopOverdueTaskNotificationsScheduler() {
+  clearInterval(overdueNotifyTimer);
+  overdueNotifyTimer = null;
 }
 
 function detachTasksChunksObserver() {
@@ -8796,6 +8965,16 @@ function renderOtherSettingsPanel() {
 
         <div class="other-settings-section ${activeSettingsTab === "notifications" ? "" : "hidden"}" data-other-settings-pane="notifications">
           <h4 class="other-settings-section-title">Настройки оповещения</h4>
+          <div class="other-settings-block">
+            <h4>Просроченные задачи</h4>
+            <label class="settings-option">
+              <input type="checkbox" id="overdueNotificationsEnabledCheckbox" ${displaySettings.overdueNotificationsEnabled === true ? "checked" : ""} />
+              <span>Отправлять уведомления о просроченных задачах</span>
+            </label>
+            <label class="settings-field-label" for="overdueNotificationsTimeInput">Время отправки</label>
+            <input id="overdueNotificationsTimeInput" type="time" value="${escapeHtmlAttr(normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime))}" />
+            <p class="other-settings-hint">Ежедневно в выбранное время система отправит уведомления по всем открытым просроченным задачам.</p>
+          </div>
           <div class="settings-two-column settings-two-column--with-emulator">
             <div class="settings-two-column-main">
               <div class="other-settings-block">
@@ -9049,6 +9228,19 @@ function attachOtherSettingsHandlers() {
   dateFmtEl?.addEventListener("change", commitServerDateTimeSettings);
   timeFmtEl?.addEventListener("change", commitServerDateTimeSettings);
   timeSecEl?.addEventListener("change", commitServerDateTimeSettings);
+
+  const overdueEnabledEl = document.getElementById("overdueNotificationsEnabledCheckbox");
+  const overdueTimeEl = document.getElementById("overdueNotificationsTimeInput");
+  const commitOverdueNotificationsSettings = () => {
+    if (overdueEnabledEl) displaySettings.overdueNotificationsEnabled = Boolean(overdueEnabledEl.checked);
+    if (overdueTimeEl) displaySettings.overdueNotificationsTime = normalizeOverdueNotifyTimeValue(overdueTimeEl.value);
+    if (overdueTimeEl) overdueTimeEl.value = normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime);
+    saveDisplaySettings();
+    startOverdueTaskNotificationsScheduler();
+  };
+  overdueEnabledEl?.addEventListener("change", commitOverdueNotificationsSettings);
+  overdueTimeEl?.addEventListener("change", commitOverdueNotificationsSettings);
+  overdueTimeEl?.addEventListener("blur", commitOverdueNotificationsSettings);
 
   const checkboxes = Array.from(document.querySelectorAll(".other-settings-checkbox"));
   checkboxes.forEach((checkbox) => {
@@ -9417,6 +9609,8 @@ function restoreDisplaySettings() {
     displaySettings.dateDisplayFormat = normalizeDateDisplayFormatId(displaySettings.dateDisplayFormat);
     displaySettings.timeDisplayFormat = normalizeTimeDisplayFormatId(displaySettings.timeDisplayFormat);
     displaySettings.timeShowSeconds = Boolean(displaySettings.timeShowSeconds);
+    displaySettings.overdueNotificationsEnabled = Boolean(displaySettings.overdueNotificationsEnabled);
+    displaySettings.overdueNotificationsTime = normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime);
     if (!Array.isArray(displaySettings.telegramGlobalDuplicateRecipientIds)) {
       displaySettings.telegramGlobalDuplicateRecipientIds = [];
     }
@@ -10750,6 +10944,7 @@ function showApp(userName) {
   renderSidebarMenu();
   renderTable();
   startRemoteAutoPull();
+  startOverdueTaskNotificationsScheduler();
 }
 
 function showLogin() {
@@ -10778,6 +10973,7 @@ function showLogin() {
   saveActiveSection("tasks");
   isSettingsOpen = false;
   stopRemoteAutoPull();
+  stopOverdueTaskNotificationsScheduler();
 }
 
 function togglePasswordVisibility() {
