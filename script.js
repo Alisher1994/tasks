@@ -12,6 +12,7 @@ const sidebarBrandToggle = document.getElementById("sidebarBrandToggle");
 const passwordInput = document.getElementById("password");
 const togglePasswordBtn = document.getElementById("togglePasswordBtn");
 const loginPhoneFlag = document.getElementById("loginPhoneFlag");
+const loginPhoneCountryBtn = document.getElementById("loginPhoneCountryBtn");
 
 const AUTH_PHONE = "+998994067406";
 const AUTH_PASSWORD = "7406";
@@ -4927,6 +4928,16 @@ const DIAL_TO_ISO = [
   ["65", "SG"], ["60", "MY"], ["66", "TH"], ["84", "VN"], ["98", "IR"]
 ];
 
+const COUNTRY_NAME_BY_ISO = {
+  UZ: "Узбекистан", RU: "Россия", UA: "Украина", BY: "Беларусь", US: "США",
+  TR: "Турция", AE: "ОАЭ", SA: "Саудовская Аравия", GB: "Великобритания", DE: "Германия",
+  FR: "Франция", IT: "Италия", ES: "Испания", PL: "Польша", GE: "Грузия",
+  AZ: "Азербайджан", KG: "Кыргызстан", TJ: "Таджикистан", TM: "Туркменистан", EG: "Египет",
+  IN: "Индия", PK: "Пакистан", CN: "Китай", JP: "Япония", KR: "Южная Корея",
+  AU: "Австралия", BR: "Бразилия", MX: "Мексика", ID: "Индонезия", PH: "Филиппины",
+  SG: "Сингапур", MY: "Малайзия", TH: "Таиланд", VN: "Вьетнам", IR: "Иран"
+};
+
 function flagEmojiFromIso2(iso2) {
   const code = String(iso2 || "").trim().toUpperCase();
   if (!/^[A-Z]{2}$/.test(code)) return "🌐";
@@ -4950,6 +4961,103 @@ function detectCountryIsoByPhone(rawPhone) {
 function phoneFlagByValue(rawPhone) {
   const iso = detectCountryIsoByPhone(rawPhone);
   return flagEmojiFromIso2(iso);
+}
+
+function detectDialCodeByPhone(rawPhone) {
+  const digits = normalizeUzPhone(rawPhone).replace(/\D/g, "");
+  if (!digits) return "";
+  let best = "";
+  for (const [dial] of DIAL_TO_ISO) {
+    if (digits.startsWith(dial) && dial.length > best.length) {
+      best = dial;
+    }
+  }
+  return best;
+}
+
+function buildCountryPhoneOptions() {
+  return DIAL_TO_ISO
+    .map(([dial, iso]) => ({
+      dial,
+      iso,
+      flag: flagEmojiFromIso2(iso),
+      name: COUNTRY_NAME_BY_ISO[iso] || iso
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+}
+
+function openLoginCountryPickerModal() {
+  if (!phoneInput) return;
+  const options = buildCountryPhoneOptions();
+  const currentDial = detectDialCodeByPhone(phoneInput.value);
+  let selectedDial = currentDial || "998";
+
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal">
+      <h4>Выбор страны</h4>
+      <input type="text" class="responsible-modal-search" placeholder="Поиск страны или кода..." />
+      <div class="responsible-modal-list"></div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary responsible-cancel-btn">Отмена</button>
+        <button type="button" class="responsible-apply-btn">Выбрать</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const list = overlay.querySelector(".responsible-modal-list");
+  const search = overlay.querySelector(".responsible-modal-search");
+  const cancelBtn = overlay.querySelector(".responsible-cancel-btn");
+  const applyBtn = overlay.querySelector(".responsible-apply-btn");
+
+  const render = () => {
+    const q = String(search?.value || "").trim().toLowerCase();
+    const filtered = options.filter((opt) => {
+      if (!q) return true;
+      return opt.name.toLowerCase().includes(q) || opt.iso.toLowerCase().includes(q) || `+${opt.dial}`.includes(q);
+    });
+    list.innerHTML = filtered.length
+      ? filtered.map((opt) => `
+        <label class="responsible-option-item">
+          <input type="radio" name="countryDial" value="${opt.dial}" ${opt.dial === selectedDial ? "checked" : ""} />
+          <span class="responsible-option-name">${opt.flag} ${escapeHtmlText(opt.name)}</span>
+          <span class="responsible-option-role">+${opt.dial}</span>
+        </label>
+      `).join("")
+      : '<div class="responsible-option-empty">Ничего не найдено</div>';
+  };
+
+  list.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== "radio") return;
+    selectedDial = String(target.value || "").trim();
+  });
+  search?.addEventListener("input", render);
+  cancelBtn?.addEventListener("click", () => {
+    overlay.remove();
+    phoneInput.focus();
+  });
+  applyBtn?.addEventListener("click", () => {
+    const normalized = normalizeUzPhone(phoneInput.value);
+    const digits = normalized.replace(/\D/g, "");
+    const prevDial = detectDialCodeByPhone(normalized);
+    const national = prevDial && digits.startsWith(prevDial) ? digits.slice(prevDial.length) : digits;
+    phoneInput.value = normalizeUzPhone(`+${selectedDial}${national}`);
+    enforceUzPhonePrefix();
+    overlay.remove();
+    phoneInput.focus();
+  });
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      overlay.remove();
+      phoneInput.focus();
+    }
+  });
+
+  render();
+  search?.focus();
 }
 
 function updateLoginPhoneFlag() {
@@ -9338,6 +9446,7 @@ phoneInput?.addEventListener("focus", () => {
 });
 phoneInput?.addEventListener("input", enforceUzPhonePrefix);
 phoneInput?.addEventListener("blur", enforceUzPhonePrefix);
+loginPhoneCountryBtn?.addEventListener("click", openLoginCountryPickerModal);
 
 loginBtn.innerHTML = withLucideIcon("log-in", "Войти");
 logoutBtn.innerHTML = withLucideIcon("log-out", "Выйти");

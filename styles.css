@@ -108,14 +108,37 @@ h3 {
   position: relative;
 }
 
-.phone-input-flag {
+.phone-input-flag-btn {
   position: absolute;
-  left: 10px;
+  left: 6px;
   top: 50%;
   transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.phone-input-flag-btn:hover {
+  background: #f0f4fa;
+}
+
+.phone-input-flag-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-focus-ring);
+}
+
+.phone-input-flag {
+  position: absolute;
   font-size: 16px;
   line-height: 1;
-  pointer-events: none;
+  position: static;
 }
 
 .phone-input-wrap input {
