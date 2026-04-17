@@ -432,6 +432,58 @@ async function mergeTaskReadStateFromServer(localPayload) {
   }
 }
 
+async function pullTaskReadStateFromServerIntoLocal({ rerender = true } = {}) {
+  if (!isHostedRuntime() || !getAuthToken()) return false;
+  try {
+    const r = await fetch("/api/data", {
+      headers: { Authorization: `Bearer ${getAuthToken()}` }
+    });
+    if (!r.ok) return false;
+    const json = await r.json().catch(() => null);
+    const remoteTasks = Array.isArray(json?.data?.sections)
+      ? json.data.sections.find((s) => s?.id === "tasks")
+      : null;
+    const localTasks = getSectionById("tasks");
+    if (!Array.isArray(remoteTasks?.rows) || !Array.isArray(localTasks?.rows)) return false;
+    const remoteById = new Map();
+    remoteTasks.rows.forEach((row) => {
+      const id = String(row?.[TASK_COLUMNS.number] || "").trim();
+      if (!id) return;
+      remoteById.set(id, row);
+    });
+    let changed = false;
+    localTasks.rows.forEach((row) => {
+      const id = String(row?.[TASK_COLUMNS.number] || "").trim();
+      if (!id) return;
+      const remoteRow = remoteById.get(id);
+      if (!remoteRow) return;
+      const localRead = getTaskReadStateParts(row[TASK_COLUMNS.readState]);
+      const remoteRead = getTaskReadStateParts(remoteRow[TASK_COLUMNS.readState]);
+      if (remoteRead.isRead && !localRead.isRead) {
+        row[TASK_COLUMNS.readState] = String(remoteRow[TASK_COLUMNS.readState] || composeTaskReadState(true, "—"));
+        changed = true;
+      }
+      const localSent = String(row[TASK_COLUMNS.lastSentAt] || "").trim();
+      const remoteSent = String(remoteRow[TASK_COLUMNS.lastSentAt] || "").trim();
+      if ((!localSent || localSent === "—") && remoteSent && remoteSent !== "—") {
+        row[TASK_COLUMNS.lastSentAt] = remoteSent;
+        changed = true;
+      }
+    });
+    if (changed) {
+      try {
+        localStorage.setItem(DATA_STORAGE_KEY, JSON.stringify(sections));
+      } catch (_) {
+        /* noop */
+      }
+      if (rerender) renderTablePreserveScroll();
+    }
+    return changed;
+  } catch (_) {
+    return false;
+  }
+}
+
 function telegramBotDisplayNameFromGetMeResult(result) {
   if (!result || typeof result !== "object") return "";
   const fn = String(result.first_name || "").trim();
@@ -685,8 +737,11 @@ function startRemoteAutoPull() {
     // чтобы не сбивало ввод/редактирование в настройках и справочниках.
     if (activeSectionId !== "tasks") return;
     if (isUserEditingNow()) return;
-    if (hasUnsyncedLocalChanges) return;
     if (serverPushInFlight) return;
+    if (hasUnsyncedLocalChanges) {
+      pullTaskReadStateFromServerIntoLocal({ rerender: true }).catch(() => {});
+      return;
+    }
     pullRemoteAppState({ rerender: true }).catch(() => {});
   }, 8000);
 }
