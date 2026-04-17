@@ -3045,6 +3045,7 @@ function renderTable() {
     attachTasksObjectPickerHandlers(section);
   }
   initLucideIcons();
+  updateTableStickyHeaderOffsets();
 }
 
 function getSectionGroupBySectionId(sectionId) {
@@ -3062,6 +3063,18 @@ function renderSectionGroupTabs(sectionId) {
     return `<button type="button" class="section-subtab-btn ${isActive ? "active" : ""}" data-section-tab="${id}">${section.title}</button>`;
   }).join("");
   return `<div class="section-subtabs-row">${tabsHtml}</div>`;
+}
+
+function updateTableStickyHeaderOffsets() {
+  const table = document.querySelector(".table-wrap table");
+  if (!table) return;
+  const mainHeadRow = table.querySelector("thead.table-head-has-order .table-head-main-row");
+  if (!mainHeadRow) {
+    table.style.removeProperty("--table-sticky-main-row-h");
+    return;
+  }
+  const height = Math.max(1, Math.ceil(mainHeadRow.getBoundingClientRect().height));
+  table.style.setProperty("--table-sticky-main-row-h", `${height}px`);
 }
 
 function formatTrashDate(ts) {
@@ -11355,6 +11368,9 @@ sidebarBrandToggle?.setAttribute("aria-expanded", String(!isSidebarCollapsed));
 initLucideIcons();
 document.body.classList.add("login-mode");
 updateLoginPhoneFlag();
+window.addEventListener("resize", () => {
+  updateTableStickyHeaderOffsets();
+});
 
 const initialShareIdBoot = new URLSearchParams(location.search).get("share");
 if (initialShareIdBoot) {
