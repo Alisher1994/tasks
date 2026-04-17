@@ -409,17 +409,46 @@ function resolveTaskUpdateRecipientChatIds(payload, row, excludeChatId = "") {
   return Array.from(out);
 }
 
+function getTaskActionChatIds(payload, row) {
+  const employees = getEmployeesSection(payload);
+  const out = new Set();
+  const assignedName = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
+  const assignedEmp = assignedName ? findEmployeeByFullName(employees, assignedName) : null;
+  const assignedChat = String(assignedEmp?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
+  if (assignedChat && String(assignedEmp?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен") {
+    out.add(assignedChat);
+  }
+  if (!out.size) {
+    const responsibleName = String(row[TASK_COLUMNS.responsible] || "").trim();
+    const responsibleEmp = responsibleName ? findEmployeeByFullName(employees, responsibleName) : null;
+    const responsibleChat = String(responsibleEmp?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
+    if (responsibleChat && String(responsibleEmp?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен") {
+      out.add(responsibleChat);
+    }
+  }
+  return out;
+}
+
+function canChatUseTaskActions(payload, row, chatId) {
+  const actionChats = getTaskActionChatIds(payload, row);
+  if (!actionChats.size) return true;
+  return actionChats.has(String(chatId || "").trim());
+}
+
 async function broadcastTaskCardUpdate(payload, token, row, reasonText, excludeChatId = "") {
   const taskId = String(row[TASK_COLUMNS.number] ?? "").trim();
-  const kb = { inline_keyboard: mainKeyboard(taskId) };
   const text = `${taskCaptionWithPlan(row)}\n\n${String(reasonText || "").trim() || "Обновление по задаче."}`;
   const chatIds = resolveTaskUpdateRecipientChatIds(payload, row, excludeChatId);
+  const actionChats = getTaskActionChatIds(payload, row);
   for (const cid of chatIds) {
-    await tg(token, "sendMessage", {
+    const body = {
       chat_id: cid,
-      text,
-      reply_markup: kb
-    });
+      text
+    };
+    if (actionChats.has(String(cid || "").trim())) {
+      body.reply_markup = { inline_keyboard: mainKeyboard(taskId) };
+    }
+    await tg(token, "sendMessage", body);
   }
 }
 
@@ -771,6 +800,10 @@ async function handleCallback(q, pool, token) {
   }
 
   if (parsed.action === "sm") {
+    if (!canChatUseTaskActions(payload, row, chatId)) {
+      await answerOk("Смена статуса доступна только исполнителю");
+      return;
+    }
     setLastTaskContext(payload, chatId, taskId, messageId);
     const keyboard = EMPLOYEE_STATUS_OPTIONS.map((label, i) => [{ text: statusLabelWithEmoji(label), callback_data: cb(taskId, `ss|${i}`) }]);
     keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "bk") }]);
@@ -785,6 +818,10 @@ async function handleCallback(q, pool, token) {
   }
 
   if (parsed.action === "ss") {
+    if (!canChatUseTaskActions(payload, row, chatId)) {
+      await answerOk("Смена статуса доступна только исполнителю");
+      return;
+    }
     const idx = Number(parsed.rest[0]);
     if (!Number.isFinite(idx) || idx < 0 || idx >= EMPLOYEE_STATUS_OPTIONS.length) {
       await answerOk("Неверный статус");
@@ -822,6 +859,7 @@ async function handleCallback(q, pool, token) {
         chatId: String(chatId),
         employeeName: empName,
         at: Date.now(),
+        sourceMessageId: Number(messageId) || null,
         allowedConfirmChatIds: Array.from(requestAllowed)
       };
       appendTaskHistory(
@@ -861,6 +899,10 @@ async function handleCallback(q, pool, token) {
   }
 
   if (parsed.action === "cm") {
+    if (!canChatUseTaskActions(payload, row, chatId)) {
+      await answerOk("Комментарии доступны только исполнителю");
+      return;
+    }
     if (!payload.telegramSessions) payload.telegramSessions = {};
     payload.telegramSessions[String(chatId)] = { expect: "comment", taskId, promptMessageId: Number(messageId) || null };
     setLastTaskContext(payload, chatId, taskId, messageId);
@@ -876,6 +918,10 @@ async function handleCallback(q, pool, token) {
   }
 
   if (parsed.action === "ph") {
+    if (!canChatUseTaskActions(payload, row, chatId)) {
+      await answerOk("Отправка фото доступна только исполнителю");
+      return;
+    }
     if (!payload.telegramSessions) payload.telegramSessions = {};
     payload.telegramSessions[String(chatId)] = { expect: "photo", taskId, promptMessageId: Number(messageId) || null };
     setLastTaskContext(payload, chatId, taskId, messageId);
@@ -926,16 +972,27 @@ async function handleCallback(q, pool, token) {
 
     if (decision === "y") {
       row[TASK_COLUMNS.status] = "Закрыт";
+      const confirmedAt = formatRuDateTime(new Date(), resolveAppTimeZone(payload));
+      const confirmInfo = `Закрытие подтверждено: ${empName || "—"}, ${confirmedAt}`;
       delete payload.telegramCloseRequests[taskId];
       const ds = payload.displaySettings || {};
       const tpl = String(ds.telegramCloseAcceptedTemplate || "").trim() || defaultAcceptTemplate();
       const msg = applySimpleTemplate(tpl, row);
-      appendTaskHistory(payload, taskId, empName, `Telegram: закрытие задачи подтверждено`);
+      appendTaskHistory(payload, taskId, empName, `Telegram: закрытие задачи подтверждено (${confirmedAt})`);
       await savePayload(pool, payload);
 
+      const sourceMid = Number(req.sourceMessageId) || 0;
+      if (sourceMid) {
+        await tg(token, "editMessageText", {
+          chat_id: req.chatId,
+          message_id: sourceMid,
+          text: `${buildFullTaskMessage(row)}\n\n${confirmInfo}`,
+          reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+        });
+      }
       await tg(token, "sendMessage", {
         chat_id: req.chatId,
-        text: msg
+        text: `${buildFullTaskMessage(row)}\n\n${confirmInfo}\n\n${msg}`
       });
       await tg(token, "editMessageText", {
         chat_id: chatId,
@@ -943,6 +1000,7 @@ async function handleCallback(q, pool, token) {
         text: `Задача №${taskId}: закрытие подтверждено. Исполнителю отправлено уведомление.`,
         reply_markup: { inline_keyboard: [] }
       });
+      await broadcastTaskCardUpdate(payload, token, row, confirmInfo, req.chatId);
     } else {
       delete payload.telegramCloseRequests[taskId];
       appendTaskHistory(payload, taskId, empName, `Telegram: отклонён запрос на закрытие`);
@@ -1003,7 +1061,7 @@ async function notifyCloseConfirmRecipients(pool, token, payload, taskId, row, r
   const targetChatIds = Array.isArray(closeReq.allowedConfirmChatIds)
     ? closeReq.allowedConfirmChatIds.map((x) => String(x).trim()).filter(Boolean)
     : [];
-  const text = `Запрос на закрытие задачи №${taskId}\n${String(row[TASK_COLUMNS.task] || "").trim()}\nОт: ${requesterName}`;
+  const text = `${buildFullTaskMessage(row)}\n\nЗапрос на закрытие задачи №${taskId}\nОт: ${requesterName}\n\nПодтвердите или отклоните закрытие.`;
   const kb = {
     inline_keyboard: [
       [

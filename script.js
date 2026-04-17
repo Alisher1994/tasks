@@ -1178,6 +1178,20 @@ function resolveEmployeeTelegramTargetsByFullNames(names) {
   return out;
 }
 
+function resolveTaskActionChatIds(taskRow) {
+  const names = [];
+  const assigned = normalizePersonName(taskRow?.[TASK_COLUMNS.assignedResponsible]);
+  if (assigned) names.push(assigned);
+  let targets = resolveEmployeeTelegramTargetsByFullNames(names);
+  if (!targets.length) {
+    const responsible = normalizePersonName(taskRow?.[TASK_COLUMNS.responsible]);
+    if (responsible) {
+      targets = resolveEmployeeTelegramTargetsByFullNames([responsible]);
+    }
+  }
+  return new Set(targets.map((t) => String(t.chatId || "").trim()).filter(Boolean));
+}
+
 function getTaskMediaItemsForTelegram(taskRow) {
   const before = getMediaItems(taskRow[TASK_COLUMNS.mediaBefore]);
   return [...before].map((x) => String(x || "").trim()).filter(Boolean);
@@ -1324,6 +1338,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
   }
 
   const targets = resolveEmployeeTelegramTargetsByFullNames(recipientNames);
+  const actionChatIds = resolveTaskActionChatIds(taskRow);
   const resolvedNames = new Set(targets.map((t) => t.fullName));
   const missingNames = recipientNames.filter((n) => !resolvedNames.has(n));
 
@@ -1334,12 +1349,16 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
     return { ok: false, reason: "no_targets", message: msg, missingNames };
   }
 
-  const replyMarkup = options.skipInlineKeyboard ? undefined : buildTelegramReadInlineKeyboardForTask(taskRow[TASK_COLUMNS.number]);
   const photoRefs = resolveTelegramSendablePhotoRefs(taskRow, token);
   const shortText = `У вас есть задача №${String(taskRow[TASK_COLUMNS.number] || "").trim() || "—"}.\nЧтобы прочитать полное содержание, нажмите «📖 Прочитать».`;
   const results = await Promise.all(
     targets.map(async (t) => {
       try {
+        const isActionRecipient = actionChatIds.has(String(t.chatId || "").trim());
+        const outgoingText = isActionRecipient ? shortText : text;
+        const replyMarkup = !options.skipInlineKeyboard && isActionRecipient
+          ? buildTelegramReadInlineKeyboardForTask(taskRow[TASK_COLUMNS.number])
+          : undefined;
         if (photoRefs.length) {
           let photosOk = false;
           let photoDescription = "";
@@ -1384,7 +1403,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
           if (!photosOk) {
             const fallbackBody = {
               chat_id: t.chatId,
-              text: shortText,
+              text: outgoingText,
               ...(replyMarkup ? { reply_markup: replyMarkup } : {})
             };
             const fallbackResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -1405,7 +1424,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
 
           const msgBody = {
             chat_id: t.chatId,
-            text: shortText,
+            text: outgoingText,
             ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
             ...(firstMessageId ? { reply_to_message_id: firstMessageId, allow_sending_without_reply: true } : {})
           };
@@ -1426,7 +1445,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
 
         const msgBody = {
           chat_id: t.chatId,
-          text: shortText,
+          text: outgoingText,
           ...(replyMarkup ? { reply_markup: replyMarkup } : {})
         };
         const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
