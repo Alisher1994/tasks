@@ -67,9 +67,9 @@ const TASK_COLUMNS = {
   phase: 5,
   phaseSection: 6,
   phaseSubsection: 7,
-  assignedResponsible: 8,
-  task: 9,
-  responsible: 10,
+  task: 8,
+  responsible: 9,
+  assignedResponsible: 10,
   note: 11,
   plan: 12,
   fact: 13,
@@ -2024,9 +2024,9 @@ let sections = [
       "Фаза",
       "Раздел",
       "Подраздел",
-      "Ответственный",
       "Задача",
       "Постановщик задачи",
+      "Ответственный",
       "Коментарии к задаче",
       "Комментарии сотрудника (Результат)",
       "Коментарии администратора",
@@ -2047,8 +2047,8 @@ let sections = [
         "Инициация",
         "Первичный анализ ЗУ",
         "УЧРП",
-        "Иван Петров",
         "Проверить состояние стеллажей",
+        "Иван Петров",
         "Иван Петров",
         "Требуется фотофиксация",
         "Осмотр зоны А и Б, составить акт",
@@ -2069,8 +2069,8 @@ let sections = [
         "Реализация",
         "СМР",
         "Надземные конструкции",
-        "Мария Волкова",
         "Обновить схему эвакуации",
+        "Мария Волкова",
         "Мария Волкова",
         "Согласовать с отделом безопасности",
         "Подготовить макет, утвердить, разместить",
@@ -2091,8 +2091,8 @@ let sections = [
         "Завершение",
         "Тех.приемка УК",
         "ПНР",
-        "Антон Кузнецов",
         "Заменить замок архивной комнаты",
+        "Антон Кузнецов",
         "Антон Кузнецов",
         "Работы выполнены подрядчиком",
         "Согласование и замена замка",
@@ -10131,7 +10131,10 @@ function migrateRowForSection(baseSection, row) {
   if (baseSection.id === "tasks") {
     // Старый формат задач без колонки «Исполнитель».
     if (source.length === 17) {
-      source.splice(TASK_COLUMNS.assignedResponsible, 0, "");
+      // Исторически в len=17 поля идут как:
+      // ... Подраздел, Задача, Постановщик, Комментарий, План, Факт, ...
+      // Добавляем «Ответственного» (assignedResponsible) после постановщика.
+      source.splice(10, 0, "");
     }
     if (source.length === 18) {
       source.push("Не прочитано\n—");
@@ -10139,6 +10142,26 @@ function migrateRowForSection(baseSection, row) {
     if (source.length === 19) {
       source.push("—");
     }
+
+    // Перестановка порядка колонок (старый -> новый):
+    // old: [.., assignedResponsible, task, responsible, ...]
+    // new: [.., task, responsible, assignedResponsible, ...]
+    if (source.length >= 20) {
+      const oldAssigned = source[8];
+      const oldTask = source[9];
+      const oldResponsible = source[10];
+      const looksLikeOldOrder =
+        oldTask != null &&
+        oldResponsible != null &&
+        String(oldTask).trim() !== "" &&
+        (String(oldAssigned).trim() === "" || String(oldAssigned).trim() !== String(oldTask).trim());
+      if (looksLikeOldOrder) {
+        source[8] = oldTask;
+        source[9] = oldResponsible;
+        source[10] = oldAssigned;
+      }
+    }
+
     if (source.length > TASK_COLUMNS.lastSentAt && !String(source[TASK_COLUMNS.lastSentAt] || "").trim()) {
       source[TASK_COLUMNS.lastSentAt] = "—";
     }
