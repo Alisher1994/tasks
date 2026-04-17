@@ -1778,6 +1778,30 @@ function normalizeTimeDisplayFormatId(value) {
   return String(value) === "12" ? "12" : "24";
 }
 
+function normalizeGoogleSheetsInterval(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 30;
+  return Math.min(1440, Math.max(1, Math.floor(n)));
+}
+
+function formatGoogleSheetsSyncStatusText() {
+  const status = String(displaySettings.googleSheetsLastSyncStatus || "").trim();
+  const atIso = String(displaySettings.googleSheetsLastSyncAt || "").trim();
+  const msg = String(displaySettings.googleSheetsLastSyncMessage || "").trim();
+  const mode = String(displaySettings.googleSheetsLastSyncMode || "").trim();
+  const rows = Number(displaySettings.googleSheetsLastSyncRows) || 0;
+  const atLabel = atIso ? formatTrashDate(new Date(atIso).getTime()) : "—";
+  const modeLabel = mode === "auto" ? "Авто" : mode === "manual" ? "Ручной" : "—";
+  if (!status) return `Статус: —\nПоследний запуск: ${atLabel}`;
+  if (status === "ok") {
+    return `Статус: Успешно\nПоследний запуск: ${atLabel}\nРежим: ${modeLabel}\nСтрок: ${rows}\n${msg || ""}`.trim();
+  }
+  if (status === "error") {
+    return `Статус: Ошибка\nПоследний запуск: ${atLabel}\nРежим: ${modeLabel}\n${msg || "—"}`.trim();
+  }
+  return `Статус: ${status}\nПоследний запуск: ${atLabel}\n${msg || ""}`.trim();
+}
+
 function getServerTimezone() {
   const raw = displaySettings.serverTimezone;
   if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
@@ -2180,6 +2204,18 @@ let displaySettings = {
   /** Сообщение исполнителю после подтверждения закрытия администратором (токены [ид_задачи], [название_задачи], [статус], [объект]) */
   telegramCloseAcceptedTemplate:
     "Задача [ид_задачи] ([название_задачи]): закрытие подтверждено.",
+  googleSheetsEnabled: false,
+  googleSheetsAutoSyncEnabled: false,
+  googleSheetsSpreadsheetId: "",
+  googleSheetsSummarySheetName: "Сводная",
+  googleSheetsIncludeObjectSheets: true,
+  googleSheetsSyncIntervalMinutes: 30,
+  googleSheetsLastSyncStatus: "",
+  googleSheetsLastSyncAt: "",
+  googleSheetsLastSyncAtMs: 0,
+  googleSheetsLastSyncMessage: "",
+  googleSheetsLastSyncRows: 0,
+  googleSheetsLastSyncMode: "",
   /** pagination | chunks — страницы или «Показать ещё» */
   tasksListPagingMode: "pagination",
   /** Размер страницы / одной порции (5–500) */
@@ -7909,7 +7945,7 @@ function attachHeaderActionHandlers(section, filteredEntries) {
 }
 
 function renderOtherSettingsPanel() {
-  const allowedSettingsTabs = new Set(["general", "dateTime", "telegram", "notifications", "taskFormat", "globalDup"]);
+  const allowedSettingsTabs = new Set(["general", "dateTime", "telegram", "googleSheets", "notifications", "taskFormat", "globalDup"]);
   const activeSettingsTab = allowedSettingsTabs.has(otherSettingsActiveTab) ? otherSettingsActiveTab : "general";
   const getStatusClass = (status) => {
     if (status === "Новый") return "status-legend-new";
@@ -7970,6 +8006,7 @@ function renderOtherSettingsPanel() {
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "general" ? "active" : ""}" data-other-settings-tab="general">Основные</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "dateTime" ? "active" : ""}" data-other-settings-tab="dateTime">Дата и время</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "telegram" ? "active" : ""}" data-other-settings-tab="telegram">Telegram</button>
+          <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "googleSheets" ? "active" : ""}" data-other-settings-tab="googleSheets">Google Sheets</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "notifications" ? "active" : ""}" data-other-settings-tab="notifications">Настройки оповещения</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "taskFormat" ? "active" : ""}" data-other-settings-tab="taskFormat">Шаблон сообщений</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "globalDup" ? "active" : ""}" data-other-settings-tab="globalDup">Получатели копий</button>
@@ -8072,6 +8109,37 @@ function renderOtherSettingsPanel() {
                 : "https://t.me/<бот>?start=e_<ID>"
             )}</code>, где <strong>ID</strong> — значение из первой колонки сотрудника (например <code>e_3</code> в ссылке для ID 3). Если открыть бота без параметра, сопоставление идёт по <strong>имени и фамилии</strong> в профиле Telegram и ФИО в таблице (полное совпадение токенов имени).</p>
             <p class="other-settings-hint">Поле «Chat ID» не заполняется из номера телефона — только реальный Telegram user id после команды /start у бота (или вручную).</p>
+          </div>
+        </div>
+
+        <div class="other-settings-section ${activeSettingsTab === "googleSheets" ? "" : "hidden"}" data-other-settings-pane="googleSheets">
+          <h4 class="other-settings-section-title">Google Sheets</h4>
+          <div class="other-settings-block">
+            <h4>Синхронизация задач</h4>
+            <label class="settings-option">
+              <input type="checkbox" id="googleSheetsEnabledCheckbox" ${displaySettings.googleSheetsEnabled === true ? "checked" : ""} />
+              <span>Включить интеграцию Google Sheets</span>
+            </label>
+            <label class="settings-option">
+              <input type="checkbox" id="googleSheetsAutoSyncEnabledCheckbox" ${displaySettings.googleSheetsAutoSyncEnabled === true ? "checked" : ""} />
+              <span>Автосинхронизация</span>
+            </label>
+            <label class="settings-field-label" for="googleSheetsSpreadsheetIdInput">Spreadsheet ID</label>
+            <input id="googleSheetsSpreadsheetIdInput" type="text" value="${escapeHtmlAttr(String(displaySettings.googleSheetsSpreadsheetId || ""))}" placeholder="ID Google таблицы" autocomplete="off" />
+            <label class="settings-field-label" for="googleSheetsSummarySheetNameInput">Лист «Сводная»</label>
+            <input id="googleSheetsSummarySheetNameInput" type="text" value="${escapeHtmlAttr(String(displaySettings.googleSheetsSummarySheetName || "Сводная"))}" placeholder="Сводная" autocomplete="off" />
+            <label class="settings-option">
+              <input type="checkbox" id="googleSheetsIncludeObjectSheetsCheckbox" ${displaySettings.googleSheetsIncludeObjectSheets !== false ? "checked" : ""} />
+              <span>Создавать отдельные листы по объектам</span>
+            </label>
+            <label class="settings-field-label" for="googleSheetsSyncIntervalInput">Интервал автосинхронизации (мин.)</label>
+            <input id="googleSheetsSyncIntervalInput" type="number" min="1" max="1440" step="1" value="${normalizeGoogleSheetsInterval(displaySettings.googleSheetsSyncIntervalMinutes)}" />
+            <div class="other-settings-actions">
+              <button type="button" id="googleSheetsSyncNowBtn">Синхронизировать сейчас</button>
+            </div>
+            <p class="other-settings-hint">Ключи доступа хранятся только в Railway Variables: <code>GOOGLE_SHEETS_CLIENT_EMAIL</code> и <code>GOOGLE_SHEETS_PRIVATE_KEY</code>.</p>
+            <label class="settings-field-label" for="googleSheetsSyncStatusText">Статус</label>
+            <textarea id="googleSheetsSyncStatusText" class="other-settings-readonly-input" readonly rows="5">${escapeHtmlText(formatGoogleSheetsSyncStatusText())}</textarea>
           </div>
         </div>
 
@@ -8443,6 +8511,67 @@ function attachOtherSettingsHandlers() {
     }
   });
 
+  const gsEnabledEl = document.getElementById("googleSheetsEnabledCheckbox");
+  const gsAutoEl = document.getElementById("googleSheetsAutoSyncEnabledCheckbox");
+  const gsSpreadsheetEl = document.getElementById("googleSheetsSpreadsheetIdInput");
+  const gsSummaryEl = document.getElementById("googleSheetsSummarySheetNameInput");
+  const gsIncludeObjEl = document.getElementById("googleSheetsIncludeObjectSheetsCheckbox");
+  const gsIntervalEl = document.getElementById("googleSheetsSyncIntervalInput");
+  const gsSyncBtn = document.getElementById("googleSheetsSyncNowBtn");
+
+  const commitGoogleSheetsSettings = () => {
+    if (gsEnabledEl) displaySettings.googleSheetsEnabled = Boolean(gsEnabledEl.checked);
+    if (gsAutoEl) displaySettings.googleSheetsAutoSyncEnabled = Boolean(gsAutoEl.checked);
+    if (gsSpreadsheetEl) displaySettings.googleSheetsSpreadsheetId = String(gsSpreadsheetEl.value || "").trim();
+    if (gsSummaryEl) displaySettings.googleSheetsSummarySheetName = String(gsSummaryEl.value || "").trim() || "Сводная";
+    if (gsIncludeObjEl) displaySettings.googleSheetsIncludeObjectSheets = Boolean(gsIncludeObjEl.checked);
+    if (gsIntervalEl) {
+      displaySettings.googleSheetsSyncIntervalMinutes = normalizeGoogleSheetsInterval(gsIntervalEl.value);
+      gsIntervalEl.value = String(displaySettings.googleSheetsSyncIntervalMinutes);
+    }
+    saveDisplaySettings();
+  };
+  gsEnabledEl?.addEventListener("change", commitGoogleSheetsSettings);
+  gsAutoEl?.addEventListener("change", commitGoogleSheetsSettings);
+  gsSpreadsheetEl?.addEventListener("blur", commitGoogleSheetsSettings);
+  gsSummaryEl?.addEventListener("blur", commitGoogleSheetsSettings);
+  gsIncludeObjEl?.addEventListener("change", commitGoogleSheetsSettings);
+  gsIntervalEl?.addEventListener("change", commitGoogleSheetsSettings);
+  gsIntervalEl?.addEventListener("blur", commitGoogleSheetsSettings);
+
+  gsSyncBtn?.addEventListener("click", async () => {
+    commitGoogleSheetsSettings();
+    if (!isHostedRuntime() || !getAuthToken()) {
+      window.alert("Ручная синхронизация доступна после входа в серверный режим.");
+      return;
+    }
+    const prevLabel = gsSyncBtn.textContent;
+    gsSyncBtn.disabled = true;
+    gsSyncBtn.textContent = "Синхронизация...";
+    try {
+      const r = await fetch("/api/google-sheets/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getAuthToken()}`
+        },
+        body: JSON.stringify({})
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j?.ok !== true) {
+        window.alert(`Google Sheets: ${String(j?.error || "ошибка синхронизации")}`);
+      } else {
+        window.alert(`Google Sheets: ${String(j?.message || "синхронизация выполнена")}`);
+      }
+      await pullRemoteAppState({ rerender: true });
+    } catch (e) {
+      window.alert(`Google Sheets: ${String(e?.message || "ошибка сети")}`);
+    } finally {
+      gsSyncBtn.disabled = false;
+      gsSyncBtn.textContent = prevLabel || "Синхронизировать сейчас";
+    }
+  });
+
   attachGlobalDuplicateRecipientsHandlers();
   attachTelegramTemplatePreviews();
 
@@ -8672,6 +8801,22 @@ function restoreDisplaySettings() {
     if (typeof displaySettings.telegramAdminChatId !== "string") {
       displaySettings.telegramAdminChatId = "";
     }
+    displaySettings.googleSheetsEnabled = Boolean(displaySettings.googleSheetsEnabled);
+    displaySettings.googleSheetsAutoSyncEnabled = Boolean(displaySettings.googleSheetsAutoSyncEnabled);
+    displaySettings.googleSheetsIncludeObjectSheets = displaySettings.googleSheetsIncludeObjectSheets !== false;
+    if (typeof displaySettings.googleSheetsSpreadsheetId !== "string") {
+      displaySettings.googleSheetsSpreadsheetId = "";
+    }
+    if (typeof displaySettings.googleSheetsSummarySheetName !== "string" || !displaySettings.googleSheetsSummarySheetName.trim()) {
+      displaySettings.googleSheetsSummarySheetName = "Сводная";
+    }
+    displaySettings.googleSheetsSyncIntervalMinutes = normalizeGoogleSheetsInterval(displaySettings.googleSheetsSyncIntervalMinutes);
+    if (typeof displaySettings.googleSheetsLastSyncStatus !== "string") displaySettings.googleSheetsLastSyncStatus = "";
+    if (typeof displaySettings.googleSheetsLastSyncAt !== "string") displaySettings.googleSheetsLastSyncAt = "";
+    if (typeof displaySettings.googleSheetsLastSyncMessage !== "string") displaySettings.googleSheetsLastSyncMessage = "";
+    if (typeof displaySettings.googleSheetsLastSyncMode !== "string") displaySettings.googleSheetsLastSyncMode = "";
+    displaySettings.googleSheetsLastSyncAtMs = Number(displaySettings.googleSheetsLastSyncAtMs) || 0;
+    displaySettings.googleSheetsLastSyncRows = Number(displaySettings.googleSheetsLastSyncRows) || 0;
     if (displaySettings.tasksListPagingMode !== "pagination" && displaySettings.tasksListPagingMode !== "chunks") {
       displaySettings.tasksListPagingMode = "pagination";
     }

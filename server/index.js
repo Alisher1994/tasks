@@ -13,6 +13,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { randomBytes } from "crypto";
 import { configureTelegramWebhook, handleTelegramWebhook } from "./telegramWebhook.js";
+import { runGoogleSheetsSync, startGoogleSheetsAutoSync } from "./googleSheetsSync.js";
 import { runMigrations } from "./migrate.js";
 import { validateAppPayload } from "./validatePayload.js";
 
@@ -515,6 +516,22 @@ app.post("/api/telegram/send-media-group-proxy", authMiddleware, async (req, res
   }
 });
 
+app.post("/api/google-sheets/sync", authMiddleware, async (_req, res) => {
+  try {
+    const result = await runGoogleSheetsSync(pool, { mode: "manual" });
+    if (!result.ok && result.busy) {
+      return res.status(409).json({ ok: false, error: "Синхронизация уже выполняется." });
+    }
+    if (!result.ok) {
+      return res.status(400).json({ ok: false, error: result.error || "Не удалось синхронизировать Google Sheets." });
+    }
+    return res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Ошибка ручной синхронизации Google Sheets." });
+  }
+});
+
 app.post("/api/media/upload", authMiddleware, async (req, res) => {
   try {
     await ensureMediaStorageDir();
@@ -750,6 +767,7 @@ async function main() {
   }
   await runMigrations(pool);
   await seedAdminFromEnv();
+  startGoogleSheetsAutoSync(pool);
   console.log("Миграции и сид пользователей выполнены.");
 
   if (JWT_SECRET === "change-me-in-production" && NODE_ENV === "production") {
