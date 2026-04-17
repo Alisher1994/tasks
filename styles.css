@@ -2784,6 +2784,11 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   min-height: 200px;
 }
 
+.report-canvas-wrap--donut {
+  min-height: 280px;
+  height: 280px;
+}
+
 .report-canvas-wrap--phase-h {
   min-height: 0;
   flex: 0 0 auto;
@@ -3146,6 +3151,16 @@ button.report-filter-icon-btn .lucide-icon {
 
 .report-week-tasks-empty {
   margin: 0;
+}
+
+.report-week-more-wrap {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.report-week-more-btn {
+  min-width: 120px;
 }
 
 .report-matrix-wrap {

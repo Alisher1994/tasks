@@ -2258,6 +2258,8 @@ let reportDateTo = "";
 let reportFilterObject = "";
 /** Исполнитель (assignedResponsible); пусто = все */
 let reportFilterEmployee = "";
+const REPORT_WEEK_ROWS_STEP = 5;
+let reportWeekRowsVisible = REPORT_WEEK_ROWS_STEP;
 /** Подпись для задач без объекта (режим «по объектам») */
 const TASKS_EMPTY_OBJECT_LABEL = "— без объекта —";
 const TASKS_DEFAULT_LIST_PAGE_SIZE = 50;
@@ -2371,6 +2373,9 @@ function getSectionIcon(sectionId) {
 }
 
 function selectSection(sectionId) {
+  if (sectionId === "report" && activeSectionId !== "report") {
+    reportWeekRowsVisible = REPORT_WEEK_ROWS_STEP;
+  }
   activeSectionId = sectionId;
   saveActiveSection(sectionId);
   if (sectionId !== "tasks" && sectionId !== "report") {
@@ -3427,17 +3432,17 @@ function renderReportChartTileFragment(id, opts = {}) {
     ? ""
     : `<button type="button" class="report-chart-drag-handle" draggable="true" data-drag-chart-id="${escapeHtmlAttr(id)}" title="Переместить график" aria-label="Перетащите, чтобы изменить порядок графиков"><i data-lucide="move" class="lucide-icon" aria-hidden="true"></i></button>`;
   const bodies = {
-    status: `<h4>По статусам</h4><div class="report-canvas-wrap"><canvas id="reportChartStatus"></canvas></div>`,
+    status: `<h4>По статусам</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartStatus"></canvas></div>`,
     priority: `<h4>По приоритету</h4><div class="report-canvas-wrap"><canvas id="reportChartPriority"></canvas></div>`,
-    priorityDonut: `<h4>Приоритеты (donut)</h4><div class="report-canvas-wrap"><canvas id="reportChartPriorityDonut"></canvas></div>`,
+    priorityDonut: `<h4>Приоритеты</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartPriorityDonut"></canvas></div>`,
     months: `<h4>Добавлено и закрыто по месяцам <span class="report-tile-year">${new Date().getFullYear()}</span></h4><div class="report-canvas-wrap report-canvas-tall"><canvas id="reportChartMonths"></canvas></div>`,
     overdue: `<h4>Просроченные задачи <span class="report-tile-note">(по объектам, топ)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartOverdueWrap"><canvas id="reportChartOverdue"></canvas></div>`,
     phase: `<h4>Топ фаз</h4><div class="report-canvas-wrap report-canvas-wrap--phase-h" id="reportChartPhaseWrap"><canvas id="reportChartPhase"></canvas></div>`,
-    phaseDonut: `<h4>Фазы (donut)</h4><div class="report-canvas-wrap"><canvas id="reportChartPhaseDonut"></canvas></div>`,
+    phaseDonut: `<h4>Фазы</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartPhaseDonut"></canvas></div>`,
     phaseSection: `<h4>Разделы</h4><div class="report-canvas-wrap report-canvas-wrap--phase-h report-canvas-scroll" id="reportChartPhaseSectionWrap"><canvas id="reportChartPhaseSection"></canvas></div>`,
-    phaseSectionDonut: `<h4>Разделы (donut)</h4><div class="report-canvas-wrap"><canvas id="reportChartPhaseSectionDonut"></canvas></div>`,
+    phaseSectionDonut: `<h4>Разделы</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartPhaseSectionDonut"></canvas></div>`,
     phaseSubsection: `<h4>Подразделы</h4><div class="report-canvas-wrap report-canvas-wrap--phase-h report-canvas-scroll" id="reportChartPhaseSubsectionWrap"><canvas id="reportChartPhaseSubsection"></canvas></div>`,
-    phaseSubsectionDonut: `<h4>Подразделы (donut)</h4><div class="report-canvas-wrap"><canvas id="reportChartPhaseSubsectionDonut"></canvas></div>`,
+    phaseSubsectionDonut: `<h4>Подразделы</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartPhaseSubsectionDonut"></canvas></div>`,
     object: `<h4>Объекты <span class="report-tile-note">(все, по убыванию; прокрутка)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartObjectWrap"><canvas id="reportChartObject"></canvas></div>`,
     department: `<h4>По отделам <span class="report-tile-note">(исполнитель → отдел из справочника)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartDepartmentWrap"><canvas id="reportChartDepartment"></canvas></div>`,
     responsible: `<h4>Исполнители <span class="report-tile-note">(по статусам, топ)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartResponsibleWrap"><canvas id="reportChartResponsible"></canvas></div>`
@@ -3698,12 +3703,14 @@ function attachReportFilterHandlers() {
   root.querySelector("#reportFilterObjectBtn")?.addEventListener("click", () => {
     openReportFilterPickerModal("Объект", "Все объекты", getReportDistinctObjects(), reportFilterObject, (v) => {
       reportFilterObject = String(v || "").trim();
+      reportWeekRowsVisible = REPORT_WEEK_ROWS_STEP;
       refreshReportView();
     });
   });
   root.querySelector("#reportFilterEmployeeBtn")?.addEventListener("click", () => {
     openReportFilterPickerModal("Сотрудник", "Все сотрудники", getReportDistinctEmployees(), reportFilterEmployee, (v) => {
       reportFilterEmployee = String(v || "").trim();
+      reportWeekRowsVisible = REPORT_WEEK_ROWS_STEP;
       refreshReportView();
     });
   });
@@ -3722,6 +3729,7 @@ function attachReportFilterHandlers() {
       }
       reportDateFrom = root.querySelector("#reportDateFrom")?.value?.trim() || "";
       reportDateTo = root.querySelector("#reportDateTo")?.value?.trim() || "";
+      reportWeekRowsVisible = REPORT_WEEK_ROWS_STEP;
       refreshReportView();
     });
   }
@@ -3732,9 +3740,14 @@ function attachReportFilterHandlers() {
       reportDateTo = "";
       reportFilterObject = "";
       reportFilterEmployee = "";
+      reportWeekRowsVisible = REPORT_WEEK_ROWS_STEP;
       refreshReportView();
     });
   }
+  root.querySelector("#reportWeekShowMoreBtn")?.addEventListener("click", () => {
+    reportWeekRowsVisible += REPORT_WEEK_ROWS_STEP;
+    refreshReportView();
+  });
 }
 
 function isSharedReportView() {
@@ -3956,6 +3969,7 @@ function attachReportExportAndShareHandlers() {
   if (!root) return;
 
   root.querySelector("#reportRefreshBtn")?.addEventListener("click", () => {
+    reportWeekRowsVisible = REPORT_WEEK_ROWS_STEP;
     refreshCurrentViewData();
   });
   root.querySelector("#reportExportPdfBtn")?.addEventListener("click", () => {
@@ -4531,6 +4545,8 @@ function formatReportResponsiblesCell(row) {
 
 function renderReportWeekTasksTable() {
   const weekRows = getTaskRowsAddedInLast7Days();
+  const visibleLimit = Math.min(Math.max(REPORT_WEEK_ROWS_STEP, reportWeekRowsVisible || REPORT_WEEK_ROWS_STEP), weekRows.length || REPORT_WEEK_ROWS_STEP);
+  const shownRows = weekRows.slice(0, visibleLimit);
   if (!weekRows.length) {
     return `
     <div class="report-week-tasks-wrap">
@@ -4549,7 +4565,7 @@ function renderReportWeekTasksTable() {
     <th>Подраздел</th>
     <th>Ответственные</th>
   </tr>`;
-  const body = weekRows
+  const body = shownRows
     .map((row) => {
       const id = escapeHtmlText(String(row[TASK_COLUMNS.number] ?? ""));
       const ob = escapeHtmlText(String(row[TASK_COLUMNS.object] ?? ""));
@@ -4573,6 +4589,10 @@ function renderReportWeekTasksTable() {
       </tr>`;
     })
     .join("");
+  const hasMore = weekRows.length > shownRows.length;
+  const moreBtn = hasMore
+    ? `<div class="report-week-more-wrap"><button type="button" class="secondary report-week-more-btn" id="reportWeekShowMoreBtn">Показать ещё</button></div>`
+    : "";
   return `
     <div class="report-week-tasks-wrap">
       <h4 class="report-week-tasks-title">${withLucideIcon("calendar-days", "Задачи за последние 7 дней")}</h4>
@@ -4582,6 +4602,7 @@ function renderReportWeekTasksTable() {
           <tbody>${body}</tbody>
         </table>
       </div>
+      ${moreBtn}
     </div>`;
 }
 
