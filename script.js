@@ -3451,7 +3451,7 @@ function renderReportChartTileFragment(id, opts = {}) {
     : `<button type="button" class="report-chart-drag-handle" draggable="true" data-drag-chart-id="${escapeHtmlAttr(id)}" title="Переместить график" aria-label="Перетащите, чтобы изменить порядок графиков"><i data-lucide="move" class="lucide-icon" aria-hidden="true"></i></button>`;
   const bodies = {
     status: `<h4>По статусам</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartStatus"></canvas></div>`,
-    priority: `<h4>По приоритету</h4><div class="report-canvas-wrap"><canvas id="reportChartPriority"></canvas></div>`,
+    priority: `<h4>По приоритету</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartPriority"></canvas></div>`,
     priorityDonut: `<h4>Приоритеты</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartPriorityDonut"></canvas></div>`,
     months: `<h4>Добавлено и закрыто по месяцам <span class="report-tile-year">${new Date().getFullYear()}</span></h4><div class="report-canvas-wrap report-canvas-tall"><canvas id="reportChartMonths"></canvas></div>`,
     overdue: `<h4>Просроченные задачи <span class="report-tile-note">(по объектам, топ)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartOverdueWrap"><canvas id="reportChartOverdue"></canvas></div>`,
