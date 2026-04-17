@@ -33,6 +33,10 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 const MEDIA_STORAGE_PATH = String(process.env.MEDIA_STORAGE_PATH || "").trim()
   || path.join(rootDir, "storage", "media");
 const TASK_NUMBER_COL = 0;
+const TASK_STATUS_COL = 2;
+const TASK_PLAN_COL = 12;
+const TASK_CLOSED_DATE_COL = 15;
+const TASK_MEDIA_AFTER_COL = 17;
 const TASK_READ_STATE_COL = 18;
 const TASK_LAST_SENT_AT_COL = 19;
 
@@ -83,6 +87,18 @@ function hasLastSentValue(value) {
   return Boolean(s && s !== "—");
 }
 
+function latestTelegramHistoryTs(store, taskId) {
+  const arr = Array.isArray(store?.[taskId]) ? store[taskId] : [];
+  let maxTs = 0;
+  for (const item of arr) {
+    const action = String(item?.action || "");
+    if (!action.startsWith("Telegram:")) continue;
+    const t = Number(item?.t) || 0;
+    if (t > maxTs) maxTs = t;
+  }
+  return maxTs;
+}
+
 function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
   const next = incomingPayload && typeof incomingPayload === "object"
     ? JSON.parse(JSON.stringify(incomingPayload))
@@ -100,10 +116,21 @@ function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
     if (!taskId) continue;
     const currentRow = currentById.get(taskId);
     if (!currentRow) continue;
+    const curTgTs = latestTelegramHistoryTs(currentPayload?.taskHistory, taskId);
+    const inTgTs = latestTelegramHistoryTs(next?.taskHistory, taskId);
+    const currentHasNewerTelegramUpdates = curTgTs > inTgTs;
     if (isReadStateValue(currentRow[TASK_READ_STATE_COL]) && !isReadStateValue(row[TASK_READ_STATE_COL])) {
       row[TASK_READ_STATE_COL] = currentRow[TASK_READ_STATE_COL];
     }
     if (hasLastSentValue(currentRow[TASK_LAST_SENT_AT_COL]) && !hasLastSentValue(row[TASK_LAST_SENT_AT_COL])) {
+      row[TASK_LAST_SENT_AT_COL] = currentRow[TASK_LAST_SENT_AT_COL];
+    }
+    if (currentHasNewerTelegramUpdates) {
+      row[TASK_STATUS_COL] = currentRow[TASK_STATUS_COL];
+      row[TASK_PLAN_COL] = currentRow[TASK_PLAN_COL];
+      row[TASK_CLOSED_DATE_COL] = currentRow[TASK_CLOSED_DATE_COL];
+      row[TASK_MEDIA_AFTER_COL] = currentRow[TASK_MEDIA_AFTER_COL];
+      row[TASK_READ_STATE_COL] = currentRow[TASK_READ_STATE_COL];
       row[TASK_LAST_SENT_AT_COL] = currentRow[TASK_LAST_SENT_AT_COL];
     }
   }
