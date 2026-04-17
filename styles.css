@@ -1668,8 +1668,8 @@ body.app-booting .app-boot-loader {
 }
 
 .app-boot-loader__logo {
-  width: 64px;
-  height: 64px;
+  width: 86px;
+  height: 86px;
   object-fit: contain;
   animation: app-loader-pulse 1.2s ease-in-out infinite;
 }
@@ -1682,7 +1682,7 @@ body.app-booting .app-boot-loader {
 
 .app-boot-loader__bar {
   width: 100%;
-  height: 6px;
+  height: 3px;
   border-radius: 999px;
   background: #dbe2ea;
   overflow: hidden;

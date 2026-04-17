@@ -902,6 +902,7 @@ function applyServerBundle(data, options = {}) {
     try {
       localStorage.setItem(TRASH_STORAGE_KEY, JSON.stringify(data.trashBySection));
       restoreTrashData();
+      clearTasksTrashNow({ save: true });
     } catch (_) {
       /* noop */
     }
@@ -1674,7 +1675,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
   }
 
   const photoRefs = resolveTelegramSendablePhotoRefs(taskRow, token);
-  const shortText = `У вас есть задача №${String(taskRow[TASK_COLUMNS.number] || "").trim() || "—"}.\nЧтобы прочитать полное содержание, нажмите «📖 Прочитать».`;
+  const shortText = `У вас есть задача ID ${String(taskRow[TASK_COLUMNS.number] || "").trim() || "—"}.\nЧтобы прочитать полное содержание, нажмите «📖 Прочитать».`;
   const results = await Promise.all(
     targets.map(async (t) => {
       try {
@@ -2338,7 +2339,7 @@ let sections = [
     id: "tasks",
     title: "Задачи",
     columns: [
-      "№",
+      "ID",
       "Название объекта",
       "Статус",
       "Приоритет",
@@ -3143,7 +3144,7 @@ function buildOverdueTaskTelegramText(row, overdueDays) {
   return [
     "⚠️ Уведомление о просрочке задачи",
     "",
-    `№: ${taskId}`,
+    `ID: ${taskId}`,
     `Задача: ${task}`,
     `Объект: ${obj}`,
     `Ответственный: ${assigned}`,
@@ -6354,6 +6355,46 @@ function normalizeTaskIdValue(value) {
   return String(value ?? "").trim();
 }
 
+function readNumericTaskId(value) {
+  const n = Number(normalizeTaskIdValue(value));
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function getMaxTaskIdAcrossSystem() {
+  let maxId = 0;
+  const taskRows = getSectionById("tasks")?.rows || [];
+  taskRows.forEach((row) => {
+    const n = readNumericTaskId(row?.[TASK_COLUMNS.number]);
+    if (n && n > maxId) maxId = n;
+  });
+  const trashRows = getTrashRows("tasks");
+  trashRows.forEach((item) => {
+    const n = readNumericTaskId(item?.row?.[TASK_COLUMNS.number]);
+    if (n && n > maxId) maxId = n;
+  });
+  return maxId;
+}
+
+function ensureTaskIdCounter() {
+  const maxId = getMaxTaskIdAcrossSystem();
+  let counter = Number(displaySettings.taskIdCounter);
+  if (!Number.isFinite(counter) || counter < 1) {
+    counter = maxId + 1;
+  }
+  if (counter <= maxId) {
+    counter = maxId + 1;
+  }
+  displaySettings.taskIdCounter = counter;
+  return counter;
+}
+
+function allocateNextTaskId() {
+  const next = ensureTaskIdCounter();
+  displaySettings.taskIdCounter = next + 1;
+  saveDisplaySettings();
+  return String(next);
+}
+
 function getPendingImportedTaskIdsSet() {
   if (!Array.isArray(displaySettings.pendingImportedTaskIds)) {
     displaySettings.pendingImportedTaskIds = [];
@@ -6508,9 +6549,9 @@ function parseTaskImportPayload(rawText) {
   return { ok: true, rows: parsedRows, hasHeader };
 }
 
-function createTaskRowFromImport(values, nextId) {
+function createTaskRowFromImport(values, taskId) {
   const row = new Array(TASK_COLUMNS.lastSentAt + 1).fill("");
-  row[TASK_COLUMNS.number] = String(nextId);
+  row[TASK_COLUMNS.number] = normalizeTaskIdValue(taskId);
   row[TASK_COLUMNS.object] = normalizeTaskImportCellValue(values.object);
   row[TASK_COLUMNS.status] = "Новый";
   row[TASK_COLUMNS.priority] = normalizeTaskImportPriority(values.priority);
@@ -10874,10 +10915,7 @@ function openTaskImportModal(section) {
   };
 
   const buildRows = ({ allowCatalogSync = false } = {}) => {
-    const ids = section.rows
-      .map((row) => Number(row?.[TASK_COLUMNS.number]))
-      .filter((n) => Number.isFinite(n));
-    let nextId = ids.length ? Math.max(...ids) + 1 : section.rows.length + 1;
+    ensureTaskIdCounter();
     const rows = [];
     inspectedRows.forEach((item) => {
       if (item.hasMissing && !allowCatalogSync) return;
@@ -10885,7 +10923,7 @@ function openTaskImportModal(section) {
         ensureHierarchyValuesInCatalogs(item.row);
         ensureResponsibleHierarchyLink(item.phase, item.phaseSection, item.phaseSubsection);
       }
-      rows.push(createTaskRowFromImport(item.row, nextId++));
+      rows.push(createTaskRowFromImport(item.row, allocateNextTaskId()));
     });
     return rows;
   };
@@ -10908,7 +10946,7 @@ function openTaskImportModal(section) {
       const taskId = normalizeTaskIdValue(row[TASK_COLUMNS.number]);
       const assignedName = normalizePersonName(row[TASK_COLUMNS.assignedResponsible]);
       if (!assignedName || !hasSystemEmployeeName(assignedName, employeeSet)) {
-        notSent.push(`№${taskId || "—"}: не найден сотрудник «${assignedName || "—"}»`);
+        notSent.push(`ID ${taskId || "—"}: не найден сотрудник «${assignedName || "—"}»`);
         markTaskAsPendingImported(taskId, { save: false });
         continue;
       }
@@ -10917,7 +10955,7 @@ function openTaskImportModal(section) {
         markTaskAsSentImported(taskId, { save: false });
         sentOk += 1;
       } else {
-        notSent.push(`№${taskId || "—"}: ${result.message || result.reason || "ошибка отправки"}`);
+        notSent.push(`ID ${taskId || "—"}: ${result.message || result.reason || "ошибка отправки"}`);
         markTaskAsPendingImported(taskId, { save: false });
       }
     }
@@ -11307,7 +11345,7 @@ function addEmptyRow(section) {
     .map((item) => Number(item[0]))
     .filter((value) => Number.isFinite(value));
   const nextId = numericIds.length ? Math.max(...numericIds) + 1 : section.rows.length + 1;
-  row[0] = String(nextId);
+  row[0] = section.id === "tasks" ? allocateNextTaskId() : String(nextId);
 
   if (section.id === "tasks") {
     row[TASK_COLUMNS.status] = "Новый";
@@ -11352,6 +11390,16 @@ function getTrashRows(sectionId) {
     trashBySection[sectionId] = [];
   }
   return trashBySection[sectionId];
+}
+
+function clearTasksTrashNow({ save = true } = {}) {
+  const list = getTrashRows("tasks");
+  if (!Array.isArray(list) || list.length === 0) return false;
+  trashBySection.tasks = [];
+  if (save) {
+    saveTrashData();
+  }
+  return true;
 }
 
 function moveTaskToTrash(sectionId, rowIndex) {
@@ -11468,6 +11516,16 @@ function restoreSectionsData() {
       saveSectionsData();
     }
     syncEmployeesDerivedFields();
+    const employeeSet = getEmployeeNameSet();
+    const taskSection = getSectionById("tasks");
+    if (taskSection) {
+      repairTaskIdsInRows(taskSection.rows);
+      taskSection.rows.forEach((row) => {
+        repairTaskRowCells(row, employeeSet);
+      });
+    }
+    ensureTaskIdCounter();
+    saveDisplaySettings({ skipServerSync: true });
     // Фиксируем нормализованный порядок колонок задач в localStorage.
     saveSectionsData();
   } catch (_) {
@@ -11514,6 +11572,49 @@ function looksLikeTaskText(value) {
   if (text.length < 10) return false;
   const words = text.split(/\s+/).filter(Boolean);
   return words.length >= 2;
+}
+
+function repairTaskRowCells(row, employeeSet = null) {
+  if (!Array.isArray(row)) return false;
+  const knownEmployees = employeeSet || getEmployeeNameSet();
+  const currentTask = String(row[TASK_COLUMNS.task] ?? "").trim();
+  const currentResponsible = String(row[TASK_COLUMNS.responsible] ?? "").trim();
+  const taskLooksLikeEmployee = currentTask && knownEmployees.has(normalizePersonName(currentTask));
+  const responsibleLooksLikeEmployee = currentResponsible && knownEmployees.has(normalizePersonName(currentResponsible));
+  const shouldSwapByEmployeeSet = taskLooksLikeEmployee && !responsibleLooksLikeEmployee && looksLikeTaskText(currentResponsible);
+  const shouldSwapByHeuristic = looksLikePersonName(currentTask) && looksLikeTaskText(currentResponsible);
+  if (!shouldSwapByEmployeeSet && !shouldSwapByHeuristic) return false;
+  row[TASK_COLUMNS.task] = currentResponsible;
+  row[TASK_COLUMNS.responsible] = currentTask;
+  return true;
+}
+
+function repairTaskIdsInRows(rows) {
+  if (!Array.isArray(rows)) return false;
+  const seen = new Set();
+  let changed = false;
+  let nextId = ensureTaskIdCounter();
+  rows.forEach((row) => {
+    if (!Array.isArray(row)) return;
+    const rawId = normalizeTaskIdValue(row[TASK_COLUMNS.number]);
+    const parsed = readNumericTaskId(rawId);
+    if (!parsed || seen.has(parsed)) {
+      row[TASK_COLUMNS.number] = String(nextId);
+      seen.add(nextId);
+      nextId += 1;
+      changed = true;
+      return;
+    }
+    seen.add(parsed);
+    if (parsed >= nextId) {
+      nextId = parsed + 1;
+    }
+  });
+  if (displaySettings.taskIdCounter !== nextId) {
+    displaySettings.taskIdCounter = nextId;
+    changed = true;
+  }
+  return changed;
 }
 
 function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
@@ -11616,14 +11717,7 @@ function migrateRowForSection(baseSection, row, sourceColumns = null) {
         source[10] = oldAssigned;
       }
 
-      // Ремонт уже сохранённых «перепутанных» строк:
-      // в «Задача» попало ФИО, а в «Постановщик задачи» — текст задачи.
-      const taskNow = source[8];
-      const responsibleNow = source[9];
-      if (looksLikePersonName(taskNow) && looksLikeTaskText(responsibleNow)) {
-        source[8] = responsibleNow;
-        source[9] = taskNow;
-      }
+      repairTaskRowCells(source);
     }
 
     if (source.length > TASK_COLUMNS.lastSentAt && !String(source[TASK_COLUMNS.lastSentAt] || "").trim()) {
@@ -11892,6 +11986,7 @@ ensureSystemRoles();
 ensureSystemDepartments();
 normalizePhaseAndSectionCatalogs();
 restoreTrashData();
+clearTasksTrashNow({ save: true });
 registerHotkeys();
 activeSectionId = restoreActiveSection();
 isSettingsOpen = activeSectionId !== "tasks" && activeSectionId !== "report";
