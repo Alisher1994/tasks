@@ -231,29 +231,33 @@ const REMINDER_DAYS_OPTIONS = [
   { value: "30", label: "Каждые 30 дней" }
 ];
 /** Подстановки для текста отправки задачи (Telegram и т.п.): токен → колонка задачи */
-const TASK_MESSAGE_PLACEHOLDERS = [
-  { token: "[ид_задачи]", col: "number", label: "№ / ID задачи" },
-  { token: "[объект]", col: "object", label: "Объект" },
+const TASK_MESSAGE_PLACEHOLDERS_UI = [
+  { token: "[ид_задачи]", col: "number", label: "ID" },
+  { token: "[объект]", col: "object", label: "Название объекта" },
   { token: "[статус]", col: "status", label: "Статус" },
   { token: "[приоритет]", col: "priority", label: "Приоритет" },
   { token: "[дата_задачи]", col: "addedDate", label: "Дата постановки задачи" },
   { token: "[фаза]", col: "phase", label: "Фаза" },
   { token: "[раздел]", col: "phaseSection", label: "Раздел" },
   { token: "[подраздел]", col: "phaseSubsection", label: "Подраздел" },
+  { token: "[название_задачи]", col: "task", label: "Задача" },
+  { token: "[ответственный]", col: "responsible", label: "Постановщик задачи" },
   { token: "[закреплённый]", col: "assignedResponsible", label: "Ответственный" },
-  { token: "[название_задачи]", col: "task", label: "Название задачи" },
-  { token: "[ответственный]", col: "responsible", label: "Контролирующий ответственный" },
   { token: "[примечание]", col: "note", label: "Коментарии к задаче" },
   { token: "[план]", col: "plan", label: "Комментарии сотрудника (Результат)" },
   { token: "[факт]", col: "fact", label: "Коментарии администратора" },
-  { token: "[срок_задачи]", col: "dueDate", label: "Срок" },
-  { token: "[дата_закрытия]", col: "closedDate", label: "Дата закрытия" },
-  { token: "[медиа_до]", col: "mediaBefore", label: "Медиа до" },
-  { token: "[медиа_после]", col: "mediaAfter", label: "Медиа после" },
-  { token: "[Ид]", col: "number", label: "ID задачи (кратко)" },
-  { token: "[ФИО]", col: "assignedResponsible", label: "ФИО исполнителя" },
-  { token: "{Название объекта}", col: "object", label: "Название объекта" }
+  { token: "[срок_задачи]", col: "dueDate", label: "Плановый срок устранения" },
+  { token: "[дата_закрытия]", col: "closedDate", label: "Факт даты устранения" },
+  { token: "[медиа_до]", col: "mediaBefore", label: "Медиа до (5)" },
+  { token: "[медиа_после]", col: "mediaAfter", label: "Медиа после (5)" }
 ];
+/** Старые токены оставляем только для совместимости шаблонов. */
+const TASK_MESSAGE_PLACEHOLDERS_LEGACY = [
+  { token: "[Ид]", col: "number", label: "legacy" },
+  { token: "[ФИО]", col: "assignedResponsible", label: "legacy" },
+  { token: "{Название объекта}", col: "object", label: "legacy" }
+];
+const TASK_MESSAGE_PLACEHOLDERS = [...TASK_MESSAGE_PLACEHOLDERS_UI, ...TASK_MESSAGE_PLACEHOLDERS_LEGACY];
 
 function isHostedRuntime() {
   return typeof window !== "undefined" && (window.location.protocol === "http:" || window.location.protocol === "https:");
@@ -3176,7 +3180,19 @@ function getCurrentMinutesInTimezone() {
   return p.hour * 60 + p.minute;
 }
 
+function buildTaskTelegramBodyForOverdue(row) {
+  const status = String(row[TASK_COLUMNS.status] || "").trim();
+  const templates = displaySettings.taskMessageTemplatesByStatus || {};
+  const template = String(templates[status] || "").trim();
+  if (!template) return "";
+  return String(applyTaskMessageTemplate(template, row) || "").trim();
+}
+
 function buildOverdueTaskTelegramText(row, overdueDays) {
+  const fullBody = buildTaskTelegramBodyForOverdue(row);
+  if (fullBody) {
+    return [`⚠️ Уведомление о просрочке задачи`, "", fullBody, "", `Просрочено: ${overdueDays} дн.`].join("\n");
+  }
   const taskId = String(row[TASK_COLUMNS.number] || "").trim() || "—";
   const task = String(row[TASK_COLUMNS.task] || "").trim() || "—";
   const obj = String(row[TASK_COLUMNS.object] || "").trim() || "—";
@@ -3187,9 +3203,9 @@ function buildOverdueTaskTelegramText(row, overdueDays) {
     "",
     `ID: ${taskId}`,
     `Задача: ${task}`,
-    `Объект: ${obj}`,
+    `Название объекта: ${obj}`,
     `Ответственный: ${assigned}`,
-    `Срок: ${due}`,
+    `Плановый срок устранения: ${due}`,
     `Просрочено: ${overdueDays} дн.`
   ].join("\n");
 }
@@ -9183,12 +9199,12 @@ function renderOtherSettingsPanel() {
     return "";
   };
 
-  const placeholderBarHtml = TASK_MESSAGE_PLACEHOLDERS.map(
+  const placeholderBarHtml = TASK_MESSAGE_PLACEHOLDERS_UI.map(
     (p) =>
       `<button type="button" class="task-placeholder-insert-btn" data-insert-token="${escapeHtmlText(p.token)}" title="${escapeHtmlText(p.label)}">${escapeHtmlText(p.token)}</button>`
   ).join("");
 
-  const reminderPlaceholderBarHtml = TASK_MESSAGE_PLACEHOLDERS.map(
+  const reminderPlaceholderBarHtml = TASK_MESSAGE_PLACEHOLDERS_UI.map(
     (p) =>
       `<button type="button" class="reminder-placeholder-insert-btn" data-insert-token="${escapeHtmlText(p.token)}" title="${escapeHtmlText(p.label)}">${escapeHtmlText(p.token)}</button>`
   ).join("");
@@ -9376,7 +9392,10 @@ function renderOtherSettingsPanel() {
               <span>Отправлять уведомления о просроченных задачах</span>
             </label>
             <label class="settings-field-label" for="overdueNotificationsTimeInput">Время отправки</label>
-            <input id="overdueNotificationsTimeInput" type="time" value="${escapeHtmlAttr(normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime))}" />
+            <div class="overdue-time-row">
+              <input id="overdueNotificationsTimeInput" type="time" value="${escapeHtmlAttr(normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime))}" />
+              <button type="button" id="overdueNotificationsTimeSaveBtn" class="secondary hidden">Сохранить</button>
+            </div>
             <p class="other-settings-hint">Ежедневно в выбранное время система отправит уведомления по всем открытым просроченным задачам.</p>
           </div>
           <div class="settings-two-column settings-two-column--with-emulator">
@@ -9635,16 +9654,26 @@ function attachOtherSettingsHandlers() {
 
   const overdueEnabledEl = document.getElementById("overdueNotificationsEnabledCheckbox");
   const overdueTimeEl = document.getElementById("overdueNotificationsTimeInput");
+  const overdueTimeSaveBtn = document.getElementById("overdueNotificationsTimeSaveBtn");
+  const updateOverdueSaveBtnState = () => {
+    if (!overdueTimeEl || !overdueTimeSaveBtn) return;
+    const current = normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime);
+    const draft = normalizeOverdueNotifyTimeValue(overdueTimeEl.value);
+    overdueTimeSaveBtn.classList.toggle("hidden", current === draft);
+  };
   const commitOverdueNotificationsSettings = () => {
     if (overdueEnabledEl) displaySettings.overdueNotificationsEnabled = Boolean(overdueEnabledEl.checked);
     if (overdueTimeEl) displaySettings.overdueNotificationsTime = normalizeOverdueNotifyTimeValue(overdueTimeEl.value);
     if (overdueTimeEl) overdueTimeEl.value = normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime);
     saveDisplaySettings();
     startOverdueTaskNotificationsScheduler();
+    updateOverdueSaveBtnState();
   };
   overdueEnabledEl?.addEventListener("change", commitOverdueNotificationsSettings);
-  overdueTimeEl?.addEventListener("change", commitOverdueNotificationsSettings);
-  overdueTimeEl?.addEventListener("blur", commitOverdueNotificationsSettings);
+  overdueTimeEl?.addEventListener("input", updateOverdueSaveBtnState);
+  overdueTimeEl?.addEventListener("change", updateOverdueSaveBtnState);
+  overdueTimeSaveBtn?.addEventListener("click", commitOverdueNotificationsSettings);
+  updateOverdueSaveBtnState();
 
   const checkboxes = Array.from(document.querySelectorAll(".other-settings-checkbox"));
   checkboxes.forEach((checkbox) => {
