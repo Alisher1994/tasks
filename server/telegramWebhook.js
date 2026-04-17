@@ -751,11 +751,10 @@ async function handleCallback(q, pool, token) {
 
   if (parsed.action === "rd") {
     const nowText = formatRuDateTime(new Date(), resolveAppTimeZone(payload));
-    const canMarkRead = isAssignedEmployeeReader(payload, row, chatId);
-    if (canMarkRead) {
-      row[TASK_COLUMNS.readState] = composeReadStateValue(true, nowText);
-      appendTaskHistory(payload, taskId, empName, `Telegram: задача прочитана (${nowText})`);
-    }
+    // Кнопка «📖 Прочитать» приходит только адресату сообщения по задаче,
+    // поэтому отмечаем ознакомление сразу по факту нажатия.
+    row[TASK_COLUMNS.readState] = composeReadStateValue(true, nowText);
+    appendTaskHistory(payload, taskId, empName, `Telegram: задача прочитана (${nowText})`);
     setLastTaskContext(payload, chatId, taskId, messageId);
     await savePayload(pool, payload);
     await tg(token, "editMessageText", {
@@ -764,7 +763,7 @@ async function handleCallback(q, pool, token) {
       text: `${buildFullTaskMessage(row)}\n\nВыберите действие по задаче:`,
       reply_markup: { inline_keyboard: mainKeyboard(taskId) }
     });
-    await answerOk(canMarkRead ? "Задача отмечена как прочитанная" : "");
+    await answerOk("Задача отмечена как прочитанная");
     return;
   }
 
