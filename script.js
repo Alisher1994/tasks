@@ -10286,13 +10286,13 @@ function openTaskImportModal(section) {
         <strong>Превью</strong>
         <span id="taskImportPreviewMeta" class="hint">Строк: 0</span>
       </div>
+      <div id="taskImportPreviewWrap" class="task-import-preview-wrap">
+        <p class="hint">Данные ещё не вставлены.</p>
+      </div>
       <label class="settings-option task-import-sync-option">
         <input type="checkbox" id="taskImportSyncCatalogsCheckbox" />
         <span>Добавлять не найденные фаза/раздел/подраздел в справочники и связку «Ответственные»</span>
       </label>
-      <div id="taskImportPreviewWrap" class="task-import-preview-wrap">
-        <p class="hint">Данные ещё не вставлены.</p>
-      </div>
       <div class="responsible-modal-actions">
         <button type="button" class="secondary task-import-cancel-btn">Отмена</button>
         <button type="button" class="secondary task-import-save-btn" disabled>Сохранить</button>
