@@ -1632,26 +1632,18 @@ body.app-booting .app-boot-loader {
   pointer-events: auto;
 }
 
-.app-boot-loader__card {
-  min-width: 280px;
-  max-width: min(420px, calc(100vw - 32px));
-  padding: 18px 20px;
-  border-radius: 12px;
-  border: 1px solid #dbe2ea;
-  background: #fff;
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
+.app-boot-loader__inner {
+  width: min(300px, calc(100vw - 40px));
   display: grid;
-  gap: 8px;
+  gap: 10px;
   justify-items: center;
 }
 
-.app-boot-loader__spinner {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: 3px solid #dde4f1;
-  border-top-color: var(--brand);
-  animation: app-loader-spin 0.85s linear infinite;
+.app-boot-loader__logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  animation: app-loader-pulse 1.2s ease-in-out infinite;
 }
 
 .app-boot-loader__title {
@@ -1660,9 +1652,38 @@ body.app-booting .app-boot-loader {
   color: #1f2a37;
 }
 
-@keyframes app-loader-spin {
-  to {
-    transform: rotate(360deg);
+.app-boot-loader__bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: #dbe2ea;
+  overflow: hidden;
+}
+
+.app-boot-loader__bar-fill {
+  width: 40%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3e4095 0%, #6d75de 100%);
+  animation: app-loader-fill 1.2s ease-in-out infinite;
+}
+
+@keyframes app-loader-fill {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
+
+@keyframes app-loader-pulse {
+  0%,
+  100% {
+    opacity: 0.78;
+  }
+  50% {
+    opacity: 1;
   }
 }
 

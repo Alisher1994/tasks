@@ -11549,6 +11549,15 @@ function migrateRowForSection(baseSection, row, sourceColumns = null) {
         source[9] = oldResponsible;
         source[10] = oldAssigned;
       }
+
+      // Ремонт уже сохранённых «перепутанных» строк:
+      // в «Задача» попало ФИО, а в «Постановщик задачи» — текст задачи.
+      const taskNow = source[8];
+      const responsibleNow = source[9];
+      if (looksLikePersonName(taskNow) && looksLikeTaskText(responsibleNow)) {
+        source[8] = responsibleNow;
+        source[9] = taskNow;
+      }
     }
 
     if (source.length > TASK_COLUMNS.lastSentAt && !String(source[TASK_COLUMNS.lastSentAt] || "").trim()) {
