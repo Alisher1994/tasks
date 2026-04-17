@@ -2915,6 +2915,7 @@ function renderTable() {
       ${renderBulkActions(selectedCount, isTrashView, section.id)}
       ${renderColumnsPanel(section)}
       ${renderStatusTabs(section)}
+      ${renderTasksScreenModeSwitch(section)}
       ${renderFilters(section, sectionFilters, filterPanelOpenBySection[section.id] === true)}
       <div class="table-wrap">
         <table>
@@ -5796,6 +5797,25 @@ function renderStatusTabs(section) {
   return `<div class="status-tabs-row">${tabsHtml}</div>`;
 }
 
+function renderTasksScreenModeSwitch(section) {
+  if (section.id !== "tasks") return "";
+  return `
+    <div class="tasks-screen-switch-row">
+      <span class="tasks-screen-switch-label">Сводная / Объект</span>
+      <div class="tasks-segment-group" role="radiogroup" aria-label="Переключение вида задач">
+        <label class="tasks-segment">
+          <input type="radio" name="tasksQuickBrowseMode" value="flat" ${displaySettings.tasksListBrowseMode !== "byObject" ? "checked" : ""} />
+          <span>Сводная</span>
+        </label>
+        <label class="tasks-segment">
+          <input type="radio" name="tasksQuickBrowseMode" value="byObject" ${displaySettings.tasksListBrowseMode === "byObject" ? "checked" : ""} />
+          <span>Объект</span>
+        </label>
+      </div>
+    </div>
+  `;
+}
+
 function renderObjectPhotoCell(row, value, rowIndex) {
   const oid = String(row[OBJECT_COLUMNS.id] ?? (rowIndex >= 0 ? rowIndex : "")).trim();
   const pkey = oid ? `obj-ph-${oid}` : "";
@@ -8020,6 +8040,16 @@ function attachHeaderActionHandlers(section, filteredEntries) {
       renderTablePreserveScroll();
     });
   });
+
+  Array.from(document.querySelectorAll('input[name="tasksQuickBrowseMode"]')).forEach((r) => {
+    r.addEventListener("change", () => {
+      displaySettings.tasksListBrowseMode = r.value === "byObject" ? "byObject" : "flat";
+      if (displaySettings.tasksListBrowseMode === "flat") tasksBrowseObjectKey = null;
+      saveDisplaySettings();
+      resetTasksListPagingWindow();
+      renderTablePreserveScroll();
+    });
+  });
 }
 
 function renderOtherSettingsPanel() {
@@ -8110,11 +8140,11 @@ function renderOtherSettingsPanel() {
                 <div class="tasks-segment-group" role="radiogroup" aria-label="Режим экрана задач">
                   <label class="tasks-segment">
                     <input type="radio" name="tasksListBrowseMode" value="flat" ${displaySettings.tasksListBrowseMode !== "byObject" ? "checked" : ""} />
-                    <span>Просто таблица</span>
+                    <span>Сводная</span>
                   </label>
                   <label class="tasks-segment">
                     <input type="radio" name="tasksListBrowseMode" value="byObject" ${displaySettings.tasksListBrowseMode === "byObject" ? "checked" : ""} />
-                    <span>Карточка</span>
+                    <span>Объект</span>
                   </label>
                 </div>
               </div>

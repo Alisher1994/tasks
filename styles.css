@@ -3600,6 +3600,22 @@ body.shared-report-mode .sidebar {
   outline-offset: 2px;
 }
 
+.tasks-screen-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0 2px;
+}
+
+.tasks-screen-switch-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 .tasks-list-page-size-field {
   display: inline-flex;
   flex-wrap: wrap;
