@@ -24,6 +24,7 @@ const REPORT_SHARE_STORAGE_KEY = "mbc_report_share_links";
 /** JWT при работе с сервером (Railway) */
 const AUTH_TOKEN_KEY = "mbc_jwt";
 const SESSION_STORAGE_KEY = "mbc_task_auth_user";
+const ACTIVE_SECTION_STORAGE_KEY = "mbc_task_active_section";
 const DISPLAY_SETTINGS_KEY = "mbc_task_display_settings";
 const DATA_STORAGE_KEY = "mbc_task_sections_data";
 /** Data URL превью фото объектов (ключ obj-ph-{id}) — переживает перезагрузку; в ячейке по-прежнему имя файла */
@@ -253,6 +254,45 @@ let serverSyncTimer = null;
 let remotePullTimer = null;
 let hasUnsyncedLocalChanges = false;
 let serverPushInFlight = false;
+
+function isKnownSectionId(sectionId) {
+  const id = String(sectionId || "").trim();
+  if (!id) return false;
+  if (id === "tasks" || id === "report" || id === "otherSettings") return true;
+  return sections.some((section) => section.id === id);
+}
+
+function saveActiveSection(sectionId) {
+  const id = String(sectionId || "").trim();
+  if (!isKnownSectionId(id)) return;
+  try {
+    localStorage.setItem(ACTIVE_SECTION_STORAGE_KEY, id);
+  } catch (_) {
+    /* noop */
+  }
+}
+
+function restoreActiveSection() {
+  try {
+    const saved = String(localStorage.getItem(ACTIVE_SECTION_STORAGE_KEY) || "").trim();
+    return isKnownSectionId(saved) ? saved : "tasks";
+  } catch (_) {
+    return "tasks";
+  }
+}
+
+async function refreshCurrentViewData() {
+  if (isHostedRuntime() && getAuthToken()) {
+    try {
+      await pullRemoteAppState({ rerender: true });
+      return;
+    } catch (_) {
+      /* noop */
+    }
+  }
+  renderTablePreserveScroll();
+}
+
 function scheduleServerSync() {
   if (!isHostedRuntime() || !getAuthToken()) return;
   hasUnsyncedLocalChanges = true;
@@ -2109,6 +2149,7 @@ function getSectionIcon(sectionId) {
 
 function selectSection(sectionId) {
   activeSectionId = sectionId;
+  saveActiveSection(sectionId);
   if (sectionId !== "tasks" && sectionId !== "report") {
     isSettingsOpen = true;
   }
@@ -2508,6 +2549,11 @@ function renderTable() {
     <section class="table-card table-card--tasks-object-picker">
       <div class="table-header table-header--object-picker-only">
         <h3>${withIcon(getSectionIcon(section.id), section.title)}</h3>
+        <div class="table-header-right">
+          <button type="button" class="icon-action-btn refresh-section-btn" id="tasksObjectPickerRefreshBtn" title="Обновить">
+            <i data-lucide="refresh-cw" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+        </div>
       </div>
       <div class="tasks-object-picker-shell">
         <p class="tasks-object-picker-hint">Выберите объект — откроется таблица задач по этому объекту (фильтры и вкладки будут доступны в таблице).</p>
@@ -2629,6 +2675,9 @@ function renderTable() {
 
   const tableHeaderIconButtons = `
         <div class="table-header-right">
+          <button type="button" class="icon-action-btn refresh-section-btn" id="refreshSectionBtn" title="Обновить">
+            <i data-lucide="refresh-cw" class="lucide-icon" aria-hidden="true"></i>
+          </button>
           <button type="button" class="icon-action-btn add-row-btn" id="addRowBtn" title="Добавить строку">
             <i data-lucide="plus" class="lucide-icon" aria-hidden="true"></i>
           </button>
@@ -3634,6 +3683,9 @@ function attachReportExportAndShareHandlers() {
   const root = tableContainer;
   if (!root) return;
 
+  root.querySelector("#reportRefreshBtn")?.addEventListener("click", () => {
+    refreshCurrentViewData();
+  });
   root.querySelector("#reportExportPdfBtn")?.addEventListener("click", () => {
     printReportDashboardPdf();
   });
@@ -4218,6 +4270,9 @@ function renderReportsPanel() {
       </div>`
     : "";
   const exportShareBtns = `
+      <button type="button" class="icon-action-btn" id="reportRefreshBtn" title="Обновить" aria-label="Обновить">
+        <i data-lucide="refresh-cw" class="lucide-icon" aria-hidden="true"></i>
+      </button>
       <button type="button" class="icon-action-btn" id="reportExportPdfBtn" title="Скачать PDF" aria-label="Скачать PDF">
         <i data-lucide="file-text" class="lucide-icon" aria-hidden="true"></i>
       </button>
@@ -7676,11 +7731,18 @@ function fromInputDate(value) {
 }
 
 function attachHeaderActionHandlers(section, filteredEntries) {
+  const refreshSectionBtn = document.getElementById("refreshSectionBtn");
   const addRowBtn = document.getElementById("addRowBtn");
   const toggleFiltersBtn = document.getElementById("toggleFiltersBtn");
   const toggleColumnsBtn = document.getElementById("toggleColumnsBtn");
   const exportPdfBtn = document.getElementById("exportPdfBtn");
   const exportXlsBtn = document.getElementById("exportXlsBtn");
+
+  if (refreshSectionBtn) {
+    refreshSectionBtn.addEventListener("click", () => {
+      refreshCurrentViewData();
+    });
+  }
 
   if (addRowBtn) {
     addRowBtn.addEventListener("click", () => {
@@ -7756,7 +7818,7 @@ function attachHeaderActionHandlers(section, filteredEntries) {
 }
 
 function renderOtherSettingsPanel() {
-  const allowedSettingsTabs = new Set(["general", "dateTime", "telegram", "routing", "notifications", "taskFormat", "globalDup"]);
+  const allowedSettingsTabs = new Set(["general", "dateTime", "telegram", "notifications", "taskFormat", "globalDup"]);
   const activeSettingsTab = allowedSettingsTabs.has(otherSettingsActiveTab) ? otherSettingsActiveTab : "general";
   const getStatusClass = (status) => {
     if (status === "Новый") return "status-legend-new";
@@ -7801,76 +7863,22 @@ function renderOtherSettingsPanel() {
     (o) => `<option value="${o.id}" ${o.id === tf ? "selected" : ""}>${escapeHtmlText(o.label)}</option>`
   ).join("");
   const dupPositionOptsHtml = buildDupPositionFilterOptionsHtml();
-  const routingSchemeHtml = `
-    <div class="msg-route-wrap">
-      <div class="msg-route-lane">
-        <h5>1) Отправка Задачи Из Веба</h5>
-        <div class="msg-route-row">
-          <div class="msg-route-node">Веб: кнопка «Отправить»</div>
-          <div class="msg-route-arrow">→</div>
-          <div class="msg-route-node">Сервер API</div>
-          <div class="msg-route-arrow">→</div>
-          <div class="msg-route-node">Telegram Bot API</div>
-          <div class="msg-route-arrow">→</div>
-          <div class="msg-route-node">Исполнитель + дубликаты</div>
-        </div>
-        <p class="msg-route-note">Для первого сообщения уходит краткое уведомление и inline-кнопка <strong>📖 Прочитать</strong>.</p>
-      </div>
-
-      <div class="msg-route-lane">
-        <h5>2) Чтение И Действия В Telegram</h5>
-        <div class="msg-route-row">
-          <div class="msg-route-node">Сотрудник нажимает кнопку / пишет сообщение</div>
-          <div class="msg-route-arrow">→</div>
-          <div class="msg-route-node">Telegram webhook</div>
-          <div class="msg-route-arrow">→</div>
-          <div class="msg-route-node">server/telegramWebhook.js</div>
-          <div class="msg-route-arrow">→</div>
-          <div class="msg-route-node">Обновление БД (status / plan / media / read)</div>
-        </div>
-        <p class="msg-route-note">После «📖 Прочитать» фиксируется «Ознакомление». После статуса/коммента/фото в карточке возвращаются кнопки действий.</p>
-      </div>
-
-      <div class="msg-route-lane">
-        <h5>3) Возврат Ответов В Веб</h5>
-        <div class="msg-route-row">
-          <div class="msg-route-node">Данные в app_state</div>
-          <div class="msg-route-arrow">→</div>
-          <div class="msg-route-node">Автоподтягивание (только раздел «Задачи»)</div>
-          <div class="msg-route-arrow">→</div>
-          <div class="msg-route-node">Таблица/карточка в вебе обновляется</div>
-        </div>
-      </div>
-
-      <div class="msg-route-lane">
-        <h5>4) Дубликаты И Подтверждение Закрытия</h5>
-        <div class="msg-route-row">
-          <div class="msg-route-node">Получатели копий (настройки) + руководитель отдела</div>
-          <div class="msg-route-arrow">→</div>
-          <div class="msg-route-node">Дубликат в Telegram</div>
-        </div>
-        <div class="msg-route-row">
-          <div class="msg-route-node">Исполнитель ставит «Закрыт»</div>
-          <div class="msg-route-arrow">→</div>
-          <div class="msg-route-node">Запрос на подтверждение</div>
-          <div class="msg-route-arrow">→</div>
-          <div class="msg-route-node">Руководитель отдела / Админ / Ген. директор</div>
-        </div>
-      </div>
-    </div>
-  `;
 
   return `
     <section class="table-card">
       <div class="table-header">
         <h3>${withIcon("settings", "Прочие настройки")}</h3>
+        <div class="table-header-right">
+          <button type="button" class="icon-action-btn" id="otherSettingsRefreshBtn" title="Обновить">
+            <i data-lucide="refresh-cw" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+        </div>
       </div>
       <div class="other-settings-panel other-settings-panel--fill">
         <div class="other-settings-tabs" role="tablist" aria-label="Вкладки прочих настроек">
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "general" ? "active" : ""}" data-other-settings-tab="general">Основные</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "dateTime" ? "active" : ""}" data-other-settings-tab="dateTime">Дата и время</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "telegram" ? "active" : ""}" data-other-settings-tab="telegram">Telegram</button>
-          <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "routing" ? "active" : ""}" data-other-settings-tab="routing">Маршрут сообщений</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "notifications" ? "active" : ""}" data-other-settings-tab="notifications">Настройки оповещения</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "taskFormat" ? "active" : ""}" data-other-settings-tab="taskFormat">Шаблон сообщений</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "globalDup" ? "active" : ""}" data-other-settings-tab="globalDup">Получатели копий</button>
@@ -7973,14 +7981,6 @@ function renderOtherSettingsPanel() {
                 : "https://t.me/<бот>?start=e_<ID>"
             )}</code>, где <strong>ID</strong> — значение из первой колонки сотрудника (например <code>e_3</code> в ссылке для ID 3). Если открыть бота без параметра, сопоставление идёт по <strong>имени и фамилии</strong> в профиле Telegram и ФИО в таблице (полное совпадение токенов имени).</p>
             <p class="other-settings-hint">Поле «Chat ID» не заполняется из номера телефона — только реальный Telegram user id после команды /start у бота (или вручную).</p>
-          </div>
-        </div>
-
-        <div class="other-settings-section ${activeSettingsTab === "routing" ? "" : "hidden"}" data-other-settings-pane="routing">
-          <h4 class="other-settings-section-title">Маршрут сообщений</h4>
-          <div class="other-settings-block">
-            <h4>Схема маршрутизации Telegram</h4>
-            ${routingSchemeHtml}
           </div>
         </div>
 
@@ -8153,6 +8153,9 @@ function renderOtherSettingsPanel() {
 }
 
 function attachOtherSettingsHandlers() {
+  document.getElementById("otherSettingsRefreshBtn")?.addEventListener("click", () => {
+    refreshCurrentViewData();
+  });
   const tabButtons = Array.from(document.querySelectorAll(".other-settings-tab-btn"));
   const tabPanes = Array.from(document.querySelectorAll("[data-other-settings-pane]"));
   tabButtons.forEach((button) => {
@@ -9062,6 +9065,12 @@ function getMediaDisplayName(storedName) {
   } catch {
     return lastPart;
   }
+  const refreshBtn = document.getElementById("tasksObjectPickerRefreshBtn");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", () => {
+      refreshCurrentViewData();
+    });
+  }
 }
 
 function buildTelegramMediaPreviewUrl(storedName) {
@@ -9370,6 +9379,7 @@ function showLogin() {
     initLucideIcons();
   }
   activeSectionId = "tasks";
+  saveActiveSection("tasks");
   isSettingsOpen = false;
   stopRemoteAutoPull();
 }
@@ -9708,6 +9718,12 @@ function toggleSidebarCollapse() {
 function registerHotkeys() {
   document.addEventListener("keydown", (event) => {
     if (!isAppVisible()) return;
+    if (event.key === "Insert") {
+      event.preventDefault();
+      event.stopPropagation();
+      triggerAddRowHotkey();
+      return;
+    }
     if (!(event.ctrlKey || event.metaKey)) return;
 
     if (event.key === "Enter") {
@@ -9841,6 +9857,8 @@ ensureSystemDepartments();
 normalizePhaseAndSectionCatalogs();
 restoreTrashData();
 registerHotkeys();
+activeSectionId = restoreActiveSection();
+isSettingsOpen = activeSectionId !== "tasks" && activeSectionId !== "report";
 sidebarBrandToggle?.addEventListener("click", () => toggleSidebarCollapse());
 sidebarBrandToggle?.setAttribute("aria-expanded", String(!isSidebarCollapsed));
 initLucideIcons();

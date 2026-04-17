@@ -4,7 +4,7 @@
  * Токен: TELEGRAM_BOT_TOKEN в окружении или displaySettings.telegramBotToken в JSON приложения (после синхронизации).
  */
 
-const STATUS_OPTIONS = ["Новый", "В процессе", "Треб. реш. рук.", "Закрыт"];
+const EMPLOYEE_STATUS_OPTIONS = ["В процессе", "Треб. реш. рук.", "Закрыт"];
 const STATUS_EMOJI = {
   Новый: "🟣",
   "В процессе": "🟡",
@@ -770,7 +770,7 @@ async function handleCallback(q, pool, token) {
 
   if (parsed.action === "sm") {
     setLastTaskContext(payload, chatId, taskId, messageId);
-    const keyboard = STATUS_OPTIONS.map((label, i) => [{ text: statusLabelWithEmoji(label), callback_data: cb(taskId, `ss|${i}`) }]);
+    const keyboard = EMPLOYEE_STATUS_OPTIONS.map((label, i) => [{ text: statusLabelWithEmoji(label), callback_data: cb(taskId, `ss|${i}`) }]);
     keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "bk") }]);
     await tg(token, "editMessageText", {
       chat_id: chatId,
@@ -784,11 +784,11 @@ async function handleCallback(q, pool, token) {
 
   if (parsed.action === "ss") {
     const idx = Number(parsed.rest[0]);
-    if (!Number.isFinite(idx) || idx < 0 || idx >= STATUS_OPTIONS.length) {
+    if (!Number.isFinite(idx) || idx < 0 || idx >= EMPLOYEE_STATUS_OPTIONS.length) {
       await answerOk("Неверный статус");
       return;
     }
-    const newStatus = STATUS_OPTIONS[idx];
+    const newStatus = EMPLOYEE_STATUS_OPTIONS[idx];
     const isClose = newStatus === "Закрыт";
 
     if (isClose) {
