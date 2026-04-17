@@ -3421,7 +3421,7 @@ function renderReportChartTileFragment(id, opts = {}) {
     phaseSubsection: `<h4>Подразделы</h4><div class="report-canvas-wrap report-canvas-wrap--phase-h report-canvas-scroll" id="reportChartPhaseSubsectionWrap"><canvas id="reportChartPhaseSubsection"></canvas></div>`,
     object: `<h4>Объекты <span class="report-tile-note">(все, по убыванию; прокрутка)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartObjectWrap"><canvas id="reportChartObject"></canvas></div>`,
     department: `<h4>По отделам <span class="report-tile-note">(исполнитель → отдел из справочника)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartDepartmentWrap"><canvas id="reportChartDepartment"></canvas></div>`,
-    responsible: `<h4>Исполнители (топ)</h4><div class="report-canvas-wrap"><canvas id="reportChartResponsible"></canvas></div>`
+    responsible: `<h4>Исполнители <span class="report-tile-note">(по статусам, топ)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartResponsibleWrap"><canvas id="reportChartResponsible"></canvas></div>`
   };
   const inner = bodies[id];
   if (!inner) return "";
@@ -4264,6 +4264,7 @@ function buildTaskReportStats(rows) {
   const overdueByObject = {};
   const nameToDept = buildEmployeeNameToDepartmentMap();
   const departmentStatusMap = new Map();
+  const responsibleStatusMap = new Map();
 
   rows.forEach((row) => {
     const st = String(row[TASK_COLUMNS.status] || "").trim() || REPORT_NO_STATUS_LABEL;
@@ -4309,6 +4310,14 @@ function buildTaskReportStats(rows) {
     const stDept = String(row[TASK_COLUMNS.status] || "").trim();
     if (STATUS_OPTIONS.includes(stDept)) {
       const respRaw = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
+      const respLabel = respRaw || "— не назначен —";
+      if (!responsibleStatusMap.has(respLabel)) {
+        const o = {};
+        for (const st of STATUS_OPTIONS) o[st] = 0;
+        responsibleStatusMap.set(respLabel, o);
+      }
+      responsibleStatusMap.get(respLabel)[stDept] += 1;
+
       let deptLabel;
       if (!respRaw) deptLabel = "— не назначен —";
       else {
@@ -4359,6 +4368,34 @@ function buildTaskReportStats(rows) {
           }))
         };
 
+  const respLabelsSorted = Array.from(responsibleStatusMap.keys()).sort((a, b) => {
+    const sum = (key) => STATUS_OPTIONS.reduce((s, st) => s + (responsibleStatusMap.get(key)[st] || 0), 0);
+    const ta = sum(a);
+    const tb = sum(b);
+    if (tb !== ta) return tb - ta;
+    return String(a).localeCompare(String(b), "ru");
+  }).slice(0, 10);
+  const responsibleStacked =
+    respLabelsSorted.length > 0
+      ? {
+          labels: respLabelsSorted,
+          datasets: STATUS_OPTIONS.map((st) => ({
+            label: st,
+            data: respLabelsSorted.map((lab) => responsibleStatusMap.get(lab)[st] || 0),
+            backgroundColor: colorForStatusLabel(st),
+            stack: "resp"
+          }))
+        }
+      : {
+          labels: ["Нет данных"],
+          datasets: STATUS_OPTIONS.map((st) => ({
+            label: st,
+            data: [0],
+            backgroundColor: colorForStatusLabel(st),
+            stack: "resp"
+          }))
+        };
+
   return {
     statusCounts,
     priorityCounts,
@@ -4372,6 +4409,7 @@ function buildTaskReportStats(rows) {
     monthKeysSorted,
     overdueTop: topEntries(overdueByObject, 12),
     departmentStacked,
+    responsibleStacked,
     total: rows.length
   };
 }
@@ -5158,31 +5196,65 @@ function attachReportCharts() {
     );
   }
 
-  const rs = s.responsibleTop.length ? s.responsibleTop : [["—", 0]];
+  const respStack = s.responsibleStacked;
+  const wrapResp = document.getElementById("reportChartResponsibleWrap");
+  const nResp = respStack?.labels?.length || 1;
+  if (wrapResp) {
+    setReportScrollableChartHeight(wrapResp, nResp, { maxPx: 900, minPx: 240, rowPx: 24 });
+  }
   const ctx6 = document.getElementById("reportChartResponsible");
-  if (ctx6) {
+  if (ctx6 && respStack?.datasets?.length) {
+    const dlRespStacked = hasDl
+      ? {
+          anchor: "center",
+          align: "center",
+          formatter: (v) => (Number(v) > 0 ? String(Math.round(Number(v))) : ""),
+          color: "#1e293b",
+          font: { weight: "600", size: 10 },
+          clamp: true,
+          clip: false,
+          display: (ctx) => Number(ctx.dataset.data[ctx.dataIndex]) > 0
+        }
+      : { display: false };
     reportChartInstances.push(
       new Chart(ctx6, {
         type: "bar",
         data: {
-          labels: rs.map((x) => x[0]),
-          datasets: [
-            {
-              label: "Задач",
-              data: rs.map((x) => x[1]),
-              backgroundColor: (context) => {
-                const base = colorRot(context.dataIndex + 1);
-                return reportBarGradientHorizontal(context.chart, base);
-              }
-            }
-          ]
+          labels: respStack.labels,
+          datasets: respStack.datasets
         },
         options: {
           ...common,
           ...REPORT_CHART_LABEL_SAFE_LAYOUT,
           indexAxis: "y",
-          scales: { x: { ...REPORT_HBAR_SCALE_X } },
-          plugins: { legend: { display: false }, datalabels: dlBarH }
+          datasets: {
+            bar: {
+              maxBarThickness: 28,
+              categoryPercentage: 0.82,
+              barPercentage: 0.9
+            }
+          },
+          scales: {
+            x: {
+              stacked: true,
+              ...REPORT_HBAR_SCALE_X
+            },
+            y: {
+              stacked: true,
+              ticks: {
+                autoSkip: false,
+                font: { size: nResp > 35 ? 9 : 11 }
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              display: true,
+              position: "top",
+              labels: { usePointStyle: true, padding: 12, font: { size: 11 } }
+            },
+            datalabels: dlRespStacked
+          }
         }
       })
     );
