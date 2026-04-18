@@ -7550,6 +7550,7 @@ function renderFilters(section, sectionFilters, isOpen) {
   const phaseValues = getUniqueValues(section.rows, TASK_COLUMNS.phase);
   const sectionValues = getUniqueValues(section.rows, TASK_COLUMNS.phaseSection);
   const subsectionValues = getUniqueValues(section.rows, TASK_COLUMNS.phaseSubsection);
+  const delayReasonValues = getUniqueValues(section.rows, TASK_COLUMNS.delayReason);
   const readValues = ["Прочитано", "Не прочитано"];
 
   return `
@@ -7564,6 +7565,7 @@ function renderFilters(section, sectionFilters, isOpen) {
       ${renderSelectFilter("filterPhase", "Фаза", phaseValues, sectionFilters.phase || "")}
       ${renderSelectFilter("filterSection", "Раздел", sectionValues, sectionFilters.section || "")}
       ${renderSelectFilter("filterSubsection", "Подраздел", subsectionValues, sectionFilters.subsection || "")}
+      ${renderSelectFilter("filterDelayReason", "Причина отставания", delayReasonValues, sectionFilters.delayReason || "")}
       ${renderSelectFilter("filterReadState", "Ознакомление", readValues, sectionFilters.readState || "")}
       <button id="filterResetBtn" type="button" class="secondary">Сбросить</button>
     </div>
@@ -7603,10 +7605,11 @@ function getFilteredRows(section, sectionFilters) {
     const phaseMatch = !sectionFilters.phase || row[TASK_COLUMNS.phase] === sectionFilters.phase;
     const sectionMatch = !sectionFilters.section || row[TASK_COLUMNS.phaseSection] === sectionFilters.section;
     const subsectionMatch = !sectionFilters.subsection || row[TASK_COLUMNS.phaseSubsection] === sectionFilters.subsection;
+    const delayReasonMatch = !sectionFilters.delayReason || row[TASK_COLUMNS.delayReason] === sectionFilters.delayReason;
     const readStateLabel = getTaskReadStatePartsForRow(row).statusText;
     const readStateMatch = !sectionFilters.readState || readStateLabel.startsWith(sectionFilters.readState);
 
-    return statusMatch && responsibleMatch && objectMatch && phaseMatch && sectionMatch && subsectionMatch && readStateMatch;
+    return statusMatch && responsibleMatch && objectMatch && phaseMatch && sectionMatch && subsectionMatch && delayReasonMatch && readStateMatch;
   });
 }
 
@@ -12733,6 +12736,7 @@ function attachFilterHandlers(section) {
   const phaseSelect = document.getElementById("filterPhase");
   const sectionSelect = document.getElementById("filterSection");
   const subsectionSelect = document.getElementById("filterSubsection");
+  const delayReasonSelect = document.getElementById("filterDelayReason");
   const readStateSelect = document.getElementById("filterReadState");
 
   const ensureSectionFilters = () => {
@@ -12800,6 +12804,15 @@ function attachFilterHandlers(section) {
     subsectionSelect.addEventListener("change", () => {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.subsection = subsectionSelect.value;
+      bumpTasksPagingReset();
+      renderTable();
+    });
+  }
+
+  if (delayReasonSelect) {
+    delayReasonSelect.addEventListener("change", () => {
+      const sectionFilters = ensureSectionFilters();
+      sectionFilters.delayReason = delayReasonSelect.value;
       bumpTasksPagingReset();
       renderTable();
     });
