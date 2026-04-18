@@ -5466,9 +5466,9 @@ function getTaskDueStateInfo(row) {
   if (!todayParts) return { kind: "none", days: 0, text: "—" };
   const diffDays = calendarDiffDays(todayParts, dueParts);
   if (diffDays >= 0) {
-    return { kind: "left", days: diffDays, text: `Осталось ${diffDays} дн.` };
+    return { kind: "left", days: diffDays, text: `+${diffDays}` };
   }
-  return { kind: "late", days: Math.abs(diffDays), text: `Просрочено ${Math.abs(diffDays)} дн.` };
+  return { kind: "late", days: Math.abs(diffDays), text: `-${Math.abs(diffDays)}` };
 }
 
 function statusToGanttProgress(status) {
