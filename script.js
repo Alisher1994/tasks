@@ -53,6 +53,8 @@ const REPORT_CHART_TILE_META = {
   status: { wide: false },
   priority: { wide: false },
   priorityDonut: { wide: false },
+  delayReason: { wide: true },
+  delayReasonDonut: { wide: false },
   phase: { wide: false },
   phaseSection: { wide: false },
   phaseSubsection: { wide: true },
@@ -85,8 +87,10 @@ const TASK_COLUMNS = {
   mediaBefore: 16,
   mediaAfter: 17,
   readState: 18,
-  lastSentAt: 19
+  lastSentAt: 19,
+  delayReason: 20
 };
+const TASK_ROW_LENGTH = TASK_COLUMNS.delayReason + 1;
 const OBJECT_COLUMNS = {
   id: 0,
   name: 1,
@@ -259,6 +263,7 @@ const TASK_MESSAGE_PLACEHOLDERS_UI = [
   { token: "[коментарии_к_задаче]", col: "note", label: "Коментарии к задаче" },
   { token: "[комментарии_сотрудника_результат]", col: "plan", label: "Комментарии сотрудника (Результат)" },
   { token: "[коментарии_администратора]", col: "fact", label: "Коментарии администратора" },
+  { token: "[причина_отставания]", col: "delayReason", label: "Причина отставания" },
   { token: "[плановый_срок_устранения]", col: "dueDate", label: "Плановый срок устранения" },
   { token: "[факт_даты_устранения]", col: "closedDate", label: "Факт даты устранения" },
   { token: "[медиа_до]", col: "mediaBefore", label: "Медиа до (5)" },
@@ -1372,7 +1377,8 @@ function buildTelegramInlineKeyboardForTask(taskNumber) {
         { text: "⌛️ Сменить статус", callback_data: makeCb("sm") },
         { text: "🗣 Комментарий", callback_data: makeCb("cm") }
       ],
-      [{ text: "📸 Отправить фото", callback_data: makeCb("ph") }]
+      [{ text: "📸 Отправить фото", callback_data: makeCb("ph") }],
+      [{ text: "🚧 Причина отставания", callback_data: makeCb("dr") }]
     ]
   };
 }
@@ -1394,7 +1400,7 @@ function buildTelegramReadInlineKeyboardForTask(taskNumber) {
 
 /** Пример строки задачи для предпросмотра шаблонов в настройках (не влияет на данные). */
 function buildDemoTaskRowForPreview(status) {
-  const row = new Array(20).fill("");
+  const row = new Array(TASK_ROW_LENGTH).fill("");
   const st = String(status || "").trim() || "Новый";
   row[TASK_COLUMNS.number] = "42";
   row[TASK_COLUMNS.object] = "Офис Центр";
@@ -1416,6 +1422,7 @@ function buildDemoTaskRowForPreview(status) {
   row[TASK_COLUMNS.mediaAfter] = "";
   row[TASK_COLUMNS.readState] = "Не прочитано\n—";
   row[TASK_COLUMNS.lastSentAt] = "—";
+  row[TASK_COLUMNS.delayReason] = "";
   return row;
 }
 
@@ -2488,7 +2495,8 @@ let sections = [
       "Медиа до (5)",
       "Медиа после (5)",
       "Ознакомление",
-      "Дата последней отправки"
+      "Дата последней отправки",
+      "Причина отставания"
     ],
     rows: [
       [
@@ -2511,7 +2519,8 @@ let sections = [
         "",
         "",
         "Не прочитано\n—",
-        "—"
+        "—",
+        ""
       ],
       [
         "2",
@@ -2533,7 +2542,8 @@ let sections = [
         "",
         "",
         "Не прочитано\n—",
-        "—"
+        "—",
+        ""
       ],
       [
         "3",
@@ -2554,7 +2564,9 @@ let sections = [
         "14.04.2026",
         "",
         "",
-        "Не прочитано\n—"
+        "Не прочитано\n—",
+        "",
+        ""
       ]
     ]
   },
@@ -3368,8 +3380,10 @@ function buildDefaultFullTaskText(row) {
   ];
   const plan = String(row[TASK_COLUMNS.plan] || "").trim();
   const fact = String(row[TASK_COLUMNS.fact] || "").trim();
+  const delayReason = String(row[TASK_COLUMNS.delayReason] || "").trim();
   if (plan) lines.push(`🛠️ Комментарии сотрудника (Результат):${plan}`);
   if (fact) lines.push(`🧾 Коментарии администратора:${fact}`);
+  if (delayReason) lines.push(`🚧 Причина отставания:${delayReason}`);
   return lines.join("\n");
 }
 
@@ -4280,6 +4294,8 @@ function renderReportChartTileFragment(id, opts = {}) {
     status: `<h4>По статусам</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartStatus"></canvas></div>`,
     priority: `<h4>По приоритету</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartPriority"></canvas></div>`,
     priorityDonut: `<h4>Приоритеты</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartPriorityDonut"></canvas></div>`,
+    delayReason: `<h4>Причины отставаний</h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartDelayReasonWrap"><canvas id="reportChartDelayReason"></canvas></div>`,
+    delayReasonDonut: `<h4>Причины отставаний</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartDelayReasonDonut"></canvas></div>`,
     months: `<h4>Добавлено и закрыто по месяцам <span class="report-tile-year">${new Date().getFullYear()}</span></h4><div class="report-canvas-wrap report-canvas-tall"><canvas id="reportChartMonths"></canvas></div>`,
     overdue: `<h4>Просроченные задачи <span class="report-tile-note">(по объектам, топ)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartOverdueWrap"><canvas id="reportChartOverdue"></canvas></div>`,
     phase: `<h4>Топ фаз</h4><div class="report-canvas-wrap report-canvas-wrap--phase-h" id="reportChartPhaseWrap"><canvas id="reportChartPhase"></canvas></div>`,
@@ -5145,6 +5161,7 @@ function buildTaskReportStats(rows) {
   const statusCounts = {};
   const priorityCounts = {};
   const phaseCounts = {};
+  const delayReasonCounts = {};
   const objectCounts = {};
   const phaseSectionCounts = {};
   const phaseSubsectionCounts = {};
@@ -5181,6 +5198,10 @@ function buildTaskReportStats(rows) {
 
     const resp = String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "— не назначен —";
     responsibleCounts[resp] = (responsibleCounts[resp] || 0) + 1;
+    const delayReason = String(row[TASK_COLUMNS.delayReason] || "").trim();
+    if (delayReason) {
+      delayReasonCounts[delayReason] = (delayReasonCounts[delayReason] || 0) + 1;
+    }
 
     const addD = String(row[TASK_COLUMNS.addedDate] || "").trim();
     const parts = parseRuDateStringToParts(addD);
@@ -5305,6 +5326,7 @@ function buildTaskReportStats(rows) {
     objectAll: sortedCountEntries(objectCounts),
     phaseSectionAll: sortedCountEntries(phaseSectionCounts),
     phaseSubsectionAll: sortedCountEntries(phaseSubsectionCounts),
+    delayReasonAll: sortedCountEntries(delayReasonCounts),
     responsibleTop: topEntries(responsibleCounts, 10),
     monthCounts,
     monthClosedCounts,
@@ -6081,6 +6103,9 @@ function attachReportCharts() {
   const prData = prLabels.map((k) => s.priorityCounts[k]);
   const prLabelsFinal = prLabels.length ? prLabels : ["Нет данных"];
   const prDataFinal = prLabels.length ? prData : [0];
+  const drEntries = Array.isArray(s.delayReasonAll) && s.delayReasonAll.length ? s.delayReasonAll : [["— нет данных —", 0]];
+  const drLabels = drEntries.map((x) => x[0]);
+  const drData = drEntries.map((x) => x[1]);
   const ctx2 = document.getElementById("reportChartPriority");
   if (ctx2) {
     reportChartInstances.push(
@@ -6335,6 +6360,48 @@ function attachReportCharts() {
     );
   }
 
+  const wrapDelayReason = document.getElementById("reportChartDelayReasonWrap");
+  const nDelayReason = drLabels.length || 1;
+  setReportScrollableChartHeight(wrapDelayReason, nDelayReason, { maxPx: 900, minPx: 240, rowPx: 24 });
+  const ctxDelayReason = document.getElementById("reportChartDelayReason");
+  if (ctxDelayReason) {
+    reportChartInstances.push(
+      new Chart(ctxDelayReason, {
+        type: "bar",
+        data: {
+          labels: drLabels,
+          datasets: [
+            {
+              label: "Задач",
+              data: drData,
+              backgroundColor: (context) => reportBarGradientHorizontal(context.chart, colorRot(context.dataIndex + 6))
+            }
+          ]
+        },
+        options: {
+          ...common,
+          ...REPORT_HBAR_OPTIONS_THIN,
+          indexAxis: "y",
+          scales: {
+            x: { ...REPORT_HBAR_SCALE_X },
+            y: {
+              ticks: {
+                autoSkip: false,
+                font: { size: nDelayReason > 45 ? 8 : nDelayReason > 25 ? 10 : 11 }
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              ...barLegendRightWithCount
+            },
+            datalabels: hasDl ? makeDlBarHLong(nDelayReason) : { display: false }
+          }
+        }
+      })
+    );
+  }
+
   const phaseSectionDonutSeries = makeDonutSeries(s.phaseSectionAll, 1);
   const ctxPhaseSectionDonut = document.getElementById("reportChartPhaseSectionDonut");
   if (ctxPhaseSectionDonut) {
@@ -6553,6 +6620,36 @@ function attachReportCharts() {
             {
               data: prDataFinal,
               backgroundColor: prLabelsFinal.map((_, i) => colorRot(i + 2)),
+              borderColor: "#f8fafc",
+              borderWidth: 2
+            }
+          ]
+        },
+        options: {
+          ...common,
+          cutout: "52%",
+          plugins: {
+            legend: {
+              ...donutLegendRightWithCount
+            },
+            datalabels: dlDonut
+          }
+        }
+      })
+    );
+  }
+
+  const ctxDelayReasonDonut = document.getElementById("reportChartDelayReasonDonut");
+  if (ctxDelayReasonDonut) {
+    reportChartInstances.push(
+      new Chart(ctxDelayReasonDonut, {
+        type: "doughnut",
+        data: {
+          labels: drLabels,
+          datasets: [
+            {
+              data: drData,
+              backgroundColor: drLabels.map((_, i) => colorRot(i + 6)),
               borderColor: "#f8fafc",
               borderWidth: 2
             }
@@ -7292,7 +7389,7 @@ function parseTaskImportPayload(rawText) {
 }
 
 function createTaskRowFromImport(values, taskId) {
-  const row = new Array(TASK_COLUMNS.lastSentAt + 1).fill("");
+  const row = new Array(TASK_ROW_LENGTH).fill("");
   row[TASK_COLUMNS.number] = normalizeTaskIdValue(taskId);
   row[TASK_COLUMNS.object] = normalizeTaskImportCellValue(values.object);
   row[TASK_COLUMNS.status] = "Новый";
@@ -10896,6 +10993,9 @@ function renderOtherSettingsPanel() {
                   <div class="telegram-emulator-keyboard-row">
                     <span class="telegram-emulator-btn telegram-emulator-btn--wide">📸 Отправить фото</span>
                   </div>
+                  <div class="telegram-emulator-keyboard-row">
+                    <span class="telegram-emulator-btn telegram-emulator-btn--wide">🚧 Причина отставания</span>
+                  </div>
                 </div>
               </div>
               <p class="telegram-emulator-footnote">Пример подстановок: задача №42, тот же набор полей для всех статусов.</p>
@@ -13113,7 +13213,7 @@ function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
   };
 
   const has = (label) => byNorm.has(normalizeTaskColumnLabel(label));
-  const out = new Array(TASK_COLUMNS.lastSentAt + 1).fill("");
+  const out = new Array(TASK_ROW_LENGTH).fill("");
   const setByIndex = (targetIndex, sourceIndex, fallbackIndex = -1) => {
     let idx = sourceIndex;
     if (!Number.isInteger(idx) || idx < 0 || idx >= row.length) idx = fallbackIndex;
@@ -13147,6 +13247,7 @@ function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
   setByIndex(TASK_COLUMNS.mediaAfter, pick(["Медиа после (5)", "Медиа после"]), 17);
   setByIndex(TASK_COLUMNS.readState, pick(["Ознакомление"]), 18);
   setByIndex(TASK_COLUMNS.lastSentAt, pick(["Дата последней отправки"]), 19);
+  setByIndex(TASK_COLUMNS.delayReason, pick(["Причина отставания"]), 20);
   out[TASK_COLUMNS.status] = normalizeTaskStatusValue(out[TASK_COLUMNS.status]);
   out[TASK_COLUMNS.priority] = normalizeTaskPriorityValue(out[TASK_COLUMNS.priority]);
   return out;
@@ -13175,6 +13276,9 @@ function migrateRowForSection(baseSection, row, sourceColumns = null) {
     }
     if (source.length === 19) {
       source.push("—");
+    }
+    if (source.length === 20) {
+      source.push("");
     }
 
     // Перестановка порядка колонок (старый -> новый):

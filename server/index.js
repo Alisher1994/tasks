@@ -39,6 +39,7 @@ const TASK_CLOSED_DATE_COL = 15;
 const TASK_MEDIA_AFTER_COL = 17;
 const TASK_READ_STATE_COL = 18;
 const TASK_LAST_SENT_AT_COL = 19;
+const TASK_DELAY_REASON_COL = 20;
 
 function normalizePhone(raw) {
   const src = String(raw || "").trim();
@@ -125,6 +126,9 @@ function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
     if (hasLastSentValue(currentRow[TASK_LAST_SENT_AT_COL]) && !hasLastSentValue(row[TASK_LAST_SENT_AT_COL])) {
       row[TASK_LAST_SENT_AT_COL] = currentRow[TASK_LAST_SENT_AT_COL];
     }
+    if (String(currentRow[TASK_DELAY_REASON_COL] || "").trim() && !String(row[TASK_DELAY_REASON_COL] || "").trim()) {
+      row[TASK_DELAY_REASON_COL] = currentRow[TASK_DELAY_REASON_COL];
+    }
     if (currentHasNewerTelegramUpdates) {
       row[TASK_STATUS_COL] = currentRow[TASK_STATUS_COL];
       row[TASK_PLAN_COL] = currentRow[TASK_PLAN_COL];
@@ -132,6 +136,7 @@ function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
       row[TASK_MEDIA_AFTER_COL] = currentRow[TASK_MEDIA_AFTER_COL];
       row[TASK_READ_STATE_COL] = currentRow[TASK_READ_STATE_COL];
       row[TASK_LAST_SENT_AT_COL] = currentRow[TASK_LAST_SENT_AT_COL];
+      row[TASK_DELAY_REASON_COL] = currentRow[TASK_DELAY_REASON_COL];
     }
   }
   return next;

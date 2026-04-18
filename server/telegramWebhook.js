@@ -34,8 +34,10 @@ const TASK_COLUMNS = {
   mediaBefore: 16,
   mediaAfter: 17,
   readState: 18,
-  lastSentAt: 19
+  lastSentAt: 19,
+  delayReason: 20
 };
+const TASK_ROW_LENGTH = TASK_COLUMNS.delayReason + 1;
 const EMPLOYEE_COLUMNS = {
   id: 0,
   fullName: 1,
@@ -55,7 +57,8 @@ const PLACEHOLDERS = [
   ["[Ид]", "number"],
   ["[название_задачи]", "task"],
   ["[статус]", "status"],
-  ["[объект]", "object"]
+  ["[объект]", "object"],
+  ["[причина_отставания]", "delayReason"]
 ];
 
 function normalizeTaskColumnLabel(raw) {
@@ -94,7 +97,7 @@ function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
     return -1;
   };
   const has = (label) => byNorm.has(normalizeTaskColumnLabel(label));
-  const out = new Array(TASK_COLUMNS.lastSentAt + 1).fill("");
+  const out = new Array(TASK_ROW_LENGTH).fill("");
   const setByIndex = (targetIndex, sourceIndex, fallbackIndex = -1) => {
     let idx = sourceIndex;
     if (!Number.isInteger(idx) || idx < 0 || idx >= row.length) idx = fallbackIndex;
@@ -128,6 +131,7 @@ function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
   setByIndex(TASK_COLUMNS.mediaAfter, pick(["Медиа после (5)", "Медиа после"]), 17);
   setByIndex(TASK_COLUMNS.readState, pick(["Ознакомление"]), 18);
   setByIndex(TASK_COLUMNS.lastSentAt, pick(["Дата последней отправки"]), 19);
+  setByIndex(TASK_COLUMNS.delayReason, pick(["Причина отставания"]), 20);
   out[TASK_COLUMNS.status] = normalizeTaskStatusValue(out[TASK_COLUMNS.status]);
   out[TASK_COLUMNS.priority] = normalizeTaskPriorityValue(out[TASK_COLUMNS.priority]);
   return out;
@@ -152,6 +156,27 @@ function getTasksSection(payload) {
 function getEmployeesSection(payload) {
   const sections = payload?.sections || [];
   return sections.find((s) => s.id === "employees");
+}
+
+function getDelayReasonsSection(payload) {
+  const sections = payload?.sections || [];
+  return sections.find((s) => s.id === "delayReasons");
+}
+
+function getDelayReasonOptions(payload) {
+  const section = getDelayReasonsSection(payload);
+  const rows = Array.isArray(section?.rows) ? section.rows : [];
+  const seen = new Set();
+  const out = [];
+  for (const row of rows) {
+    const reason = String(row?.[1] || "").trim();
+    if (!reason) continue;
+    const key = reason.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(reason);
+  }
+  return out;
 }
 
 function findTaskRow(tasksSection, taskNumber) {
@@ -199,7 +224,8 @@ function mainKeyboard(taskNumber) {
       { text: "⌛️ Сменить статус", callback_data: cb(n, "sm") },
       { text: "🗣 Комментарий", callback_data: cb(n, "cm") }
     ],
-    [{ text: "📸 Отправить фото", callback_data: cb(n, "ph") }]
+    [{ text: "📸 Отправить фото", callback_data: cb(n, "ph") }],
+    [{ text: "🚧 Причина отставания", callback_data: cb(n, "dr") }]
   ];
 }
 
@@ -531,6 +557,8 @@ function buildFullTaskMessage(row) {
   lines.push(`👤 Ответственный: ${String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—"}`);
   lines.push(`👤 Постановщик задачи: ${String(row[TASK_COLUMNS.responsible] || "").trim() || "—"}`);
   lines.push(`⏳ Срок: ${String(row[TASK_COLUMNS.dueDate] || "").trim() || "—"}`);
+  const delayReason = String(row[TASK_COLUMNS.delayReason] || "").trim();
+  if (delayReason) lines.push(`🚧 Причина отставания: ${delayReason}`);
   const note = String(row[TASK_COLUMNS.note] || "").trim();
   if (note) lines.push(`💬 Комментарий: ${note}`);
   return lines.join("\n");
@@ -1163,6 +1191,74 @@ async function handleCallback(q, pool, token) {
     return;
   }
 
+  if (parsed.action === "dr") {
+    if (!canChatUseTaskActions(payload, row, chatId)) {
+      await answerOk("Причина доступна только исполнителю");
+      return;
+    }
+    const options = getDelayReasonOptions(payload);
+    const keyboard = options.map((reason, i) => [{ text: reason, callback_data: cb(taskId, `drs|${i}`) }]);
+    keyboard.push([{ text: "✍️ Другое", callback_data: cb(taskId, "dro") }]);
+    keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "bk") }]);
+    setLastTaskContext(payload, chatId, taskId, messageId);
+    await savePayload(pool, payload);
+    await tg(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: `${taskCaptionWithPlan(row)}\n\nВыберите причину отставания:`,
+      reply_markup: { inline_keyboard: keyboard }
+    });
+    await answerOk();
+    return;
+  }
+
+  if (parsed.action === "drs") {
+    if (!canChatUseTaskActions(payload, row, chatId)) {
+      await answerOk("Причина доступна только исполнителю");
+      return;
+    }
+    const idx = Number(parsed.rest[0]);
+    const options = getDelayReasonOptions(payload);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= options.length) {
+      await answerOk("Неверный выбор");
+      return;
+    }
+    const prevReason = String(row[TASK_COLUMNS.delayReason] || "").trim();
+    const nextReason = String(options[idx] || "").trim();
+    row[TASK_COLUMNS.delayReason] = nextReason;
+    appendTaskHistory(payload, taskId, empName, `Telegram: причина отставания «${prevReason || "—"}» → «${nextReason}»`);
+    setLastTaskContext(payload, chatId, taskId, messageId);
+    await savePayload(pool, payload);
+    await tg(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: `${taskCaptionWithPlan(row)}\n\nПричина отставания сохранена.`,
+      reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+    });
+    await broadcastTaskCardUpdate(payload, token, row, "Причина отставания обновлена.", String(chatId));
+    await answerOk();
+    return;
+  }
+
+  if (parsed.action === "dro") {
+    if (!canChatUseTaskActions(payload, row, chatId)) {
+      await answerOk("Причина доступна только исполнителю");
+      return;
+    }
+    if (!payload.telegramSessions) payload.telegramSessions = {};
+    payload.telegramSessions[String(chatId)] = { expect: "delayReason", taskId, promptMessageId: Number(messageId) || null };
+    setLastTaskContext(payload, chatId, taskId, messageId);
+    await savePayload(pool, payload);
+    await tg(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: `${taskCaptionWithPlan(row)}\n\nНапишите причину отставания одним сообщением (или /отмена).`,
+      reply_markup: { inline_keyboard: backOnlyKeyboard(taskId) }
+    });
+    await answerOk();
+    return;
+  }
+
   if (parsed.action === "bk") {
     clearSession(payload, String(chatId));
     setLastTaskContext(payload, chatId, taskId, messageId);
@@ -1481,6 +1577,44 @@ async function handleMessage(msg, pool, token) {
 
   if (sess.expect === "comment" && !text) {
     await tg(token, "sendMessage", { chat_id: chatId, text: "Пожалуйста, отправьте комментарий текстом или /отмена." });
+    return;
+  }
+
+  if (sess.expect === "delayReason" && text) {
+    const prevReason = String(row[TASK_COLUMNS.delayReason] || "").trim();
+    const nextReason = String(text || "").trim().slice(0, 1000);
+    row[TASK_COLUMNS.delayReason] = nextReason;
+    appendTaskHistory(payload, taskId, empName, `Telegram: причина отставания «${prevReason || "—"}» → «${nextReason || "—"}»`);
+    clearSession(payload, chatKey);
+    await savePayload(pool, payload);
+    await safeDeleteMessage(token, chatId, messageId);
+    if (promptMessageId) {
+      const edited = await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: promptMessageId,
+        text: `${taskCaptionWithPlan(row)}\n\nПричина отставания сохранена.`,
+        reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+      });
+      if (!edited?.ok) {
+        await tg(token, "sendMessage", {
+          chat_id: chatId,
+          text: `${taskCaptionWithPlan(row)}\n\nПричина отставания сохранена.`,
+          reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+        });
+      }
+    } else {
+      await tg(token, "sendMessage", {
+        chat_id: chatId,
+        text: `${taskCaptionWithPlan(row)}\n\nПричина отставания сохранена.`,
+        reply_markup: { inline_keyboard: mainKeyboard(taskId) }
+      });
+    }
+    await broadcastTaskCardUpdate(payload, token, row, "Причина отставания обновлена.", chatKey);
+    return;
+  }
+
+  if (sess.expect === "delayReason" && !text) {
+    await tg(token, "sendMessage", { chat_id: chatId, text: "Пожалуйста, отправьте причину отставания текстом или /отмена." });
     return;
   }
 
