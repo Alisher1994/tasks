@@ -4373,6 +4373,18 @@ body.shared-report-mode .sidebar {
   background: rgba(99, 102, 241, 0.2);
 }
 
+.mb-gantt-due {
+  font-weight: 600;
+}
+
+.mb-gantt-due-left {
+  color: #15803d;
+}
+
+.mb-gantt-due-late {
+  color: #dc2626;
+}
+
 .tasks-gantt-wrap {
   margin-top: 8px;
 }

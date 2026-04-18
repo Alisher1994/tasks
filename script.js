@@ -2403,7 +2403,9 @@ const TASK_GANTT_GROUP_BY_OPTIONS = [
   { id: "assignee", label: "По ответственному" },
   { id: "phase", label: "По фазе" },
   { id: "section", label: "По разделу" },
-  { id: "subsection", label: "По подразделу" }
+  { id: "subsection", label: "По подразделу" },
+  { id: "overdue", label: "По просроченности" },
+  { id: "priority", label: "По приоритету" }
 ];
 const TASK_IMPORT_COLUMNS = [
   { key: "object", label: "Название объекта", aliases: ["Название объекта", "Объект"] },
@@ -5442,7 +5444,25 @@ function getTasksGanttGroupLabel(row, groupBy) {
   if (groupBy === "phase") return String(row?.[TASK_COLUMNS.phase] || "").trim() || "— без фазы —";
   if (groupBy === "section") return String(row?.[TASK_COLUMNS.phaseSection] || "").trim() || "— без раздела —";
   if (groupBy === "subsection") return String(row?.[TASK_COLUMNS.phaseSubsection] || "").trim() || "— без подраздела —";
+  if (groupBy === "priority") return String(row?.[TASK_COLUMNS.priority] || "").trim() || "— без приоритета —";
+  if (groupBy === "overdue") {
+    const d = getTaskDueStateInfo(row);
+    return d.kind === "late" ? "Просрочено" : d.kind === "left" ? "Не просрочено" : "Без срока";
+  }
   return "";
+}
+
+function getTaskDueStateInfo(row) {
+  const dueValue = String(row?.[TASK_COLUMNS.dueDate] || "").trim();
+  const dueParts = parseRuDateStringToParts(dueValue);
+  if (!dueParts) return { kind: "none", days: 0, text: "—" };
+  const todayParts = getCalendarDatePartsInTimeZone(new Date(), getServerTimezone());
+  if (!todayParts) return { kind: "none", days: 0, text: "—" };
+  const diffDays = calendarDiffDays(todayParts, dueParts);
+  if (diffDays >= 0) {
+    return { kind: "left", days: diffDays, text: `Осталось ${diffDays} дн.` };
+  }
+  return { kind: "late", days: Math.abs(diffDays), text: `Просрочено ${Math.abs(diffDays)} дн.` };
 }
 
 function statusToGanttProgress(status) {
@@ -5492,10 +5512,15 @@ function buildTasksGanttDataset(entries, groupBy) {
   for (const item of baseItems) {
     const taskName = String(item.row[TASK_COLUMNS.task] || "").trim() || "—";
     const status = String(item.row[TASK_COLUMNS.status] || "").trim();
+    const priority = String(item.row[TASK_COLUMNS.priority] || "").trim() || "—";
+    const dueState = getTaskDueStateInfo(item.row);
     const dataTask = {
       id: item.id,
       sourceTaskId: item.taskId,
       text: taskName,
+      priority,
+      dueStateText: dueState.text,
+      dueStateKind: dueState.kind,
       start_date: item.startDate,
       duration: item.duration,
       end_date: item.endDate,
@@ -5538,6 +5563,9 @@ function buildTasksGanttDataset(entries, groupBy) {
         tasks.push({
           id: group.id,
           text: group.text,
+          priority: "",
+          dueStateText: "",
+          dueStateKind: "none",
           start_date: start,
           duration,
           end_date: end,
@@ -5582,13 +5610,27 @@ function mountTasksGanttChart(entries) {
   gantt.config.select_task = false;
   gantt.config.autosize = false;
   gantt.config.row_height = 36;
-  gantt.config.grid_width = 420;
+  gantt.config.grid_width = 640;
   gantt.config.scale_height = 44;
   gantt.config.columns = [
     { name: "sourceTaskId", label: "ID", width: 60, align: "center", template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.sourceTaskId || ""))) },
-    { name: "text", label: "Задача", tree: true, width: 170, template: (task) => escapeHtmlText(String(task.text || "")) },
-    { name: "start_date", label: "Начало", align: "center", width: 95, template: (task) => formatGanttDateLabel(task.start_date) },
-    { name: "end_date", label: "Конец", align: "center", width: 95, template: (task) => formatGanttDateLabel(task.end_date) }
+    { name: "text", label: "Задача", tree: true, width: 220, template: (task) => escapeHtmlText(String(task.text || "")) },
+    { name: "priority", label: "Приоритет", align: "center", width: 95, template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.priority || "—"))) },
+    { name: "start_date", label: "Начало", align: "center", width: 85, template: (task) => formatGanttDateLabel(task.start_date) },
+    { name: "end_date", label: "Конец", align: "center", width: 85, template: (task) => formatGanttDateLabel(task.end_date) },
+    {
+      name: "due_state",
+      label: "Срок",
+      align: "center",
+      width: 95,
+      template: (task) => {
+        if (task.type === "project") return "";
+        const text = String(task.dueStateText || "—");
+        const kind = String(task.dueStateKind || "none");
+        const css = kind === "late" ? "mb-gantt-due-late" : kind === "left" ? "mb-gantt-due-left" : "";
+        return `<span class="mb-gantt-due ${css}">${escapeHtmlText(text)}</span>`;
+      }
+    }
   ];
   gantt.config.scales = [
     { unit: "month", step: 1, format: "%F %Y" },
