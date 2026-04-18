@@ -6041,7 +6041,7 @@ function attachReportCharts() {
       if (!area) return;
       const x = area.left + area.width / 2;
       const y = area.top + area.height / 2;
-      const subtitle = String(chart?.options?.plugins?.reportDonutCenterTotal?.subtitle || "задач в системе").trim() || "задач в системе";
+      const subtitle = String(chart?.options?.plugins?.reportDonutCenterTotal?.subtitle || "задач").trim() || "задач";
       const c = chart.ctx;
       c.save();
       c.textAlign = "center";
@@ -6081,7 +6081,7 @@ function attachReportCharts() {
           },
           plugins: {
             reportDonutCenterTotal: {
-              subtitle: "задач в системе"
+              subtitle: "задач"
             },
             legend: {
               ...donutLegendRightWithCount
@@ -6346,7 +6346,7 @@ function attachReportCharts() {
           cutout: "52%",
           plugins: {
             reportDonutCenterTotal: {
-              subtitle: "задач в системе"
+              subtitle: "задач"
             },
             legend: {
               ...donutLegendRightWithCount
@@ -6423,7 +6423,7 @@ function attachReportCharts() {
           cutout: "52%",
           plugins: {
             reportDonutCenterTotal: {
-              subtitle: "задач в системе"
+              subtitle: "задач"
             },
             legend: {
               ...donutLegendRightWithCount
@@ -6458,7 +6458,7 @@ function attachReportCharts() {
           cutout: "52%",
           plugins: {
             reportDonutCenterTotal: {
-              subtitle: "задач в системе"
+              subtitle: "задач"
             },
             legend: {
               ...donutLegendRightWithCount
@@ -6637,7 +6637,7 @@ function attachReportCharts() {
           cutout: "52%",
           plugins: {
             reportDonutCenterTotal: {
-              subtitle: "задач в системе"
+              subtitle: "задач"
             },
             legend: {
               ...donutLegendRightWithCount
@@ -6671,7 +6671,7 @@ function attachReportCharts() {
           cutout: "52%",
           plugins: {
             reportDonutCenterTotal: {
-              subtitle: "задач в системе"
+              subtitle: "задач"
             },
             legend: {
               ...donutLegendRightWithCount
