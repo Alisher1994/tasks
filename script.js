@@ -989,24 +989,32 @@ function isUserEditingNow() {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
+function isTasksGraphModeActive() {
+  if (activeSectionId !== "tasks") return false;
+  const mode = String(displaySettings.tasksListBrowseMode || "").trim();
+  return mode === "graph";
+}
+
 function startRemoteAutoPull() {
   clearInterval(remotePullTimer);
   remotePullTimer = null;
   if (!isHostedRuntime() || !getAuthToken()) return;
   remotePullTimer = setInterval(() => {
     if (document.hidden) return;
+    const graphMode = isTasksGraphModeActive();
     // Bot-managed поля задач (прочитано/статус/комментарий и т.п.) подтягиваем всегда,
     // даже если пользователь сейчас в настройках или есть локальные несинхр. правки.
-    pullTaskReadStateFromServerIntoLocal({ rerender: activeSectionId === "tasks" }).catch(() => {});
+    pullTaskReadStateFromServerIntoLocal({ rerender: activeSectionId === "tasks" && !graphMode }).catch(() => {});
 
     // Полный pull — только на экране задач и когда пользователь не редактирует,
     // чтобы не мешать вводу в формах.
     if (activeSectionId !== "tasks") return;
+    if (graphMode) return;
     if (isUserEditingNow()) return;
     if (serverPushInFlight || hasUnsyncedLocalChanges) return;
     pullRemoteAppState({ rerender: true }).catch(() => {});
   }, 8000);
-  pullTaskReadStateFromServerIntoLocal({ rerender: activeSectionId === "tasks" }).catch(() => {});
+  pullTaskReadStateFromServerIntoLocal({ rerender: activeSectionId === "tasks" && !isTasksGraphModeActive() }).catch(() => {});
 }
 
 function stopRemoteAutoPull() {

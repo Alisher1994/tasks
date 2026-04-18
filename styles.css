@@ -4324,28 +4324,31 @@ body.shared-report-mode .sidebar {
   color: #475569;
 }
 
-.mb-gantt-status-new .gantt_task_content {
-  background: linear-gradient(90deg, #9fb0f2 0%, #7c8fe0 100%);
+.gantt_task_line.mb-gantt-status-new {
+  background: linear-gradient(90deg, #9fb0f2 0%, #7c8fe0 100%) !important;
+  border-color: #6a7dd5 !important;
 }
 
-.mb-gantt-status-progress .gantt_task_content {
-  background: linear-gradient(90deg, #f0ca91 0%, #e6b56b 100%);
+.gantt_task_line.mb-gantt-status-progress {
+  background: linear-gradient(90deg, #f0ca91 0%, #e6b56b 100%) !important;
+  border-color: #dba257 !important;
 }
 
-.mb-gantt-status-closed .gantt_task_content {
-  background: linear-gradient(90deg, #86c9a1 0%, #56b07a 100%);
+.gantt_task_line.mb-gantt-status-closed {
+  background: linear-gradient(90deg, #86c9a1 0%, #56b07a 100%) !important;
+  border-color: #429864 !important;
 }
 
-.mb-gantt-status-new .gantt_task_progress {
-  background: rgba(92, 107, 192, 0.35);
+.gantt_task_line.mb-gantt-status-new .gantt_task_progress {
+  background: rgba(76, 97, 190, 0.35) !important;
 }
 
-.mb-gantt-status-progress .gantt_task_progress {
-  background: rgba(184, 130, 52, 0.35);
+.gantt_task_line.mb-gantt-status-progress .gantt_task_progress {
+  background: rgba(174, 120, 48, 0.35) !important;
 }
 
-.mb-gantt-status-closed .gantt_task_progress {
-  background: rgba(26, 126, 78, 0.35);
+.gantt_task_line.mb-gantt-status-closed .gantt_task_progress {
+  background: rgba(26, 126, 78, 0.35) !important;
 }
 
 .mb-gantt-group-row .gantt_task_content {
