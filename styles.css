@@ -4296,13 +4296,37 @@ body.shared-report-mode .sidebar {
   font-weight: 600;
 }
 
-.tasks-gantt-groupby-field select {
+.tasks-gantt-groupby-btn {
   min-width: 220px;
   border: 1px solid #cbd5e1;
   border-radius: 9px;
-  padding: 8px 10px;
+  padding: 8px 34px 8px 12px;
   background: #fff;
   color: #1e293b;
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  position: relative;
+}
+
+.tasks-gantt-groupby-btn::after {
+  content: "▾";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #64748b;
+  pointer-events: none;
+}
+
+.tasks-gantt-groupby-btn:hover {
+  border-color: #b8c7dc;
+  background: #f8fbff;
+}
+
+.tasks-gantt-groupby-btn:focus-visible {
+  outline: 2px solid #8b8dc9;
+  outline-offset: 2px;
 }
 
 .tasks-gantt-modern-chart {

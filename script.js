@@ -3611,11 +3611,17 @@ function renderTable() {
       attachFilterHandlers(section);
       attachHeaderActionHandlers(section, allFilteredEntries);
       attachTasksBrowseModeSwitchHandlers();
-      const groupBySelect = document.getElementById("tasksGanttGroupBySelect");
-      groupBySelect?.addEventListener("change", () => {
-        displaySettings.tasksGanttGroupBy = normalizeTasksGanttGroupBy(groupBySelect.value);
-        saveDisplaySettings();
-        renderTablePreserveScroll();
+      const groupByBtn = document.getElementById("tasksGanttGroupByBtn");
+      groupByBtn?.addEventListener("click", () => {
+        const labels = TASK_GANTT_GROUP_BY_OPTIONS.map((x) => x.label);
+        const curId = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
+        const curLabel = TASK_GANTT_GROUP_BY_OPTIONS.find((x) => x.id === curId)?.label || labels[0] || "";
+        openSingleLookupModal("Группировка Ганта", labels, curLabel, (nextLabel) => {
+          const picked = TASK_GANTT_GROUP_BY_OPTIONS.find((x) => x.label === String(nextLabel || "").trim());
+          displaySettings.tasksGanttGroupBy = normalizeTasksGanttGroupBy(picked?.id || "none");
+          saveDisplaySettings();
+          renderTablePreserveScroll();
+        });
       });
       requestAnimationFrame(() => mountTasksGanttChart(allFilteredEntries));
       initLucideIcons();
@@ -7530,14 +7536,12 @@ function renderTasksScreenModeSwitch(section) {
     ? displaySettings.tasksListBrowseMode
     : "flat";
   const groupBy = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
-  const groupByOptionsHtml = TASK_GANTT_GROUP_BY_OPTIONS
-    .map((opt) => `<option value="${escapeHtmlAttr(opt.id)}" ${opt.id === groupBy ? "selected" : ""}>${escapeHtmlText(opt.label)}</option>`)
-    .join("");
+  const groupByLabel = TASK_GANTT_GROUP_BY_OPTIONS.find((opt) => opt.id === groupBy)?.label || "Без группировки";
   const leftControls = mode === "graph"
     ? `<div class="tasks-screen-switch-left">
         <label class="tasks-gantt-groupby-field">
           <span>Группировка</span>
-          <select id="tasksGanttGroupBySelect">${groupByOptionsHtml}</select>
+          <button type="button" class="tasks-gantt-groupby-btn" id="tasksGanttGroupByBtn" title="Выбрать группировку">${escapeHtmlText(groupByLabel)}</button>
         </label>
       </div>`
     : `<div class="tasks-screen-switch-left"></div>`;
