@@ -9193,23 +9193,23 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
   overlay.innerHTML = `
     <div class="responsible-modal task-hierarchy-modal">
       <h4>Быстрый выбор: фаза → раздел → подраздел → ответственный</h4>
-      <div class="task-hierarchy-grid">
-        <label>
-          <span>Фаза</span>
-          <select class="cell-editor" data-task-hierarchy="phase"></select>
-        </label>
-        <label>
-          <span>Раздел</span>
-          <select class="cell-editor" data-task-hierarchy="section"></select>
-        </label>
-        <label>
-          <span>Подраздел</span>
-          <select class="cell-editor" data-task-hierarchy="subsection"></select>
-        </label>
-        <label>
-          <span>Ответственный</span>
-          <select class="cell-editor" data-task-hierarchy="responsible"></select>
-        </label>
+      <div class="task-hierarchy-fixed-grid">
+        <div class="task-hierarchy-pane">
+          <div class="task-hierarchy-pane-title">Фаза</div>
+          <div class="task-hierarchy-list" data-task-hierarchy-list="phase"></div>
+        </div>
+        <div class="task-hierarchy-pane">
+          <div class="task-hierarchy-pane-title">Раздел</div>
+          <div class="task-hierarchy-list" data-task-hierarchy-list="section"></div>
+        </div>
+        <div class="task-hierarchy-pane">
+          <div class="task-hierarchy-pane-title">Подраздел</div>
+          <div class="task-hierarchy-list" data-task-hierarchy-list="subsection"></div>
+        </div>
+        <div class="task-hierarchy-pane">
+          <div class="task-hierarchy-pane-title">Ответственный</div>
+          <div class="task-hierarchy-list" data-task-hierarchy-list="responsible"></div>
+        </div>
       </div>
       <div class="responsible-modal-actions">
         <button type="button" class="secondary task-hierarchy-reset-btn">Сбросить</button>
@@ -9220,55 +9220,70 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
   `;
   document.body.appendChild(overlay);
 
-  const phaseSel = overlay.querySelector('[data-task-hierarchy="phase"]');
-  const sectionSel = overlay.querySelector('[data-task-hierarchy="section"]');
-  const subsectionSel = overlay.querySelector('[data-task-hierarchy="subsection"]');
-  const respSel = overlay.querySelector('[data-task-hierarchy="responsible"]');
+  const phaseList = overlay.querySelector('[data-task-hierarchy-list="phase"]');
+  const sectionList = overlay.querySelector('[data-task-hierarchy-list="section"]');
+  const subsectionList = overlay.querySelector('[data-task-hierarchy-list="subsection"]');
+  const respList = overlay.querySelector('[data-task-hierarchy-list="responsible"]');
   const resetBtn = overlay.querySelector(".task-hierarchy-reset-btn");
   const cancelBtn = overlay.querySelector(".responsible-cancel-btn");
   const applyBtn = overlay.querySelector(".responsible-apply-btn");
 
-  const fillSelect = (el, options, value, placeholder) => {
-    if (!(el instanceof HTMLSelectElement)) return;
+  const fillList = (el, options, selectedValue, levelKey) => {
+    if (!(el instanceof HTMLElement)) return;
     const list = Array.from(new Set((options || []).map((x) => String(x || "").trim()).filter(Boolean)));
-    el.innerHTML = [`<option value="">${escapeHtmlText(placeholder || "—")}</option>`, ...list.map((v) => `<option value="${escapeHtmlAttr(v)}">${escapeHtmlText(v)}</option>`)].join("");
-    el.value = list.includes(value) ? value : "";
+    if (!list.length) {
+      el.innerHTML = '<div class="task-hierarchy-empty">Нет данных</div>';
+      return;
+    }
+    el.innerHTML = list
+      .map((v) => `
+        <button type="button" class="task-hierarchy-item ${v === selectedValue ? "is-selected" : ""}" data-task-hierarchy-item="${escapeHtmlAttr(levelKey)}" data-value="${escapeHtmlAttr(v)}">${escapeHtmlText(v)}</button>
+      `)
+      .join("");
   };
 
   const refreshCascade = () => {
-    fillSelect(phaseSel, phases, state.phase, "Выберите фазу");
+    fillList(phaseList, phases, state.phase, "phase");
     const sectionOptions = state.phase ? getPhaseSections(state.phase) : [];
     if (!sectionOptions.includes(state.section)) state.section = "";
-    fillSelect(sectionSel, sectionOptions, state.section, "Выберите раздел");
+    fillList(sectionList, sectionOptions, state.section, "section");
     const subsectionOptions = state.phase && state.section ? getPhaseSubsections(state.phase, state.section) : [];
     if (!subsectionOptions.includes(state.subsection)) state.subsection = "";
-    fillSelect(subsectionSel, subsectionOptions, state.subsection, "Выберите подраздел");
+    fillList(subsectionList, subsectionOptions, state.subsection, "subsection");
     const responsibleOptions = getResponsibleByHierarchy(state.phase, state.section, state.subsection);
-    const respList = responsibleOptions.length ? responsibleOptions : employees;
-    if (!respList.includes(state.responsible)) state.responsible = "";
-    fillSelect(respSel, respList, state.responsible, "Выберите ответственного");
+    const responsibleList = responsibleOptions.length ? responsibleOptions : employees;
+    if (!responsibleList.includes(state.responsible)) state.responsible = "";
+    fillList(respList, responsibleList, state.responsible, "responsible");
   };
 
-  phaseSel?.addEventListener("change", () => {
-    state.phase = String(phaseSel.value || "").trim();
-    state.section = "";
-    state.subsection = "";
-    state.responsible = "";
+  overlay.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target === overlay) {
+      overlay.remove();
+      renderTablePreserveScroll();
+      return;
+    }
+    if (!target.classList.contains("task-hierarchy-item")) return;
+    const level = String(target.getAttribute("data-task-hierarchy-item") || "").trim();
+    const value = String(target.getAttribute("data-value") || "").trim();
+    if (!level) return;
+    if (level === "phase") {
+      state.phase = value;
+      state.section = "";
+      state.subsection = "";
+      state.responsible = "";
+    } else if (level === "section") {
+      state.section = value;
+      state.subsection = "";
+      state.responsible = "";
+    } else if (level === "subsection") {
+      state.subsection = value;
+      state.responsible = "";
+    } else if (level === "responsible") {
+      state.responsible = value;
+    }
     refreshCascade();
-  });
-  sectionSel?.addEventListener("change", () => {
-    state.section = String(sectionSel.value || "").trim();
-    state.subsection = "";
-    state.responsible = "";
-    refreshCascade();
-  });
-  subsectionSel?.addEventListener("change", () => {
-    state.subsection = String(subsectionSel.value || "").trim();
-    state.responsible = "";
-    refreshCascade();
-  });
-  respSel?.addEventListener("change", () => {
-    state.responsible = String(respSel.value || "").trim();
   });
 
   resetBtn?.addEventListener("click", () => {
@@ -9291,12 +9306,6 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
     });
     overlay.remove();
     renderTablePreserveScroll();
-  });
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) {
-      overlay.remove();
-      renderTablePreserveScroll();
-    }
   });
 
   refreshCascade();
