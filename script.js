@@ -7222,18 +7222,19 @@ function getTaskAssigneeProgressSummary(taskRow) {
 
 function renderTaskTitleCell(taskRow, rowIndex) {
   const text = escapeHtmlText(String(taskRow?.[TASK_COLUMNS.task] || ""));
-  const summary = getTaskAssigneeProgressSummary(taskRow);
-  if (!summary) return text;
-  return `<div>${text}</div><div class="task-accordion-meta">${summary.closed}/${summary.total} закрыто</div>`;
+  return text;
 }
 
 function renderTaskAccordionReadonlyCell(taskRow, colIndex, assigneeName, assigneeState, subId) {
   const parentValue = taskRow?.[colIndex];
+  const taskId = getTaskIdForMultiState(taskRow);
   if (colIndex === TASK_COLUMNS.number) {
     return escapeHtmlText(subId);
   }
   if (colIndex === TASK_COLUMNS.assignedResponsible) {
-    return escapeHtmlText(assigneeName || "—");
+    const shown = escapeHtmlText(assigneeName || "—");
+    if (!taskId || !assigneeName) return shown;
+    return `<span class="task-sub-assignee-edit" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee-old="${escapeHtmlAttr(assigneeName)}" title="Сменить ответственного в подзадаче">${shown}</span>`;
   }
   if (colIndex === TASK_COLUMNS.status) {
     const status = String(assigneeState?.status || taskRow?.[TASK_COLUMNS.status] || "Новый").trim() || "Новый";
@@ -7333,7 +7334,9 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
 
   if (colIndex === TASK_COLUMNS.status) {
     const className = `status-badge status-${slugify(value)}`;
-    return `<span class="${className}">${value}</span>`;
+    const summary = getTaskAssigneeProgressSummary(row);
+    const summaryHtml = summary ? `<div class="task-accordion-meta">${summary.closed}/${summary.total} закрыто</div>` : "";
+    return `<span class="${className}">${value}</span>${summaryHtml}`;
   }
 
   if (colIndex === TASK_COLUMNS.priority) {
@@ -8657,6 +8660,75 @@ function attachTaskAccordionHandlers(section) {
       renderTablePreserveScroll();
     });
   });
+  document.querySelectorAll(".task-sub-assignee-edit").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const taskId = String(el.getAttribute("data-task-id") || "").trim();
+      const oldName = normalizePersonName(el.getAttribute("data-assignee-old") || "");
+      if (!taskId || !oldName) return;
+      const tasks = getSectionById("tasks");
+      const row = (tasks?.rows || []).find((r) => String(r[TASK_COLUMNS.number] || "").trim() === taskId);
+      if (!row) return;
+      const optsByHierarchy = getResponsibleByHierarchy(
+        row[TASK_COLUMNS.phase],
+        row[TASK_COLUMNS.phaseSection],
+        row[TASK_COLUMNS.phaseSubsection]
+      );
+      const options = (optsByHierarchy.length ? optsByHierarchy : getEmployeesList()).map((x) => normalizePersonName(x)).filter(Boolean);
+      openSingleLookupModal(
+        "Смена ответственного (подзадача)",
+        options,
+        oldName,
+        (newName) => {
+          const next = normalizePersonName(newName);
+          if (!next || next === oldName) return;
+          replaceTaskSubAssignee(taskId, oldName, next);
+        }
+      );
+    });
+  });
+}
+
+function replaceTaskSubAssignee(taskId, oldName, newName) {
+  const tasks = getSectionById("tasks");
+  if (!tasks) return false;
+  const row = tasks.rows.find((r) => String(r[TASK_COLUMNS.number] || "").trim() === String(taskId || "").trim());
+  if (!row) return false;
+  const list = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
+  const oldKey = String(oldName || "").toLowerCase();
+  const idx = list.findIndex((n) => String(n).toLowerCase() === oldKey);
+  if (idx < 0) return false;
+  const duplicateIdx = list.findIndex((n, i) => i !== idx && String(n).toLowerCase() === String(newName || "").toLowerCase());
+  if (duplicateIdx >= 0) {
+    showStatusDialog({
+      title: "Смена ответственного",
+      message: "Такой сотрудник уже есть в подзадачах этой задачи.",
+      type: "error"
+    });
+    return false;
+  }
+  list[idx] = newName;
+  row[TASK_COLUMNS.assignedResponsible] = list.join(", ");
+  const state = getTaskMultiAssigneeMap(taskId, { create: true });
+  if (state && state[oldName]) {
+    if (!state[newName]) {
+      state[newName] = state[oldName];
+    } else {
+      state[newName] = {
+        ...state[oldName],
+        ...state[newName]
+      };
+    }
+    delete state[oldName];
+  }
+  cleanupTaskMultiStateForRow(row);
+  appendTaskHistoryEntry(
+    String(taskId),
+    `Ответственный (подзадача): «${shortenHistorySnippet(oldName)}» → «${shortenHistorySnippet(newName)}»`
+  );
+  saveSectionsData();
+  return true;
 }
 
 function syncEmployeesDerivedFields() {

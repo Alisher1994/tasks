@@ -4637,6 +4637,10 @@ td.object-photo-col {
   color: #64748b;
 }
 
+.status-col .task-accordion-meta {
+  margin-top: 6px;
+}
+
 .task-accordion-readonly-cell {
   background: #f3f6fa;
   color: #50627a;
@@ -4668,5 +4672,17 @@ td.object-photo-col {
 .task-assignee-subrow .actions-col.task-accordion-actions-col {
   color: #8a97ab;
   text-align: center;
+}
+
+.task-sub-assignee-edit {
+  color: #334a72;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.task-sub-assignee-edit:hover {
+  color: #4a52a6;
 }
 
