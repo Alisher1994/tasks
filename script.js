@@ -140,6 +140,18 @@ const SYSTEM_DEPARTMENTS = [
   "Аналитика",
   "Отдел развития ИТ"
 ];
+const SYSTEM_DELAY_REASONS = [
+  "Задержка финансирования",
+  "Задержка поставки материалов",
+  "Ожидание согласования/разрешения",
+  "Изменение проекта/ТЗ",
+  "Погодные условия",
+  "Задержка подрядчика",
+  "Отсутствие доступа на площадку",
+  "Технические ограничения/авария",
+  "Нехватка персонала",
+  "Форс-мажор"
+];
 const STATUS_DECISION_OLD = "Треб. реш. рук.";
 const STATUS_DECISION = "Требует решение руководителя";
 const STATUS_OPTIONS = ["Новый", "В процессе", "Закрыт"];
@@ -2431,7 +2443,7 @@ const SECTION_GROUPS = {
     id: "reference",
     title: "Справочник",
     icon: "database",
-    sections: ["data", "phases", "phaseSections", "phaseSubsections"]
+    sections: ["data", "phases", "phaseSections", "phaseSubsections", "delayReasons"]
   },
   users: {
     id: "users",
@@ -2644,6 +2656,12 @@ let sections = [
     ]
   },
   {
+    id: "delayReasons",
+    title: "Причины отставаний",
+    columns: ["ID", "Причина", "Тип"],
+    rows: SYSTEM_DELAY_REASONS.map((reason, index) => [String(index + 1), reason, "Системный"])
+  },
+  {
     id: "roles",
     title: "Должности",
     columns: ["ID", "Должность", "Тип"],
@@ -2817,6 +2835,7 @@ function getSectionIcon(sectionId) {
     phases: "database",
     phaseSections: "database",
     phaseSubsections: "database",
+    delayReasons: "database",
     roles: "briefcase",
     data: "database",
     objects: "building2"
@@ -3929,7 +3948,7 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
       </div>
     `;
   }
-  if (["data", "phases", "phaseSections", "phaseSubsections"].includes(sectionId)) {
+  if (["data", "phases", "phaseSections", "phaseSubsections", "delayReasons"].includes(sectionId)) {
     return `
       <div class="action-buttons">
         <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
