@@ -9187,7 +9187,13 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
     phase: String(taskRow[TASK_COLUMNS.phase] || "").trim(),
     section: String(taskRow[TASK_COLUMNS.phaseSection] || "").trim(),
     subsection: String(taskRow[TASK_COLUMNS.phaseSubsection] || "").trim(),
-    responsibleList: parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible])
+    responsibleList: parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible]),
+    search: {
+      phase: "",
+      section: "",
+      subsection: "",
+      responsible: ""
+    }
   };
 
   overlay.innerHTML = `
@@ -9196,18 +9202,22 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
       <div class="task-hierarchy-fixed-grid">
         <div class="task-hierarchy-pane">
           <div class="task-hierarchy-pane-title">Фаза</div>
+          <input type="text" class="task-hierarchy-search" data-task-hierarchy-search="phase" placeholder="Поиск..." />
           <div class="task-hierarchy-list" data-task-hierarchy-list="phase"></div>
         </div>
         <div class="task-hierarchy-pane">
           <div class="task-hierarchy-pane-title">Раздел</div>
+          <input type="text" class="task-hierarchy-search" data-task-hierarchy-search="section" placeholder="Поиск..." />
           <div class="task-hierarchy-list" data-task-hierarchy-list="section"></div>
         </div>
         <div class="task-hierarchy-pane">
           <div class="task-hierarchy-pane-title">Подраздел</div>
+          <input type="text" class="task-hierarchy-search" data-task-hierarchy-search="subsection" placeholder="Поиск..." />
           <div class="task-hierarchy-list" data-task-hierarchy-list="subsection"></div>
         </div>
         <div class="task-hierarchy-pane">
           <div class="task-hierarchy-pane-title">Ответственный (мультивыбор)</div>
+          <input type="text" class="task-hierarchy-search" data-task-hierarchy-search="responsible" placeholder="Поиск..." />
           <div class="task-hierarchy-list" data-task-hierarchy-list="responsible"></div>
         </div>
       </div>
@@ -9230,7 +9240,9 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
 
   const fillList = (el, options, selectedValue, levelKey) => {
     if (!(el instanceof HTMLElement)) return;
-    const list = Array.from(new Set((options || []).map((x) => String(x || "").trim()).filter(Boolean)));
+    const query = String(state.search?.[levelKey] || "").trim().toLowerCase();
+    const list = Array.from(new Set((options || []).map((x) => String(x || "").trim()).filter(Boolean)))
+      .filter((v) => !query || v.toLowerCase().includes(query));
     if (!list.length) {
       el.innerHTML = '<div class="task-hierarchy-empty">Нет данных</div>';
       return;
@@ -9259,6 +9271,15 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
     state.responsibleList = state.responsibleList.filter((name) => responsibleList.includes(name));
     fillList(respList, responsibleList, state.responsibleList, "responsible");
   };
+
+  overlay.querySelectorAll(".task-hierarchy-search").forEach((input) => {
+    input.addEventListener("input", () => {
+      const key = String(input.getAttribute("data-task-hierarchy-search") || "").trim();
+      if (!key) return;
+      state.search[key] = String(input.value || "");
+      refreshCascade();
+    });
+  });
 
   overlay.addEventListener("click", (event) => {
     const target = event.target;

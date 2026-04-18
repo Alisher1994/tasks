@@ -4688,6 +4688,7 @@ td.object-photo-col {
 
 .task-hierarchy-modal {
   width: min(960px, 96vw);
+  max-height: min(92vh, 860px);
 }
 
 .task-hierarchy-fixed-grid {
@@ -4703,6 +4704,8 @@ td.object-photo-col {
   border-radius: 10px;
   background: #fbfdff;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .task-hierarchy-pane-title {
@@ -4714,10 +4717,46 @@ td.object-photo-col {
   border-bottom: 1px solid #d8e1ec;
 }
 
+.task-hierarchy-search {
+  width: calc(100% - 12px);
+  margin: 6px;
+  border: 1px solid #d7e0ec;
+  border-radius: 8px;
+  padding: 7px 9px;
+  font-size: 13px;
+  outline: none;
+}
+
+.task-hierarchy-search:focus {
+  border-color: #6475d6;
+  box-shadow: 0 0 0 2px rgba(100, 117, 214, 0.12);
+}
+
 .task-hierarchy-list {
-  height: 220px;
+  height: 320px;
   overflow: auto;
   padding: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: #8ea0b7 #e8edf4;
+}
+
+.task-hierarchy-list::-webkit-scrollbar {
+  width: 10px;
+}
+
+.task-hierarchy-list::-webkit-scrollbar-track {
+  background: #e8edf4;
+  border-radius: 999px;
+}
+
+.task-hierarchy-list::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #a8b8cb 0%, #8299b3 100%);
+  border-radius: 999px;
+  border: 2px solid #e8edf4;
+}
+
+.task-hierarchy-list::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #9fb0c6 0%, #748daa 100%);
 }
 
 .task-hierarchy-item {
