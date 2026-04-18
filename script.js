@@ -1412,6 +1412,25 @@ function getTaskReadStateParts(value) {
   };
 }
 
+function getTaskReadStatePartsForRow(row) {
+  const assignees = parseTaskAssigneeNames(row?.[TASK_COLUMNS.assignedResponsible]);
+  if (assignees.length <= 1) {
+    return getTaskReadStateParts(row?.[TASK_COLUMNS.readState]);
+  }
+  const taskId = getTaskIdForMultiState(row);
+  const map = getTaskMultiAssigneeMap(taskId) || {};
+  let readCount = 0;
+  assignees.forEach((name) => {
+    const readAt = String(map?.[name]?.readAt || "").trim();
+    if (readAt) readCount += 1;
+  });
+  return {
+    isRead: readCount >= assignees.length && assignees.length > 0,
+    statusText: `Прочитано ${readCount} / ${assignees.length}`,
+    whenText: "—"
+  };
+}
+
 function composeTaskReadState(isRead, whenText = "—") {
   return `${isRead ? "Прочитано" : "Не прочитано"}\n${String(whenText || "—").trim() || "—"}`;
 }
@@ -2823,8 +2842,8 @@ function renderSidebarMenu() {
   const reportButton = document.createElement("button");
   reportButton.className = `tab-btn top-level ${activeSectionId === "report" ? "active" : ""}`;
   reportButton.type = "button";
-  reportButton.innerHTML = withIcon("barChart", isSidebarCollapsed ? "" : "Отчёт");
-  reportButton.title = "Отчёт";
+  reportButton.innerHTML = withIcon("barChart", isSidebarCollapsed ? "" : "Аналитика");
+  reportButton.title = "Аналитика";
   reportButton.addEventListener("click", () => selectSection("report"));
   tabsRoot.appendChild(reportButton);
 
@@ -4541,7 +4560,7 @@ function printReportDashboardPdf() {
 
   const mainTitle = clone.querySelector(".report-dashboard-header h3");
   if (mainTitle) {
-    mainTitle.textContent = "Отчёт: аналитика по задачам";
+    mainTitle.textContent = "Аналитика по задачам";
   }
   clone.querySelectorAll(".report-week-tasks-title").forEach((el) => {
     el.textContent = "Задачи за последние 7 дней";
@@ -4668,7 +4687,7 @@ function printReportDashboardPdf() {
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <title>Отчёт</title>
+      <title>Аналитика</title>
       <link rel="stylesheet" href="${stylesHref}" />
       <style>${printCss}</style>
     </head>
@@ -4685,7 +4704,7 @@ function exportCurrentReportToXls() {
   if (!taskSection) return;
   const rows = getReportFilteredRows();
   const filteredEntries = rows.map((row, rowIndex) => ({ row, rowIndex }));
-  exportRowsToCsv(taskSection, filteredEntries, "Отчёт.xls");
+  exportRowsToCsv(taskSection, filteredEntries, "Аналитика.xls");
 }
 
 function attachReportExportAndShareHandlers() {
@@ -5374,7 +5393,7 @@ function renderReportsPanel() {
     <section class="table-card report-dashboard-card">
       ${shareBanner}
       <div class="table-header report-dashboard-header">
-        <h3>${withIcon("barChart", "Отчёт: аналитика по задачам")}</h3>
+        <h3>${withIcon("barChart", "Аналитика по задачам")}</h3>
         <div class="table-header-right">
           ${exportShareBtns}
           <button type="button" class="icon-action-btn filter-toggle-btn${filterBtnActive}${sharedReportMode ? " hidden" : ""}" id="reportFiltersToggle" title="Показать/скрыть фильтры" aria-label="Показать или скрыть фильтры" aria-expanded="${reportFiltersPanelOpen ? "true" : "false"}">
@@ -5523,6 +5542,28 @@ function attachReportCharts() {
         }
       }
     : { display: false };
+  const donutLegendRightWithCount = {
+    position: "right",
+    align: "center",
+    labels: {
+      boxWidth: 10,
+      boxHeight: 10,
+      padding: 10,
+      usePointStyle: true,
+      font: { size: 11 },
+      generateLabels: (chart) => {
+        const data = chart.data;
+        const ds = data.datasets?.[0];
+        if (!Array.isArray(data.labels) || !ds) return [];
+        return data.labels.map((label, i) => ({
+          text: `${label}: ${Number(ds.data?.[i] || 0)}`,
+          fillStyle: Array.isArray(ds.backgroundColor) ? ds.backgroundColor[i] : ds.backgroundColor,
+          hidden: false,
+          index: i
+        }));
+      }
+    }
+  };
 
   const stSorted = sortStatusEntriesForChart(s.statusCounts).filter((x) => x[1] > 0);
   const stLabelsFinal = stSorted.length ? stSorted.map((x) => x[0]) : ["Нет данных"];
@@ -5587,26 +5628,7 @@ function attachReportCharts() {
           },
           plugins: {
             legend: {
-              position: "left",
-              align: "center",
-              labels: {
-                boxWidth: 10,
-                boxHeight: 10,
-                padding: 10,
-                usePointStyle: true,
-                font: { size: 11 },
-                generateLabels: (chart) => {
-                  const data = chart.data;
-                  const ds = data.datasets[0];
-                  if (!data.labels?.length || !ds) return [];
-                  return data.labels.map((label, i) => ({
-                    text: `${label}: ${ds.data[i]}`,
-                    fillStyle: Array.isArray(ds.backgroundColor) ? ds.backgroundColor[i] : ds.backgroundColor,
-                    hidden: false,
-                    index: i
-                  }));
-                }
-              }
+              ...donutLegendRightWithCount
             },
             datalabels: dlDonutStatus
           }
@@ -5862,8 +5884,7 @@ function attachReportCharts() {
           cutout: "52%",
           plugins: {
             legend: {
-              position: "bottom",
-              labels: { usePointStyle: true, padding: 10, font: { size: 11 } }
+              ...donutLegendRightWithCount
             },
             datalabels: dlDonut
           }
@@ -5894,8 +5915,7 @@ function attachReportCharts() {
           cutout: "52%",
           plugins: {
             legend: {
-              position: "bottom",
-              labels: { usePointStyle: true, padding: 10, font: { size: 11 } }
+              ...donutLegendRightWithCount
             },
             datalabels: dlDonut
           }
@@ -5926,8 +5946,7 @@ function attachReportCharts() {
           cutout: "52%",
           plugins: {
             legend: {
-              position: "bottom",
-              labels: { usePointStyle: true, padding: 10, font: { size: 11 } }
+              ...donutLegendRightWithCount
             },
             datalabels: dlDonut
           }
@@ -6106,8 +6125,7 @@ function attachReportCharts() {
           cutout: "52%",
           plugins: {
             legend: {
-              position: "bottom",
-              labels: { usePointStyle: true, padding: 10, font: { size: 11 } }
+              ...donutLegendRightWithCount
             },
             datalabels: dlDonut
           }
@@ -7050,8 +7068,8 @@ function getFilteredRows(section, sectionFilters) {
     const phaseMatch = !sectionFilters.phase || row[TASK_COLUMNS.phase] === sectionFilters.phase;
     const sectionMatch = !sectionFilters.section || row[TASK_COLUMNS.phaseSection] === sectionFilters.section;
     const subsectionMatch = !sectionFilters.subsection || row[TASK_COLUMNS.phaseSubsection] === sectionFilters.subsection;
-    const readStateLabel = getTaskReadStateParts(row[TASK_COLUMNS.readState]).statusText;
-    const readStateMatch = !sectionFilters.readState || readStateLabel === sectionFilters.readState;
+    const readStateLabel = getTaskReadStatePartsForRow(row).statusText;
+    const readStateMatch = !sectionFilters.readState || readStateLabel.startsWith(sectionFilters.readState);
 
     return statusMatch && responsibleMatch && objectMatch && phaseMatch && sectionMatch && subsectionMatch && readStateMatch;
   });
@@ -7334,7 +7352,7 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
     return value;
   }
   if (colIndex === TASK_COLUMNS.readState) {
-    const rs = getTaskReadStateParts(value);
+    const rs = getTaskReadStatePartsForRow(row);
     return `<span class="task-read-state ${rs.isRead ? "is-read" : "is-unread"}">${escapeHtmlText(rs.statusText)}</span><br><span class="task-read-time">${escapeHtmlText(rs.whenText)}</span>`;
   }
   if (colIndex === TASK_COLUMNS.lastSentAt) {
@@ -9216,7 +9234,13 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
           <div class="task-hierarchy-list" data-task-hierarchy-list="subsection"></div>
         </div>
         <div class="task-hierarchy-pane">
-          <div class="task-hierarchy-pane-title">Ответственный (мультивыбор)</div>
+          <div class="task-hierarchy-pane-title task-hierarchy-pane-title--with-actions">
+            <span>Ответственный (мультивыбор)</span>
+            <div class="task-hierarchy-pane-actions">
+              <button type="button" class="task-hierarchy-pane-link" data-task-hierarchy-action="responsible-select-all">Выбрать все</button>
+              <button type="button" class="task-hierarchy-pane-link" data-task-hierarchy-action="responsible-clear">Сброс</button>
+            </div>
+          </div>
           <input type="text" class="task-hierarchy-search" data-task-hierarchy-search="responsible" placeholder="Поиск..." />
           <div class="task-hierarchy-list" data-task-hierarchy-list="responsible"></div>
         </div>
@@ -9287,6 +9311,16 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
     if (target === overlay) {
       overlay.remove();
       renderTablePreserveScroll();
+      return;
+    }
+    const action = String(target.getAttribute("data-task-hierarchy-action") || "").trim();
+    if (action === "responsible-select-all" || action === "responsible-clear") {
+      event.preventDefault();
+      event.stopPropagation();
+      const responsibleOptions = getResponsibleByHierarchy(state.phase, state.section, state.subsection);
+      const responsibleList = responsibleOptions.length ? responsibleOptions : employees;
+      state.responsibleList = action === "responsible-select-all" ? [...responsibleList] : [];
+      refreshCascade();
       return;
     }
     if (!target.classList.contains("task-hierarchy-item")) return;

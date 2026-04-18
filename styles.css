@@ -3152,8 +3152,8 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 }
 
 .report-canvas-wrap--donut {
-  min-height: 280px;
-  height: 280px;
+  min-height: 310px;
+  height: 310px;
 }
 
 .report-canvas-wrap--phase-h {
@@ -4715,6 +4715,35 @@ td.object-photo-col {
   color: #4b5f7b;
   background: #f1f5fb;
   border-bottom: 1px solid #d8e1ec;
+}
+
+.task-hierarchy-pane-title--with-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.task-hierarchy-pane-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-hierarchy-pane-link {
+  border: none;
+  background: transparent;
+  color: #5f6f84;
+  font-size: 12px;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.task-hierarchy-pane-link:hover {
+  color: #3f4e96;
 }
 
 .task-hierarchy-search {
