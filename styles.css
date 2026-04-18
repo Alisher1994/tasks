@@ -4209,10 +4209,24 @@ body.shared-report-mode .sidebar {
 .tasks-screen-switch-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
   margin: 12px 0 14px;
   flex-wrap: wrap;
+}
+
+.tasks-screen-switch-left {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  flex: 1 1 260px;
+}
+
+.tasks-screen-switch-group {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .tasks-screen-switch-label {
@@ -4269,19 +4283,8 @@ body.shared-report-mode .sidebar {
   overflow: hidden;
 }
 
-.table-card--tasks-gantt .tasks-screen-switch-row {
-  justify-content: flex-end;
-}
-
 .tasks-gantt-modern-wrap {
   margin-top: 8px;
-}
-
-.tasks-gantt-modern-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  margin: 0 0 10px;
 }
 
 .tasks-gantt-groupby-field {

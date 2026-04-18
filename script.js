@@ -5553,21 +5553,11 @@ function buildTasksGanttDataset(entries, groupBy) {
 }
 
 function renderTasksGanttHtml(entries) {
-  const groupBy = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
-  const optionsHtml = TASK_GANTT_GROUP_BY_OPTIONS
-    .map((opt) => `<option value="${escapeHtmlAttr(opt.id)}" ${opt.id === groupBy ? "selected" : ""}>${escapeHtmlText(opt.label)}</option>`)
-    .join("");
   const hint = !entries.length
     ? `<div class="tasks-gantt-empty">Нет задач по текущему фильтру.</div>`
     : "";
   return `
     <div class="tasks-gantt-modern-wrap">
-      <div class="tasks-gantt-modern-toolbar">
-        <label class="tasks-gantt-groupby-field">
-          <span>Группировка</span>
-          <select id="tasksGanttGroupBySelect">${optionsHtml}</select>
-        </label>
-      </div>
       ${hint}
       <div id="tasksGanttChart" class="tasks-gantt-modern-chart ${entries.length ? "" : "hidden"}" aria-label="Диаграмма Ганта"></div>
     </div>`;
@@ -7497,21 +7487,36 @@ function renderTasksScreenModeSwitch(section) {
   const mode = displaySettings.tasksListBrowseMode === "byObject" || displaySettings.tasksListBrowseMode === "graph"
     ? displaySettings.tasksListBrowseMode
     : "flat";
+  const groupBy = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
+  const groupByOptionsHtml = TASK_GANTT_GROUP_BY_OPTIONS
+    .map((opt) => `<option value="${escapeHtmlAttr(opt.id)}" ${opt.id === groupBy ? "selected" : ""}>${escapeHtmlText(opt.label)}</option>`)
+    .join("");
+  const leftControls = mode === "graph"
+    ? `<div class="tasks-screen-switch-left">
+        <label class="tasks-gantt-groupby-field">
+          <span>Группировка</span>
+          <select id="tasksGanttGroupBySelect">${groupByOptionsHtml}</select>
+        </label>
+      </div>`
+    : `<div class="tasks-screen-switch-left"></div>`;
   return `
     <div class="tasks-screen-switch-row">
-      <div class="tasks-segment-group" role="radiogroup" aria-label="Переключение вида задач">
-        <label class="tasks-segment">
-          <input type="radio" name="tasksQuickBrowseMode" value="flat" ${mode === "flat" ? "checked" : ""} />
-          <span>Сводная</span>
-        </label>
-        <label class="tasks-segment">
-          <input type="radio" name="tasksQuickBrowseMode" value="byObject" ${mode === "byObject" ? "checked" : ""} />
-          <span>Объект</span>
-        </label>
-        <label class="tasks-segment">
-          <input type="radio" name="tasksQuickBrowseMode" value="graph" ${mode === "graph" ? "checked" : ""} />
-          <span>График</span>
-        </label>
+      ${leftControls}
+      <div class="tasks-screen-switch-group">
+        <div class="tasks-segment-group" role="radiogroup" aria-label="Переключение вида задач">
+          <label class="tasks-segment">
+            <input type="radio" name="tasksQuickBrowseMode" value="flat" ${mode === "flat" ? "checked" : ""} />
+            <span>Сводная</span>
+          </label>
+          <label class="tasks-segment">
+            <input type="radio" name="tasksQuickBrowseMode" value="byObject" ${mode === "byObject" ? "checked" : ""} />
+            <span>Объект</span>
+          </label>
+          <label class="tasks-segment">
+            <input type="radio" name="tasksQuickBrowseMode" value="graph" ${mode === "graph" ? "checked" : ""} />
+            <span>График</span>
+          </label>
+        </div>
       </div>
     </div>
   `;
