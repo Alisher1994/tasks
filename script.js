@@ -1692,6 +1692,9 @@ async function sendTelegramMediaGroupViaServerProxy({ chatId, token, photoRefs }
  */
 async function sendTaskRowTelegramNotification(taskRow, options = {}) {
   const suppressAlerts = Boolean(options.suppressAlerts);
+  const targetAssigneeNames = Array.isArray(options.targetAssigneeNames)
+    ? options.targetAssigneeNames.map((x) => normalizePersonName(x)).filter(Boolean)
+    : [];
   const notify = (message, type = "info") => {
     if (suppressAlerts) return;
     showStatusDialog({
@@ -1724,7 +1727,9 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
     return { ok: false, reason: "empty_message", message: msg };
   }
 
-  const recipientNames = collectTaskTelegramRecipientNames(taskRow);
+  const recipientNames = targetAssigneeNames.length
+    ? targetAssigneeNames
+    : collectTaskTelegramRecipientNames(taskRow);
   if (!recipientNames.length) {
     const msg =
       "Нет получателей: укажите исполнителя и/или контролирующего ответственного в задаче либо добавьте глобальных получателей копий в настройках Telegram.";
@@ -7289,12 +7294,23 @@ function renderTaskAssigneesAccordionRows(taskRow, visibleColumnIndexes, isTrash
         })
         .join("");
       const trashMetaCells = isTrashView ? `<td class="trash-meta-col">—</td><td class="trash-meta-col">—</td>` : "";
+      const actionButtons = `
+        <button type="button" class="icon-action-btn task-sub-view-btn" title="Просмотр задачи" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
+          <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+        <button type="button" class="icon-action-btn task-sub-send-btn" title="Отправить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
+          <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+        <button type="button" class="icon-action-btn danger-btn task-sub-remove-btn" title="Удалить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
+          <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+      `;
       return `
         <tr class="task-assignee-subrow ${expanded ? "" : "hidden"}" data-task-assignees-row="${escapeHtmlAttr(taskId)}">
           <td class="checkbox-col"><input type="checkbox" disabled aria-label="Подзадача ${escapeHtmlAttr(subId)}" /></td>
           ${tds}
           ${trashMetaCells}
-          <td class="actions-col task-accordion-actions-col">—</td>
+          <td class="actions-col task-accordion-actions-col">${actionButtons}</td>
         </tr>
       `;
     })
@@ -8686,6 +8702,74 @@ function attachTaskAccordionHandlers(section) {
           replaceTaskSubAssignee(taskId, oldName, next);
         }
       );
+    });
+  });
+  document.querySelectorAll(".task-sub-view-btn").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const taskId = String(el.getAttribute("data-task-id") || "").trim();
+      const tasks = getSectionById("tasks");
+      const rowIndex = (tasks?.rows || []).findIndex((r) => String(r[TASK_COLUMNS.number] || "").trim() === taskId);
+      if (!tasks || rowIndex < 0) return;
+      const row = tasks.rows[rowIndex];
+      openTaskDetailsModal(tasks, row, rowIndex);
+    });
+  });
+  document.querySelectorAll(".task-sub-send-btn").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const taskId = String(el.getAttribute("data-task-id") || "").trim();
+      const assignee = normalizePersonName(el.getAttribute("data-assignee") || "");
+      if (!taskId || !assignee) return;
+      const tasks = getSectionById("tasks");
+      const row = (tasks?.rows || []).find((r) => String(r[TASK_COLUMNS.number] || "").trim() === taskId);
+      if (!row) return;
+      confirmAction({
+        message: `Отправить в Telegram подзадачу ${taskId} для «${assignee}»?`,
+        confirmLabel: "Отправить",
+        onConfirm: () => {
+          void (async () => {
+            await sendTaskRowTelegramNotification(row, { targetAssigneeNames: [assignee] });
+          })();
+        }
+      });
+    });
+  });
+  document.querySelectorAll(".task-sub-remove-btn").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const taskId = String(el.getAttribute("data-task-id") || "").trim();
+      const assignee = normalizePersonName(el.getAttribute("data-assignee") || "");
+      if (!taskId || !assignee) return;
+      confirmAction({
+        message: `Удалить подзадачу исполнителя «${assignee}»?`,
+        confirmLabel: "Удалить",
+        onConfirm: () => {
+          const tasks = getSectionById("tasks");
+          const row = (tasks?.rows || []).find((r) => String(r[TASK_COLUMNS.number] || "").trim() === taskId);
+          if (!row) return;
+          const list = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
+          if (list.length <= 1) {
+            showStatusDialog({
+              title: "Удаление подзадачи",
+              message: "Нельзя удалить последнего ответственного.",
+              type: "error"
+            });
+            return;
+          }
+          const next = list.filter((x) => String(x).toLowerCase() !== String(assignee).toLowerCase());
+          row[TASK_COLUMNS.assignedResponsible] = next.join(", ");
+          const state = getTaskMultiAssigneeMap(taskId);
+          if (state && state[assignee]) delete state[assignee];
+          cleanupTaskMultiStateForRow(row);
+          appendTaskHistoryEntry(String(taskId), `Подзадача удалена: ${assignee}`);
+          saveSectionsData();
+          renderTablePreserveScroll();
+        }
+      });
     });
   });
 }
