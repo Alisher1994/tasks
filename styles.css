@@ -4655,31 +4655,26 @@ td.object-photo-col {
 }
 
 .task-assignees-accordion-row td {
-  background: #fafbfd;
-}
-
-.task-assignees-accordion-wrap {
-  padding: 10px 12px;
-  border: 1px dashed #d7e1ed;
-  border-radius: 10px;
-  background: #fff;
+  background: #f8fbff;
+  padding: 0;
 }
 
 .task-assignees-accordion-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
-  color: #26344a;
-  margin-bottom: 8px;
+  color: #5b6f89;
+  padding: 6px 10px 8px;
 }
 
 .task-assignees-accordion-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .task-assignees-accordion-table th,
 .task-assignees-accordion-table td {
-  border: 1px solid #e1e7f0;
+  border: 1px solid #d8e1ec;
   padding: 6px 8px;
   font-size: 12px;
   text-align: left;
@@ -4687,7 +4682,22 @@ td.object-photo-col {
 }
 
 .task-assignees-accordion-table th {
-  background: #f4f7fc;
+  background: #eef3f9;
   font-weight: 700;
+}
+
+.task-assignees-accordion-table .checkbox-col {
+  width: 44px;
+  text-align: center;
+}
+
+.task-accordion-readonly-cell {
+  background: #f3f6fa;
+  color: #50627a;
+}
+
+.task-assignees-accordion-table input[type="checkbox"][disabled] {
+  opacity: 0.75;
+  cursor: not-allowed;
 }
 

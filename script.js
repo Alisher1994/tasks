@@ -3596,7 +3596,7 @@ function renderTable() {
             ? `<td class="trash-meta-col">${formatTrashDate(entry.deletedAt)}</td><td class="trash-meta-col">${formatTrashRemaining(entry.expiresAt)}</td>`
             : "";
           const accordionRow =
-            section.id === "tasks" ? renderTaskAssigneesAccordionRow(entry.row, visibleColumnIndexes.length, isTrashView) : "";
+            section.id === "tasks" ? renderTaskAssigneesAccordionRow(entry.row, visibleColumnIndexes, isTrashView) : "";
           return `
             <tr class="${rowFocusClass} ${rowHighlightClass}">
               <td class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}">
@@ -7235,54 +7235,85 @@ function renderTaskTitleCell(taskRow, rowIndex) {
   `;
 }
 
-function renderTaskAssigneesAccordionRow(taskRow, visibleColumnsCount, isTrashView = false) {
+function renderTaskAccordionReadonlyCell(taskRow, colIndex, assigneeName, assigneeState, subId) {
+  const parentValue = taskRow?.[colIndex];
+  if (colIndex === TASK_COLUMNS.number) {
+    return escapeHtmlText(subId);
+  }
+  if (colIndex === TASK_COLUMNS.assignedResponsible) {
+    return escapeHtmlText(assigneeName || "—");
+  }
+  if (colIndex === TASK_COLUMNS.status) {
+    const status = String(assigneeState?.status || taskRow?.[TASK_COLUMNS.status] || "Новый").trim() || "Новый";
+    return `<span class="status-badge status-${slugify(status)}">${escapeHtmlText(status)}</span>`;
+  }
+  if (colIndex === TASK_COLUMNS.plan) {
+    const text = String(assigneeState?.comment || taskRow?.[TASK_COLUMNS.plan] || "").trim();
+    return escapeHtmlText(text || "—");
+  }
+  if (colIndex === TASK_COLUMNS.readState) {
+    const readAt = String(assigneeState?.readAt || "").trim();
+    if (readAt) {
+      return `<span class="task-read-state is-read">Прочитано</span><br><span class="task-read-time">${escapeHtmlText(readAt)}</span>`;
+    }
+    return `<span class="task-read-state is-unread">Не прочитано</span><br><span class="task-read-time">—</span>`;
+  }
+  if (isMediaColumn(colIndex)) {
+    const items = getMediaItems(parentValue);
+    return escapeHtmlText(items.length ? `Фото: ${items.length}` : "—");
+  }
+  if (colIndex === TASK_COLUMNS.priority) {
+    const p = String(parentValue || "").trim();
+    return `<span class="priority-text priority-${slugify(p)}">${escapeHtmlText(p || "—")}</span>`;
+  }
+  if (colIndex === TASK_COLUMNS.closedDate && assigneeState?.closedAt) {
+    return escapeHtmlText(String(assigneeState.closedAt));
+  }
+  if (colIndex === TASK_COLUMNS.addedDate || colIndex === TASK_COLUMNS.dueDate || colIndex === TASK_COLUMNS.closedDate || colIndex === TASK_COLUMNS.lastSentAt) {
+    return escapeHtmlText(String(parentValue || "").trim() || "—");
+  }
+  return escapeHtmlText(String(parentValue ?? "").trim() || "—");
+}
+
+function renderTaskAssigneesAccordionRow(taskRow, visibleColumnIndexes, isTrashView = false) {
   const names = parseTaskAssigneeNames(taskRow?.[TASK_COLUMNS.assignedResponsible]);
   if (isTrashView || names.length <= 1) return "";
   const taskId = getTaskIdForMultiState(taskRow);
   const expanded = expandedTaskAssigneeRows.has(taskId);
   const map = getTaskMultiAssigneeMap(taskId) || {};
   const summary = getTaskAssigneeProgressSummary(taskRow) || { closed: 0, total: names.length };
+  const headCols = visibleColumnIndexes
+    .map((colIndex) => `<th>${escapeHtmlText(String(getSectionById("tasks")?.columns?.[colIndex] || ""))}</th>`)
+    .join("");
   const rowsHtml = names
     .map((name, idx) => {
       const state = map?.[name] || {};
-      const st = String(state.status || taskRow[TASK_COLUMNS.status] || "Новый").trim() || "Новый";
-      const stClass = `status-badge status-${slugify(st)}`;
-      const comment = String(state.comment || "").trim() || "—";
-      const readAt = String(state.readAt || "").trim() || "—";
-      const upd = String(state.updatedAt || "").trim() || "—";
       const subId = `${String(taskRow[TASK_COLUMNS.number] || "—")}.${idx + 1}`;
+      const tds = visibleColumnIndexes
+        .map((colIndex) => `<td class="task-accordion-readonly-cell">${renderTaskAccordionReadonlyCell(taskRow, colIndex, name, state, subId)}</td>`)
+        .join("");
       return `
         <tr>
-          <td>${escapeHtmlText(subId)}</td>
-          <td>${escapeHtmlText(name)}</td>
-          <td><span class="${stClass}">${escapeHtmlText(st)}</span></td>
-          <td title="${escapeHtmlAttr(comment)}">${escapeHtmlText(comment.length > 120 ? `${comment.slice(0, 117)}...` : comment)}</td>
-          <td>${escapeHtmlText(readAt)}</td>
-          <td>${escapeHtmlText(upd)}</td>
+          <td class="checkbox-col"><input type="checkbox" disabled aria-label="Подзадача ${escapeHtmlAttr(subId)}" /></td>
+          ${tds}
         </tr>
       `;
     })
     .join("");
-  const colSpan = Number(visibleColumnsCount) + 2 + (isTrashView ? 2 : 0);
+  const colSpan = Number(visibleColumnIndexes.length) + 2 + (isTrashView ? 2 : 0);
   return `
     <tr class="task-assignees-accordion-row ${expanded ? "" : "hidden"}" data-task-assignees-row="${escapeHtmlAttr(taskId)}">
       <td colspan="${colSpan}">
-        <div class="task-assignees-accordion-wrap">
-          <div class="task-assignees-accordion-title">Подзадачи исполнителей (${summary.closed}/${summary.total} закрыто)</div>
-          <table class="task-assignees-accordion-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Ответственный</th>
-                <th>Статус</th>
-                <th>Комментарий</th>
-                <th>Ознакомление</th>
-                <th>Обновлено</th>
-              </tr>
-            </thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>
-        </div>
+        <table class="task-assignees-accordion-table">
+          <thead>
+            <tr>
+              <th class="checkbox-col"></th>
+              ${headCols}
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        <div class="task-assignees-accordion-title">Подзадачи исполнителей (${summary.closed}/${summary.total} закрыто)</div>
       </td>
     </tr>
   `;
@@ -8047,7 +8078,20 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
       STATUS_OPTIONS,
       row[TASK_COLUMNS.status],
       (value) => {
+        const nextStatus = String(value || "").trim();
+        if (nextStatus === "Закрыт") {
+          const summary = getTaskAssigneeProgressSummary(row);
+          if (summary && summary.closed < summary.total) {
+            showStatusDialog({
+              title: "Закрытие недоступно",
+              message: `Нельзя закрыть родительскую задачу: закрыто ${summary.closed} из ${summary.total} подзадач.`,
+              type: "error"
+            });
+            return;
+          }
+        }
         row[TASK_COLUMNS.status] = value;
+        cleanupTaskMultiStateForRow(row);
       },
       taskHistoryCtx(section, rowIndex, colIndex)
     );
