@@ -3596,7 +3596,7 @@ function renderTable() {
             ? `<td class="trash-meta-col">${formatTrashDate(entry.deletedAt)}</td><td class="trash-meta-col">${formatTrashRemaining(entry.expiresAt)}</td>`
             : "";
           const accordionRow =
-            section.id === "tasks" ? renderTaskAssigneesAccordionRow(entry.row, visibleColumnIndexes, isTrashView) : "";
+            section.id === "tasks" ? renderTaskAssigneesAccordionRows(entry.row, visibleColumnIndexes, isTrashView) : "";
           return `
             <tr class="${rowFocusClass} ${rowHighlightClass}">
               <td class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}">
@@ -7224,15 +7224,7 @@ function renderTaskTitleCell(taskRow, rowIndex) {
   const text = escapeHtmlText(String(taskRow?.[TASK_COLUMNS.task] || ""));
   const summary = getTaskAssigneeProgressSummary(taskRow);
   if (!summary) return text;
-  const taskId = getTaskIdForMultiState(taskRow);
-  const expanded = expandedTaskAssigneeRows.has(taskId);
-  return `
-    <div class="task-accordion-title">
-      <button type="button" class="task-assignees-toggle-btn" data-task-assignees-toggle="${escapeHtmlAttr(taskId)}" aria-expanded="${expanded ? "true" : "false"}">${expanded ? "▼" : "►"}</button>
-      <span>${text}</span>
-    </div>
-    <div class="task-accordion-meta">${summary.closed}/${summary.total} закрыто</div>
-  `;
+  return `<div>${text}</div><div class="task-accordion-meta">${summary.closed}/${summary.total} закрыто</div>`;
 }
 
 function renderTaskAccordionReadonlyCell(taskRow, colIndex, assigneeName, assigneeState, subId) {
@@ -7275,48 +7267,38 @@ function renderTaskAccordionReadonlyCell(taskRow, colIndex, assigneeName, assign
   return escapeHtmlText(String(parentValue ?? "").trim() || "—");
 }
 
-function renderTaskAssigneesAccordionRow(taskRow, visibleColumnIndexes, isTrashView = false) {
+function renderTaskAssigneesAccordionRows(taskRow, visibleColumnIndexes, isTrashView = false) {
   const names = parseTaskAssigneeNames(taskRow?.[TASK_COLUMNS.assignedResponsible]);
   if (isTrashView || names.length <= 1) return "";
   const taskId = getTaskIdForMultiState(taskRow);
   const expanded = expandedTaskAssigneeRows.has(taskId);
   const map = getTaskMultiAssigneeMap(taskId) || {};
-  const summary = getTaskAssigneeProgressSummary(taskRow) || { closed: 0, total: names.length };
-  const headCols = visibleColumnIndexes
-    .map((colIndex) => `<th>${escapeHtmlText(String(getSectionById("tasks")?.columns?.[colIndex] || ""))}</th>`)
-    .join("");
   const rowsHtml = names
     .map((name, idx) => {
       const state = map?.[name] || {};
       const subId = `${String(taskRow[TASK_COLUMNS.number] || "—")}.${idx + 1}`;
       const tds = visibleColumnIndexes
-        .map((colIndex) => `<td class="task-accordion-readonly-cell">${renderTaskAccordionReadonlyCell(taskRow, colIndex, name, state, subId)}</td>`)
+        .map((colIndex, viewOrder) => {
+          const stickyClass = colIndex === 0 && viewOrder === 0 ? "number-col" : "";
+          const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
+          const objectClass = colIndex === TASK_COLUMNS.object ? "object-col" : "";
+          const mediaClass = isMediaColumn(colIndex) ? "media-col" : "";
+          const wideClass = getWideColumnClass(colIndex);
+          return `<td class="task-accordion-readonly-cell ${stickyClass} ${statusClass} ${objectClass} ${mediaClass} ${wideClass}">${renderTaskAccordionReadonlyCell(taskRow, colIndex, name, state, subId)}</td>`;
+        })
         .join("");
+      const trashMetaCells = isTrashView ? `<td class="trash-meta-col">—</td><td class="trash-meta-col">—</td>` : "";
       return `
-        <tr>
+        <tr class="task-assignee-subrow ${expanded ? "" : "hidden"}" data-task-assignees-row="${escapeHtmlAttr(taskId)}">
           <td class="checkbox-col"><input type="checkbox" disabled aria-label="Подзадача ${escapeHtmlAttr(subId)}" /></td>
           ${tds}
+          ${trashMetaCells}
+          <td class="actions-col task-accordion-actions-col">—</td>
         </tr>
       `;
     })
     .join("");
-  const colSpan = Number(visibleColumnIndexes.length) + 2 + (isTrashView ? 2 : 0);
-  return `
-    <tr class="task-assignees-accordion-row ${expanded ? "" : "hidden"}" data-task-assignees-row="${escapeHtmlAttr(taskId)}">
-      <td colspan="${colSpan}">
-        <table class="task-assignees-accordion-table">
-          <thead>
-            <tr>
-              <th class="checkbox-col"></th>
-              ${headCols}
-            </tr>
-          </thead>
-          <tbody>${rowsHtml}</tbody>
-        </table>
-        <div class="task-assignees-accordion-title">Подзадачи исполнителей (${summary.closed}/${summary.total} закрыто)</div>
-      </td>
-    </tr>
-  `;
+  return rowsHtml;
 }
 
 function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1) {
@@ -7340,6 +7322,13 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
   }
   if (colIndex === TASK_COLUMNS.lastSentAt) {
     return String(value || "").trim() || "—";
+  }
+
+  if (colIndex === TASK_COLUMNS.number) {
+    const summary = getTaskAssigneeProgressSummary(row);
+    if (!summary) return escapeHtmlText(String(value || ""));
+    const taskId = getTaskIdForMultiState(row);
+    return `<span class="task-parent-id-toggle" data-task-assignees-toggle="${escapeHtmlAttr(taskId)}" title="Нажмите на ID, чтобы раскрыть подзадачи">${escapeHtmlText(String(value || ""))}</span>`;
   }
 
   if (colIndex === TASK_COLUMNS.status) {
@@ -8657,7 +8646,7 @@ function ensureSystemDepartments() {
 
 function attachTaskAccordionHandlers(section) {
   if (section.id !== "tasks") return;
-  document.querySelectorAll(".task-assignees-toggle-btn").forEach((button) => {
+  document.querySelectorAll(".task-parent-id-toggle").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();

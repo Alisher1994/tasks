@@ -4631,64 +4631,10 @@ td.object-photo-col {
   gap: 8px;
 }
 
-.task-assignees-toggle-btn {
-  width: 22px;
-  height: 22px;
-  border: 1px solid #cfd8e3;
-  border-radius: 6px;
-  background: #fff;
-  color: #445268;
-  font-size: 11px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.task-assignees-toggle-btn:hover {
-  border-color: #6f78c8;
-  color: #4a52a6;
-}
-
 .task-accordion-meta {
   margin-top: 4px;
   font-size: 12px;
   color: #64748b;
-}
-
-.task-assignees-accordion-row td {
-  background: #f8fbff;
-  padding: 0;
-}
-
-.task-assignees-accordion-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: #5b6f89;
-  padding: 6px 10px 8px;
-}
-
-.task-assignees-accordion-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-
-.task-assignees-accordion-table th,
-.task-assignees-accordion-table td {
-  border: 1px solid #d8e1ec;
-  padding: 6px 8px;
-  font-size: 12px;
-  text-align: left;
-  vertical-align: top;
-}
-
-.task-assignees-accordion-table th {
-  background: #eef3f9;
-  font-weight: 700;
-}
-
-.task-assignees-accordion-table .checkbox-col {
-  width: 44px;
-  text-align: center;
 }
 
 .task-accordion-readonly-cell {
@@ -4696,8 +4642,31 @@ td.object-photo-col {
   color: #50627a;
 }
 
-.task-assignees-accordion-table input[type="checkbox"][disabled] {
+.task-assignee-subrow .checkbox-col input[type="checkbox"][disabled] {
   opacity: 0.75;
   cursor: not-allowed;
+}
+
+.task-parent-id-toggle {
+  display: inline-block;
+  color: #334a72;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.task-parent-id-toggle:hover {
+  color: #4a52a6;
+}
+
+.task-assignee-subrow td {
+  vertical-align: middle;
+}
+
+.task-assignee-subrow .actions-col.task-accordion-actions-col {
+  color: #8a97ab;
+  text-align: center;
 }
 
