@@ -2743,7 +2743,7 @@ let displaySettings = {
   tasksListPagingMode: "pagination",
   /** Размер страницы / одной порции (5–500) */
   tasksListPageSize: 50,
-  /** flat | byObject — таблица сразу или сначала выбор объекта */
+  /** flat | byObject | graph — таблица / выбор объекта / диаграмма Ганта */
   tasksListBrowseMode: "flat"
 };
 let taskMultiState = {};
@@ -2908,7 +2908,8 @@ function renderSidebarMenu() {
 
 function normalizeTasksListDisplaySettings() {
   const mode = displaySettings.tasksListPagingMode === "chunks" ? "chunks" : "pagination";
-  const browse = displaySettings.tasksListBrowseMode === "byObject" ? "byObject" : "flat";
+  const browseRaw = String(displaySettings.tasksListBrowseMode || "").trim();
+  const browse = browseRaw === "byObject" || browseRaw === "graph" ? browseRaw : "flat";
   displaySettings.tasksListPagingMode = mode;
   displaySettings.tasksListBrowseMode = browse;
   let n = Number(displaySettings.tasksListPageSize);
@@ -3170,10 +3171,56 @@ function attachTasksObjectPickerHandlers(section) {
       refreshCurrentViewData();
     });
   }
+  attachTasksBrowseModeSwitchHandlers();
+}
+
+function renderSectionHeaderIconButtons(section) {
+  return `
+        <div class="table-header-right">
+          <button type="button" class="icon-action-btn add-row-btn" id="addRowBtn" title="Добавить">
+            <i data-lucide="plus" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="icon-action-btn filter-toggle-btn" id="toggleFiltersBtn" title="Фильтр">
+            <i data-lucide="filter" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+          ${section.id === "tasks" ? `
+          <button type="button" class="icon-action-btn import-tasks-btn" id="openTaskImportModalBtn" title="Импорт задач">
+            <i data-lucide="file-up" class="lucide-icon" aria-hidden="true"></i>
+          </button>` : ""}
+          ${section.id === "tasks" ? `
+          <button type="button" class="icon-action-btn" id="googleSheetsSyncTasksBtn" title="Синхронизация">
+            <span class="gs-mini-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48" fill="none">
+                <path d="M8 5h20l12 12v24a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" fill="#0F9D58"/>
+                <path d="M28 5v10a2 2 0 0 0 2 2h10L28 5z" fill="#B7E1CD"/>
+                <rect x="14" y="22" width="20" height="3" rx="1.5" fill="#fff"/>
+                <rect x="14" y="28" width="20" height="3" rx="1.5" fill="#fff"/>
+                <rect x="14" y="34" width="12" height="3" rx="1.5" fill="#fff"/>
+              </svg>
+            </span>
+          </button>` : ""}
+          ${section.id === "tasks" ? `
+          <button type="button" class="icon-action-btn" id="sendOverdueTasksBtn" title="Отправить просроченные">
+            <i data-lucide="bell-ring" class="lucide-icon" aria-hidden="true"></i>
+          </button>` : ""}
+          <button type="button" class="icon-action-btn refresh-section-btn" id="refreshSectionBtn" title="Обновить">
+            <i data-lucide="refresh-cw" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="icon-action-btn export-open-btn" id="openExportModalBtn" title="Скачать">
+            <i data-lucide="download" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="icon-action-btn settings-toggle-btn" id="toggleTableSettingsBtn" title="Настройки таблицы">
+            <i data-lucide="settings" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+        </div>`;
+}
+
+function attachTasksBrowseModeSwitchHandlers() {
   Array.from(document.querySelectorAll('input[name="tasksQuickBrowseMode"]')).forEach((r) => {
     r.addEventListener("change", () => {
-      displaySettings.tasksListBrowseMode = r.value === "byObject" ? "byObject" : "flat";
-      if (displaySettings.tasksListBrowseMode === "flat") tasksBrowseObjectKey = null;
+      const nextMode = r.value === "byObject" || r.value === "graph" ? r.value : "flat";
+      displaySettings.tasksListBrowseMode = nextMode;
+      if (nextMode !== "byObject") tasksBrowseObjectKey = null;
       saveDisplaySettings();
       resetTasksListPagingWindow();
       renderTable();
@@ -3488,10 +3535,14 @@ function renderTable() {
   let allFilteredEntries = getFilteredRows(section, sectionFilters);
   let tasksListFooterHtml = "";
   let showTasksBackBtn = false;
+  const sectionGroupTabs = renderSectionGroupTabs(section.id);
 
   if (section.id === "tasks") {
     normalizeTasksListDisplaySettings();
-    const browseByObject = displaySettings.tasksListBrowseMode === "byObject";
+    const browseMode = displaySettings.tasksListBrowseMode === "byObject" || displaySettings.tasksListBrowseMode === "graph"
+      ? displaySettings.tasksListBrowseMode
+      : "flat";
+    const browseByObject = browseMode === "byObject";
     if (browseByObject) {
       showTasksBackBtn = tasksBrowseObjectKey !== null;
       if (tasksBrowseObjectKey === null) {
@@ -3521,6 +3572,28 @@ function renderTable() {
       }
       allFilteredEntries = filterTaskEntriesByObjectKey(allFilteredEntries, tasksBrowseObjectKey);
     }
+    if (browseMode === "graph") {
+      const sectionTitleH3 = `<h3>${withIcon(getSectionIcon(section.id), section.title)}</h3>`;
+      const tableHeaderIconButtons = renderSectionHeaderIconButtons(section);
+      tableContainer.innerHTML = `
+    <section class="table-card table-card--tasks-gantt">
+      <div class="table-header">
+        ${sectionTitleH3}
+        ${tableHeaderIconButtons}
+      </div>
+      ${sectionGroupTabs}
+      ${renderStatusTabs(section)}
+      ${renderTasksScreenModeSwitch(section)}
+      ${renderFilters(section, sectionFilters, filterPanelOpenBySection[section.id] === true)}
+      ${renderTasksGanttHtml(allFilteredEntries)}
+    </section>
+  `;
+      attachFilterHandlers(section);
+      attachHeaderActionHandlers(section, allFilteredEntries);
+      attachTasksBrowseModeSwitchHandlers();
+      initLucideIcons();
+      return;
+    }
   }
 
   let entriesForTbody = allFilteredEntries;
@@ -3549,8 +3622,6 @@ function renderTable() {
   ) {
     tasksChunksSentinelHtml = `<div class="tasks-list-scroll-sentinel" id="tasksChunksScrollSentinel" data-shown="${entriesForTbody.length}" data-all="${allFilteredEntries.length}" aria-hidden="true"></div>`;
   }
-
-  const sectionGroupTabs = renderSectionGroupTabs(section.id);
 
   const visibleColumnIndexes = getVisibleColumnIndexes(section);
   const isTrashView = isTrashTab(section.id);
@@ -3639,44 +3710,7 @@ function renderTable() {
     </tbody>
   `;
 
-  const tableHeaderIconButtons = `
-        <div class="table-header-right">
-          <button type="button" class="icon-action-btn add-row-btn" id="addRowBtn" title="Добавить">
-            <i data-lucide="plus" class="lucide-icon" aria-hidden="true"></i>
-          </button>
-          <button type="button" class="icon-action-btn filter-toggle-btn" id="toggleFiltersBtn" title="Фильтр">
-            <i data-lucide="filter" class="lucide-icon" aria-hidden="true"></i>
-          </button>
-          ${section.id === "tasks" ? `
-          <button type="button" class="icon-action-btn import-tasks-btn" id="openTaskImportModalBtn" title="Импорт задач">
-            <i data-lucide="file-up" class="lucide-icon" aria-hidden="true"></i>
-          </button>` : ""}
-          ${section.id === "tasks" ? `
-          <button type="button" class="icon-action-btn" id="googleSheetsSyncTasksBtn" title="Синхронизация">
-            <span class="gs-mini-icon" aria-hidden="true">
-              <svg viewBox="0 0 48 48" fill="none">
-                <path d="M8 5h20l12 12v24a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" fill="#0F9D58"/>
-                <path d="M28 5v10a2 2 0 0 0 2 2h10L28 5z" fill="#B7E1CD"/>
-                <rect x="14" y="22" width="20" height="3" rx="1.5" fill="#fff"/>
-                <rect x="14" y="28" width="20" height="3" rx="1.5" fill="#fff"/>
-                <rect x="14" y="34" width="12" height="3" rx="1.5" fill="#fff"/>
-              </svg>
-            </span>
-          </button>` : ""}
-          ${section.id === "tasks" ? `
-          <button type="button" class="icon-action-btn" id="sendOverdueTasksBtn" title="Отправить просроченные">
-            <i data-lucide="bell-ring" class="lucide-icon" aria-hidden="true"></i>
-          </button>` : ""}
-          <button type="button" class="icon-action-btn refresh-section-btn" id="refreshSectionBtn" title="Обновить">
-            <i data-lucide="refresh-cw" class="lucide-icon" aria-hidden="true"></i>
-          </button>
-          <button type="button" class="icon-action-btn export-open-btn" id="openExportModalBtn" title="Скачать">
-            <i data-lucide="download" class="lucide-icon" aria-hidden="true"></i>
-          </button>
-          <button type="button" class="icon-action-btn settings-toggle-btn" id="toggleTableSettingsBtn" title="Настройки таблицы">
-            <i data-lucide="settings" class="lucide-icon" aria-hidden="true"></i>
-          </button>
-        </div>`;
+  const tableHeaderIconButtons = renderSectionHeaderIconButtons(section);
 
   const sectionTitleH3 = `<h3>${withIcon(getSectionIcon(section.id), section.title)}</h3>`;
 
@@ -5349,6 +5383,113 @@ function renderReportWeekTasksTable() {
         </table>
       </div>
       ${moreBtn}
+    </div>`;
+}
+
+function getTaskGanttRangeMs(row) {
+  const added = parseRuDateStringToParts(String(row?.[TASK_COLUMNS.addedDate] || "").trim());
+  const due = parseRuDateStringToParts(String(row?.[TASK_COLUMNS.dueDate] || "").trim());
+  const closed = parseRuDateStringToParts(String(row?.[TASK_COLUMNS.closedDate] || "").trim());
+  const toMs = (p) => (p ? Date.UTC(p.year, p.month - 1, p.day) : null);
+  const addedMs = toMs(added);
+  const dueMs = toMs(due);
+  const closedMs = toMs(closed);
+  let startMs = addedMs ?? dueMs ?? closedMs;
+  let endMs = dueMs ?? closedMs ?? addedMs;
+  if (startMs == null || endMs == null) return null;
+  endMs = Math.max(endMs, closedMs ?? endMs, startMs);
+  if (endMs < startMs) {
+    const t = startMs;
+    startMs = endMs;
+    endMs = t;
+  }
+  return { startMs, endMs };
+}
+
+function buildTasksGanttMonthTicks(startMs, endMs) {
+  const ticks = [];
+  const d = new Date(startMs);
+  d.setUTCDate(1);
+  d.setUTCHours(0, 0, 0, 0);
+  const end = new Date(endMs);
+  const monthNames = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
+  while (d.getTime() <= end.getTime()) {
+    ticks.push({
+      ms: d.getTime(),
+      label: `${monthNames[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+    });
+    d.setUTCMonth(d.getUTCMonth() + 1);
+  }
+  return ticks;
+}
+
+function renderTasksGanttHtml(entries) {
+  const dayMs = 86400000;
+  const items = entries
+    .map((entry) => {
+      const range = getTaskGanttRangeMs(entry.row);
+      if (!range) return null;
+      return { rowIndex: entry.rowIndex, row: entry.row, ...range };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.startMs - b.startMs) || (a.endMs - b.endMs));
+  if (!items.length) {
+    return `<div class="tasks-gantt-empty">Нет задач с датами для отображения графика.</div>`;
+  }
+
+  const minMs = Math.min(...items.map((i) => i.startMs));
+  const maxMs = Math.max(...items.map((i) => i.endMs));
+  const spanDays = Math.max(1, Math.floor((maxMs - minMs) / dayMs) + 1);
+  const pxPerDay = spanDays > 180 ? 5 : spanDays > 120 ? 7 : spanDays > 80 ? 9 : 12;
+  const timelineWidth = Math.max(920, spanDays * pxPerDay + 60);
+  const monthTicks = buildTasksGanttMonthTicks(minMs, maxMs);
+  const toLeftPx = (ms) => Math.max(0, Math.round(((ms - minMs) / dayMs) * pxPerDay));
+
+  const monthLabels = monthTicks
+    .map((tick) => `<span class="tasks-gantt-month-tick" style="left:${toLeftPx(tick.ms)}px">${escapeHtmlText(tick.label)}</span>`)
+    .join("");
+  const gridLines = monthTicks
+    .map((tick) => `<span class="tasks-gantt-grid-line" style="left:${toLeftPx(tick.ms)}px"></span>`)
+    .join("");
+
+  const rowsHtml = items.map((item) => {
+    const row = item.row || [];
+    const status = String(row[TASK_COLUMNS.status] || "").trim() || "Новый";
+    const statusClass = status === "Закрыт" ? "closed" : status === "В процессе" ? "progress" : "new";
+    const idText = String(row[TASK_COLUMNS.number] || "—");
+    const taskText = String(row[TASK_COLUMNS.task] || "").trim() || "—";
+    const objectText = String(row[TASK_COLUMNS.object] || "").trim() || "—";
+    const dueText = formatStoredDateForDisplay(String(row[TASK_COLUMNS.dueDate] || "").trim()) || "—";
+    const assigneeText = String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—";
+    const left = toLeftPx(item.startMs);
+    const width = Math.max(8, Math.round(((item.endMs - item.startMs) / dayMs + 1) * pxPerDay));
+    return `
+      <div class="tasks-gantt-row" data-row-index="${item.rowIndex}">
+        <div class="tasks-gantt-meta">
+          <div class="tasks-gantt-meta-id">#${escapeHtmlText(idText)}</div>
+          <div class="tasks-gantt-meta-task" title="${escapeHtmlAttr(taskText)}">${escapeHtmlText(taskText)}</div>
+          <div class="tasks-gantt-meta-sub">${escapeHtmlText(objectText)} · ${escapeHtmlText(assigneeText)} · до ${escapeHtmlText(dueText)}</div>
+        </div>
+        <div class="tasks-gantt-track">
+          <span class="tasks-gantt-bar tasks-gantt-bar--${statusClass}" style="left:${left}px;width:${width}px" title="${escapeHtmlAttr(status)}"></span>
+        </div>
+      </div>`;
+  }).join("");
+
+  return `
+    <div class="tasks-gantt-wrap">
+      <div class="tasks-gantt-legend">
+        <span class="tasks-gantt-legend-item"><i class="tasks-gantt-dot tasks-gantt-dot--new"></i>Новый</span>
+        <span class="tasks-gantt-legend-item"><i class="tasks-gantt-dot tasks-gantt-dot--progress"></i>В процессе</span>
+        <span class="tasks-gantt-legend-item"><i class="tasks-gantt-dot tasks-gantt-dot--closed"></i>Закрыт</span>
+      </div>
+      <div class="tasks-gantt-scroll">
+        <div class="tasks-gantt-timeline" style="--tasks-gantt-width:${timelineWidth}px">
+          <div class="tasks-gantt-months">${monthLabels}</div>
+          <div class="tasks-gantt-grid">${gridLines}</div>
+          <div class="tasks-gantt-rows">${rowsHtml}</div>
+        </div>
+      </div>
     </div>`;
 }
 
@@ -7210,17 +7351,24 @@ function renderStatusTabs(section) {
 
 function renderTasksScreenModeSwitch(section) {
   if (section.id !== "tasks") return "";
+  const mode = displaySettings.tasksListBrowseMode === "byObject" || displaySettings.tasksListBrowseMode === "graph"
+    ? displaySettings.tasksListBrowseMode
+    : "flat";
   return `
     <div class="tasks-screen-switch-row">
-      <span class="tasks-screen-switch-label">Сводная / Объект</span>
+      <span class="tasks-screen-switch-label">Сводная / Объект / График</span>
       <div class="tasks-segment-group" role="radiogroup" aria-label="Переключение вида задач">
         <label class="tasks-segment">
-          <input type="radio" name="tasksQuickBrowseMode" value="flat" ${displaySettings.tasksListBrowseMode !== "byObject" ? "checked" : ""} />
+          <input type="radio" name="tasksQuickBrowseMode" value="flat" ${mode === "flat" ? "checked" : ""} />
           <span>Сводная</span>
         </label>
         <label class="tasks-segment">
-          <input type="radio" name="tasksQuickBrowseMode" value="byObject" ${displaySettings.tasksListBrowseMode === "byObject" ? "checked" : ""} />
+          <input type="radio" name="tasksQuickBrowseMode" value="byObject" ${mode === "byObject" ? "checked" : ""} />
           <span>Объект</span>
+        </label>
+        <label class="tasks-segment">
+          <input type="radio" name="tasksQuickBrowseMode" value="graph" ${mode === "graph" ? "checked" : ""} />
+          <span>График</span>
         </label>
       </div>
     </div>
@@ -10089,15 +10237,9 @@ function attachHeaderActionHandlers(section, filteredEntries) {
     });
   });
 
-  Array.from(document.querySelectorAll('input[name="tasksQuickBrowseMode"]')).forEach((r) => {
-    r.addEventListener("change", () => {
-      displaySettings.tasksListBrowseMode = r.value === "byObject" ? "byObject" : "flat";
-      if (displaySettings.tasksListBrowseMode === "flat") tasksBrowseObjectKey = null;
-      saveDisplaySettings();
-      resetTasksListPagingWindow();
-      renderTablePreserveScroll();
-    });
-  });
+  if (section.id === "tasks") {
+    attachTasksBrowseModeSwitchHandlers();
+  }
 }
 
 function renderOtherSettingsPanel() {
@@ -10183,12 +10325,16 @@ function renderOtherSettingsPanel() {
                 <div class="tasks-setting-block-title">Экран</div>
                 <div class="tasks-segment-group" role="radiogroup" aria-label="Режим экрана задач">
                   <label class="tasks-segment">
-                    <input type="radio" name="tasksListBrowseMode" value="flat" ${displaySettings.tasksListBrowseMode !== "byObject" ? "checked" : ""} />
+                    <input type="radio" name="tasksListBrowseMode" value="flat" ${displaySettings.tasksListBrowseMode !== "byObject" && displaySettings.tasksListBrowseMode !== "graph" ? "checked" : ""} />
                     <span>Сводная</span>
                   </label>
                   <label class="tasks-segment">
                     <input type="radio" name="tasksListBrowseMode" value="byObject" ${displaySettings.tasksListBrowseMode === "byObject" ? "checked" : ""} />
                     <span>Объект</span>
+                  </label>
+                  <label class="tasks-segment">
+                    <input type="radio" name="tasksListBrowseMode" value="graph" ${displaySettings.tasksListBrowseMode === "graph" ? "checked" : ""} />
+                    <span>График</span>
                   </label>
                 </div>
               </div>
@@ -10606,8 +10752,9 @@ function attachOtherSettingsHandlers() {
 
   Array.from(document.querySelectorAll('input[name="tasksListBrowseMode"]')).forEach((r) => {
     r.addEventListener("change", () => {
-      displaySettings.tasksListBrowseMode = r.value === "byObject" ? "byObject" : "flat";
-      if (displaySettings.tasksListBrowseMode === "flat") tasksBrowseObjectKey = null;
+      const nextMode = r.value === "byObject" || r.value === "graph" ? r.value : "flat";
+      displaySettings.tasksListBrowseMode = nextMode;
+      if (nextMode !== "byObject") tasksBrowseObjectKey = null;
       saveDisplaySettings();
       resetTasksListPagingWindow();
       renderTablePreserveScroll();
@@ -11013,7 +11160,11 @@ function restoreDisplaySettings() {
     if (displaySettings.tasksListPagingMode !== "pagination" && displaySettings.tasksListPagingMode !== "chunks") {
       displaySettings.tasksListPagingMode = "pagination";
     }
-    if (displaySettings.tasksListBrowseMode !== "flat" && displaySettings.tasksListBrowseMode !== "byObject") {
+    if (
+      displaySettings.tasksListBrowseMode !== "flat"
+      && displaySettings.tasksListBrowseMode !== "byObject"
+      && displaySettings.tasksListBrowseMode !== "graph"
+    ) {
       displaySettings.tasksListBrowseMode = "flat";
     }
     let tps = Number(displaySettings.tasksListPageSize);
