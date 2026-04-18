@@ -6031,36 +6031,27 @@ function attachReportCharts() {
   const stLabelsFinal = stSorted.length ? stSorted.map((x) => x[0]) : ["Нет данных"];
   const stDataFinal = stSorted.length ? stSorted.map((x) => x[1]) : [0];
   const stColors = stLabelsFinal.map((lab) => colorForStatusLabel(lab));
-  const totalTasksInSystem = getAllTaskRows().length;
   const donutCenterTotalPlugin = {
     id: "reportDonutCenterTotal",
     afterDraw(chart) {
-      const meta = chart.getDatasetMeta(0);
-      const arc = meta?.data?.[0];
-      if (!arc) return;
-      let x = arc.x;
-      let y = arc.y;
-      if (typeof x !== "number" || typeof y !== "number") {
-        const pos = typeof arc.tooltipPosition === "function" ? arc.tooltipPosition() : null;
-        if (pos && typeof pos.x === "number" && typeof pos.y === "number") {
-          x = pos.x;
-          y = pos.y;
-        } else {
-          const { left, top, width, height } = chart.chartArea;
-          x = left + width * 0.36;
-          y = top + height / 2;
-        }
-      }
+      const dataset = Array.isArray(chart?.data?.datasets) ? chart.data.datasets[0] : null;
+      const values = Array.isArray(dataset?.data) ? dataset.data : [];
+      const centerTotal = values.reduce((sum, value) => sum + (Number(value) || 0), 0);
+      const area = chart?.chartArea;
+      if (!area) return;
+      const x = area.left + area.width / 2;
+      const y = area.top + area.height / 2;
+      const subtitle = String(chart?.options?.plugins?.reportDonutCenterTotal?.subtitle || "задач в системе").trim() || "задач в системе";
       const c = chart.ctx;
       c.save();
       c.textAlign = "center";
       c.textBaseline = "middle";
       c.font = "600 18px Inter, system-ui, 'Segoe UI', sans-serif";
       c.fillStyle = "#1e293b";
-      c.fillText(String(totalTasksInSystem), x, y - 8);
+      c.fillText(String(Math.round(centerTotal)), x, y - 8);
       c.font = "11px Inter, system-ui, 'Segoe UI', sans-serif";
       c.fillStyle = "#64748b";
-      c.fillText("задач в системе", x, y + 10);
+      c.fillText(subtitle, x, y + 10);
       c.restore();
     }
   };
@@ -6089,6 +6080,9 @@ function attachReportCharts() {
             padding: { left: 14, right: 40, top: 16, bottom: 16 }
           },
           plugins: {
+            reportDonutCenterTotal: {
+              subtitle: "задач в системе"
+            },
             legend: {
               ...donutLegendRightWithCount
             },
@@ -6335,6 +6329,7 @@ function attachReportCharts() {
     reportChartInstances.push(
       new Chart(ctxPhaseDonut, {
         type: "doughnut",
+        plugins: [donutCenterTotalPlugin],
         data: {
           labels: phaseDonutSeries.labels,
           datasets: [
@@ -6350,6 +6345,9 @@ function attachReportCharts() {
           ...common,
           cutout: "52%",
           plugins: {
+            reportDonutCenterTotal: {
+              subtitle: "задач в системе"
+            },
             legend: {
               ...donutLegendRightWithCount
             },
@@ -6408,6 +6406,7 @@ function attachReportCharts() {
     reportChartInstances.push(
       new Chart(ctxPhaseSectionDonut, {
         type: "doughnut",
+        plugins: [donutCenterTotalPlugin],
         data: {
           labels: phaseSectionDonutSeries.labels,
           datasets: [
@@ -6423,6 +6422,9 @@ function attachReportCharts() {
           ...common,
           cutout: "52%",
           plugins: {
+            reportDonutCenterTotal: {
+              subtitle: "задач в системе"
+            },
             legend: {
               ...donutLegendRightWithCount
             },
@@ -6439,6 +6441,7 @@ function attachReportCharts() {
     reportChartInstances.push(
       new Chart(ctxPhaseSubsectionDonut, {
         type: "doughnut",
+        plugins: [donutCenterTotalPlugin],
         data: {
           labels: phaseSubsectionDonutSeries.labels,
           datasets: [
@@ -6454,6 +6457,9 @@ function attachReportCharts() {
           ...common,
           cutout: "52%",
           plugins: {
+            reportDonutCenterTotal: {
+              subtitle: "задач в системе"
+            },
             legend: {
               ...donutLegendRightWithCount
             },
@@ -6614,6 +6620,7 @@ function attachReportCharts() {
     reportChartInstances.push(
       new Chart(ctxPriorityDonut, {
         type: "doughnut",
+        plugins: [donutCenterTotalPlugin],
         data: {
           labels: prLabelsFinal,
           datasets: [
@@ -6629,6 +6636,9 @@ function attachReportCharts() {
           ...common,
           cutout: "52%",
           plugins: {
+            reportDonutCenterTotal: {
+              subtitle: "задач в системе"
+            },
             legend: {
               ...donutLegendRightWithCount
             },
@@ -6644,6 +6654,7 @@ function attachReportCharts() {
     reportChartInstances.push(
       new Chart(ctxDelayReasonDonut, {
         type: "doughnut",
+        plugins: [donutCenterTotalPlugin],
         data: {
           labels: drLabels,
           datasets: [
@@ -6659,6 +6670,9 @@ function attachReportCharts() {
           ...common,
           cutout: "52%",
           plugins: {
+            reportDonutCenterTotal: {
+              subtitle: "задач в системе"
+            },
             legend: {
               ...donutLegendRightWithCount
             },
