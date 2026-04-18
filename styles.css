@@ -1585,6 +1585,27 @@ tr:nth-child(even) td {
   padding: 6px;
   display: grid;
   gap: 0;
+  scrollbar-color: #9fb2cc #e6edf6;
+  scrollbar-width: auto;
+}
+
+.responsible-modal-list::-webkit-scrollbar {
+  width: 12px;
+}
+
+.responsible-modal-list::-webkit-scrollbar-track {
+  background: #e6edf6;
+  border-radius: 999px;
+}
+
+.responsible-modal-list::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #b8c5d9 0%, #9fb2cc 100%);
+  border-radius: 999px;
+  border: 2px solid #e6edf6;
+}
+
+.responsible-modal-list::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #a9b9d1 0%, #8ea4c3 100%);
 }
 
 .responsible-option-item {
