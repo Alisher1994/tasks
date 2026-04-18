@@ -2389,6 +2389,14 @@ const STATUS_TABS = [
   { id: TASKS_UNSENT_TAB_ID, label: "Не отправленные" },
   { id: "trash", label: "Корзина" }
 ];
+const TASK_GANTT_GROUP_BY_OPTIONS = [
+  { id: "none", label: "Без группировки" },
+  { id: "object", label: "По объекту" },
+  { id: "assignee", label: "По ответственному" },
+  { id: "phase", label: "По фазе" },
+  { id: "section", label: "По разделу" },
+  { id: "subsection", label: "По подразделу" }
+];
 const TASK_IMPORT_COLUMNS = [
   { key: "object", label: "Название объекта", aliases: ["Название объекта", "Объект"] },
   { key: "priority", label: "Приоритет", aliases: ["Приоритет"] },
@@ -2744,7 +2752,9 @@ let displaySettings = {
   /** Размер страницы / одной порции (5–500) */
   tasksListPageSize: 50,
   /** flat | byObject | graph — таблица / выбор объекта / диаграмма Ганта */
-  tasksListBrowseMode: "flat"
+  tasksListBrowseMode: "flat",
+  /** none | object | assignee | phase | section | subsection */
+  tasksGanttGroupBy: "none"
 };
 let taskMultiState = {};
 const expandedTaskAssigneeRows = new Set();
@@ -3591,6 +3601,13 @@ function renderTable() {
       attachFilterHandlers(section);
       attachHeaderActionHandlers(section, allFilteredEntries);
       attachTasksBrowseModeSwitchHandlers();
+      const groupBySelect = document.getElementById("tasksGanttGroupBySelect");
+      groupBySelect?.addEventListener("change", () => {
+        displaySettings.tasksGanttGroupBy = normalizeTasksGanttGroupBy(groupBySelect.value);
+        saveDisplaySettings();
+        renderTablePreserveScroll();
+      });
+      requestAnimationFrame(() => mountTasksGanttChart(allFilteredEntries));
       initLucideIcons();
       return;
     }
@@ -5406,91 +5423,209 @@ function getTaskGanttRangeMs(row) {
   return { startMs, endMs };
 }
 
-function buildTasksGanttMonthTicks(startMs, endMs) {
-  const ticks = [];
-  const d = new Date(startMs);
-  d.setUTCDate(1);
-  d.setUTCHours(0, 0, 0, 0);
-  const end = new Date(endMs);
-  const monthNames = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
-  while (d.getTime() <= end.getTime()) {
-    ticks.push({
-      ms: d.getTime(),
-      label: `${monthNames[d.getUTCMonth()]} ${d.getUTCFullYear()}`
-    });
-    d.setUTCMonth(d.getUTCMonth() + 1);
+function normalizeTasksGanttGroupBy(value) {
+  const v = String(value || "").trim();
+  return TASK_GANTT_GROUP_BY_OPTIONS.some((x) => x.id === v) ? v : "none";
+}
+
+function getTasksGanttGroupLabel(row, groupBy) {
+  if (groupBy === "object") return String(row?.[TASK_COLUMNS.object] || "").trim() || "— без объекта —";
+  if (groupBy === "assignee") return String(row?.[TASK_COLUMNS.assignedResponsible] || "").trim() || "— не назначен —";
+  if (groupBy === "phase") return String(row?.[TASK_COLUMNS.phase] || "").trim() || "— без фазы —";
+  if (groupBy === "section") return String(row?.[TASK_COLUMNS.phaseSection] || "").trim() || "— без раздела —";
+  if (groupBy === "subsection") return String(row?.[TASK_COLUMNS.phaseSubsection] || "").trim() || "— без подраздела —";
+  return "";
+}
+
+function statusToGanttProgress(status) {
+  const s = String(status || "").trim();
+  if (s === "Закрыт") return 1;
+  if (s === "В процессе") return 0.6;
+  return 0.2;
+}
+
+function statusToGanttCssClass(status) {
+  const s = String(status || "").trim();
+  if (s === "Закрыт") return "mb-gantt-status-closed";
+  if (s === "В процессе") return "mb-gantt-status-progress";
+  return "mb-gantt-status-new";
+}
+
+function formatGanttDateLabel(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "—";
+  return formatStoredDateForDisplay(formatDatePartsStorage(date.getDate(), date.getMonth() + 1, date.getFullYear()));
+}
+
+function buildTasksGanttDataset(entries, groupBy) {
+  const dayMs = 86400000;
+  const tasks = [];
+  const groupMap = new Map();
+  let seq = 1;
+
+  const baseItems = entries
+    .map((entry) => {
+      const row = entry.row || [];
+      const range = getTaskGanttRangeMs(row);
+      if (!range) return null;
+      const startDate = new Date(range.startMs);
+      const endDate = new Date(range.endMs);
+      const taskId = String(row[TASK_COLUMNS.number] || "").trim() || String(entry.rowIndex + 1);
+      return {
+        id: `task_${taskId}_${entry.rowIndex}`,
+        taskId,
+        row,
+        startDate,
+        endDate,
+        duration: Math.max(1, Math.floor((range.endMs - range.startMs) / dayMs) + 1)
+      };
+    })
+    .filter(Boolean);
+
+  for (const item of baseItems) {
+    const taskName = String(item.row[TASK_COLUMNS.task] || "").trim() || "—";
+    const status = String(item.row[TASK_COLUMNS.status] || "").trim();
+    const dataTask = {
+      id: item.id,
+      sourceTaskId: item.taskId,
+      text: taskName,
+      start_date: item.startDate,
+      duration: item.duration,
+      end_date: item.endDate,
+      progress: statusToGanttProgress(status),
+      open: true,
+      readonly: true,
+      $css: statusToGanttCssClass(status)
+    };
+    if (groupBy !== "none") {
+      const label = getTasksGanttGroupLabel(item.row, groupBy);
+      const groupId = `grp_${groupBy}_${slugify(label)}_${seq++}`;
+      let group = groupMap.get(label);
+      if (!group) {
+        group = {
+          id: groupId,
+          text: label,
+          startMs: item.startDate.getTime(),
+          endMs: item.endDate.getTime(),
+          children: []
+        };
+        groupMap.set(label, group);
+      } else {
+        group.startMs = Math.min(group.startMs, item.startDate.getTime());
+        group.endMs = Math.max(group.endMs, item.endDate.getTime());
+      }
+      dataTask.parent = group.id;
+      group.children.push(dataTask);
+    } else {
+      tasks.push(dataTask);
+    }
   }
-  return ticks;
+
+  if (groupBy !== "none") {
+    Array.from(groupMap.values())
+      .sort((a, b) => a.text.localeCompare(b.text, "ru"))
+      .forEach((group) => {
+        const start = new Date(group.startMs);
+        const end = new Date(group.endMs);
+        const duration = Math.max(1, Math.floor((group.endMs - group.startMs) / dayMs) + 1);
+        tasks.push({
+          id: group.id,
+          text: group.text,
+          start_date: start,
+          duration,
+          end_date: end,
+          type: "project",
+          open: true,
+          readonly: true,
+          $css: "mb-gantt-group-row"
+        });
+        tasks.push(...group.children);
+      });
+  }
+  return tasks;
 }
 
 function renderTasksGanttHtml(entries) {
-  const dayMs = 86400000;
-  const items = entries
-    .map((entry) => {
-      const range = getTaskGanttRangeMs(entry.row);
-      if (!range) return null;
-      return { rowIndex: entry.rowIndex, row: entry.row, ...range };
-    })
-    .filter(Boolean)
-    .sort((a, b) => (a.startMs - b.startMs) || (a.endMs - b.endMs));
-  if (!items.length) {
-    return `<div class="tasks-gantt-empty">Нет задач с датами для отображения графика.</div>`;
-  }
-
-  const minMs = Math.min(...items.map((i) => i.startMs));
-  const maxMs = Math.max(...items.map((i) => i.endMs));
-  const spanDays = Math.max(1, Math.floor((maxMs - minMs) / dayMs) + 1);
-  const pxPerDay = spanDays > 180 ? 5 : spanDays > 120 ? 7 : spanDays > 80 ? 9 : 12;
-  const timelineWidth = Math.max(920, spanDays * pxPerDay + 60);
-  const monthTicks = buildTasksGanttMonthTicks(minMs, maxMs);
-  const toLeftPx = (ms) => Math.max(0, Math.round(((ms - minMs) / dayMs) * pxPerDay));
-
-  const monthLabels = monthTicks
-    .map((tick) => `<span class="tasks-gantt-month-tick" style="left:${toLeftPx(tick.ms)}px">${escapeHtmlText(tick.label)}</span>`)
+  const groupBy = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
+  const optionsHtml = TASK_GANTT_GROUP_BY_OPTIONS
+    .map((opt) => `<option value="${escapeHtmlAttr(opt.id)}" ${opt.id === groupBy ? "selected" : ""}>${escapeHtmlText(opt.label)}</option>`)
     .join("");
-  const gridLines = monthTicks
-    .map((tick) => `<span class="tasks-gantt-grid-line" style="left:${toLeftPx(tick.ms)}px"></span>`)
-    .join("");
-
-  const rowsHtml = items.map((item) => {
-    const row = item.row || [];
-    const status = String(row[TASK_COLUMNS.status] || "").trim() || "Новый";
-    const statusClass = status === "Закрыт" ? "closed" : status === "В процессе" ? "progress" : "new";
-    const idText = String(row[TASK_COLUMNS.number] || "—");
-    const taskText = String(row[TASK_COLUMNS.task] || "").trim() || "—";
-    const objectText = String(row[TASK_COLUMNS.object] || "").trim() || "—";
-    const dueText = formatStoredDateForDisplay(String(row[TASK_COLUMNS.dueDate] || "").trim()) || "—";
-    const assigneeText = String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—";
-    const left = toLeftPx(item.startMs);
-    const width = Math.max(8, Math.round(((item.endMs - item.startMs) / dayMs + 1) * pxPerDay));
-    return `
-      <div class="tasks-gantt-row" data-row-index="${item.rowIndex}">
-        <div class="tasks-gantt-meta">
-          <div class="tasks-gantt-meta-id">#${escapeHtmlText(idText)}</div>
-          <div class="tasks-gantt-meta-task" title="${escapeHtmlAttr(taskText)}">${escapeHtmlText(taskText)}</div>
-          <div class="tasks-gantt-meta-sub">${escapeHtmlText(objectText)} · ${escapeHtmlText(assigneeText)} · до ${escapeHtmlText(dueText)}</div>
-        </div>
-        <div class="tasks-gantt-track">
-          <span class="tasks-gantt-bar tasks-gantt-bar--${statusClass}" style="left:${left}px;width:${width}px" title="${escapeHtmlAttr(status)}"></span>
-        </div>
-      </div>`;
-  }).join("");
-
+  const hint = !entries.length
+    ? `<div class="tasks-gantt-empty">Нет задач по текущему фильтру.</div>`
+    : "";
   return `
-    <div class="tasks-gantt-wrap">
-      <div class="tasks-gantt-legend">
-        <span class="tasks-gantt-legend-item"><i class="tasks-gantt-dot tasks-gantt-dot--new"></i>Новый</span>
-        <span class="tasks-gantt-legend-item"><i class="tasks-gantt-dot tasks-gantt-dot--progress"></i>В процессе</span>
-        <span class="tasks-gantt-legend-item"><i class="tasks-gantt-dot tasks-gantt-dot--closed"></i>Закрыт</span>
+    <div class="tasks-gantt-modern-wrap">
+      <div class="tasks-gantt-modern-toolbar">
+        <label class="tasks-gantt-groupby-field">
+          <span>Группировка</span>
+          <select id="tasksGanttGroupBySelect">${optionsHtml}</select>
+        </label>
       </div>
-      <div class="tasks-gantt-scroll">
-        <div class="tasks-gantt-timeline" style="--tasks-gantt-width:${timelineWidth}px">
-          <div class="tasks-gantt-months">${monthLabels}</div>
-          <div class="tasks-gantt-grid">${gridLines}</div>
-          <div class="tasks-gantt-rows">${rowsHtml}</div>
-        </div>
-      </div>
+      ${hint}
+      <div id="tasksGanttChart" class="tasks-gantt-modern-chart ${entries.length ? "" : "hidden"}" aria-label="Диаграмма Ганта"></div>
     </div>`;
+}
+
+function mountTasksGanttChart(entries) {
+  const root = document.getElementById("tasksGanttChart");
+  if (!root) return;
+  const groupBy = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
+  const data = buildTasksGanttDataset(entries, groupBy);
+  if (!window.gantt || typeof window.gantt.init !== "function") {
+    root.innerHTML = `<div class="tasks-gantt-empty">Библиотека Ганта не загружена. Обновите страницу.</div>`;
+    return;
+  }
+  const gantt = window.gantt;
+  gantt.plugins({ tooltip: true, marker: true });
+  gantt.config.readonly = true;
+  gantt.config.drag_move = false;
+  gantt.config.drag_resize = false;
+  gantt.config.drag_progress = false;
+  gantt.config.details_on_dblclick = false;
+  gantt.config.select_task = false;
+  gantt.config.autosize = false;
+  gantt.config.row_height = 36;
+  gantt.config.grid_width = 420;
+  gantt.config.scale_height = 44;
+  gantt.config.columns = [
+    { name: "sourceTaskId", label: "ID", width: 60, align: "center", template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.sourceTaskId || ""))) },
+    { name: "text", label: "Задача", tree: true, width: 170, template: (task) => escapeHtmlText(String(task.text || "")) },
+    { name: "start_date", label: "Начало", align: "center", width: 95, template: (task) => formatGanttDateLabel(task.start_date) },
+    { name: "end_date", label: "Конец", align: "center", width: 95, template: (task) => formatGanttDateLabel(task.end_date) }
+  ];
+  gantt.config.scales = [
+    { unit: "month", step: 1, format: "%F %Y" },
+    { unit: "day", step: 1, format: "%d" }
+  ];
+  gantt.templates.task_class = (_start, _end, task) => String(task?.$css || "");
+  gantt.templates.grid_row_class = (_start, _end, task) => (task?.type === "project" ? "mb-gantt-grid-group" : "");
+  gantt.templates.task_row_class = (_start, _end, task) => (task?.type === "project" ? "mb-gantt-timeline-group" : "");
+  gantt.templates.tooltip_text = (start, end, task) => {
+    if (task?.type === "project") return `<b>${escapeHtmlText(String(task.text || ""))}</b>`;
+    const startText = formatGanttDateLabel(start);
+    const endText = formatGanttDateLabel(new Date(end.getTime() - 86400000));
+    return `<b>ID:</b> ${escapeHtmlText(String(task.sourceTaskId || ""))}<br/><b>Задача:</b> ${escapeHtmlText(String(task.text || ""))}<br/><b>Начало:</b> ${startText}<br/><b>Конец:</b> ${endText}`;
+  };
+  try {
+    gantt.clearAll();
+    gantt.init(root);
+    gantt.parse({ data });
+    const today = new Date();
+    if (window._mbcTasksGanttTodayMarkerId != null) {
+      try {
+        gantt.deleteMarker(window._mbcTasksGanttTodayMarkerId);
+      } catch (_) {
+        /* noop */
+      }
+    }
+    window._mbcTasksGanttTodayMarkerId = gantt.addMarker({
+      start_date: today,
+      css: "mb-gantt-today-marker",
+      text: "Сегодня"
+    });
+    gantt.updateMarker(window._mbcTasksGanttTodayMarkerId);
+  } catch (error) {
+    root.innerHTML = `<div class="tasks-gantt-empty">Не удалось отрисовать график: ${escapeHtmlText(String(error?.message || error))}</div>`;
+  }
 }
 
 function renderReportsPanel() {
@@ -7356,7 +7491,6 @@ function renderTasksScreenModeSwitch(section) {
     : "flat";
   return `
     <div class="tasks-screen-switch-row">
-      <span class="tasks-screen-switch-label">Сводная / Объект / График</span>
       <div class="tasks-segment-group" role="radiogroup" aria-label="Переключение вида задач">
         <label class="tasks-segment">
           <input type="radio" name="tasksQuickBrowseMode" value="flat" ${mode === "flat" ? "checked" : ""} />
@@ -11167,6 +11301,7 @@ function restoreDisplaySettings() {
     ) {
       displaySettings.tasksListBrowseMode = "flat";
     }
+    displaySettings.tasksGanttGroupBy = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
     let tps = Number(displaySettings.tasksListPageSize);
     if (!Number.isFinite(tps)) tps = 50;
     displaySettings.tasksListPageSize = Math.min(500, Math.max(5, Math.floor(tps)));

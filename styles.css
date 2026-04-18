@@ -4269,6 +4269,104 @@ body.shared-report-mode .sidebar {
   overflow: hidden;
 }
 
+.table-card--tasks-gantt .tasks-screen-switch-row {
+  justify-content: flex-end;
+}
+
+.tasks-gantt-modern-wrap {
+  margin-top: 8px;
+}
+
+.tasks-gantt-modern-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin: 0 0 10px;
+}
+
+.tasks-gantt-groupby-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tasks-gantt-groupby-field select {
+  min-width: 220px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: #fff;
+  color: #1e293b;
+}
+
+.tasks-gantt-modern-chart {
+  height: calc(100vh - 270px);
+  min-height: 420px;
+  max-height: 760px;
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.gantt_grid_scale,
+.gantt_task_scale {
+  background: #f5f8fc;
+  border-color: #dbe3ef !important;
+}
+
+.gantt_grid_head_cell,
+.gantt_scale_cell {
+  font-weight: 600;
+  color: #475569;
+}
+
+.mb-gantt-status-new .gantt_task_content {
+  background: linear-gradient(90deg, #9fb0f2 0%, #7c8fe0 100%);
+}
+
+.mb-gantt-status-progress .gantt_task_content {
+  background: linear-gradient(90deg, #f0ca91 0%, #e6b56b 100%);
+}
+
+.mb-gantt-status-closed .gantt_task_content {
+  background: linear-gradient(90deg, #86c9a1 0%, #56b07a 100%);
+}
+
+.mb-gantt-status-new .gantt_task_progress {
+  background: rgba(92, 107, 192, 0.35);
+}
+
+.mb-gantt-status-progress .gantt_task_progress {
+  background: rgba(184, 130, 52, 0.35);
+}
+
+.mb-gantt-status-closed .gantt_task_progress {
+  background: rgba(26, 126, 78, 0.35);
+}
+
+.mb-gantt-group-row .gantt_task_content {
+  background: #94a3b8;
+}
+
+.mb-gantt-grid-group .gantt_cell,
+.mb-gantt-grid-group .gantt_tree_content {
+  font-weight: 700;
+  color: #334155;
+  background: #f8fafc;
+}
+
+.mb-gantt-timeline-group {
+  background: rgba(241, 245, 249, 0.55);
+}
+
+.mb-gantt-today-marker {
+  background: rgba(99, 102, 241, 0.2);
+}
+
 .tasks-gantt-wrap {
   margin-top: 8px;
 }
