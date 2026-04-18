@@ -4294,7 +4294,7 @@ function renderReportChartTileFragment(id, opts = {}) {
     status: `<h4>По статусам</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartStatus"></canvas></div>`,
     priority: `<h4>По приоритету</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartPriority"></canvas></div>`,
     priorityDonut: `<h4>Приоритеты</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartPriorityDonut"></canvas></div>`,
-    delayReason: `<h4>Причины отставаний</h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartDelayReasonWrap"><canvas id="reportChartDelayReason"></canvas></div>`,
+    delayReason: `<h4>Причины отставаний <span class="report-tile-note">(по статусам)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartDelayReasonWrap"><canvas id="reportChartDelayReason"></canvas></div>`,
     delayReasonDonut: `<h4>Причины отставаний</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartDelayReasonDonut"></canvas></div>`,
     months: `<h4>Добавлено и закрыто по месяцам <span class="report-tile-year">${new Date().getFullYear()}</span></h4><div class="report-canvas-wrap report-canvas-tall"><canvas id="reportChartMonths"></canvas></div>`,
     overdue: `<h4>Просроченные задачи <span class="report-tile-note">(по объектам, топ)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartOverdueWrap"><canvas id="reportChartOverdue"></canvas></div>`,
@@ -5176,6 +5176,7 @@ function buildTaskReportStats(rows) {
   const phaseStatusMap = new Map();
   const phaseSectionStatusMap = new Map();
   const phaseSubsectionStatusMap = new Map();
+  const delayReasonStatusMap = new Map();
 
   rows.forEach((row) => {
     const st = String(row[TASK_COLUMNS.status] || "").trim() || REPORT_NO_STATUS_LABEL;
@@ -5201,6 +5202,14 @@ function buildTaskReportStats(rows) {
     const delayReason = String(row[TASK_COLUMNS.delayReason] || "").trim();
     if (delayReason) {
       delayReasonCounts[delayReason] = (delayReasonCounts[delayReason] || 0) + 1;
+      if (STATUS_OPTIONS.includes(st)) {
+        if (!delayReasonStatusMap.has(delayReason)) {
+          const o = {};
+          for (const stName of STATUS_OPTIONS) o[stName] = 0;
+          delayReasonStatusMap.set(delayReason, o);
+        }
+        delayReasonStatusMap.get(delayReason)[st] += 1;
+      }
     }
 
     const addD = String(row[TASK_COLUMNS.addedDate] || "").trim();
@@ -5318,6 +5327,7 @@ function buildTaskReportStats(rows) {
   const phaseStacked = buildStatusStacked(phaseStatusMap, "ph", 10);
   const phaseSectionStacked = buildStatusStacked(phaseSectionStatusMap, "phsec");
   const phaseSubsectionStacked = buildStatusStacked(phaseSubsectionStatusMap, "phsub");
+  const delayReasonStacked = buildStatusStacked(delayReasonStatusMap, "delay");
 
   return {
     statusCounts,
@@ -5338,6 +5348,7 @@ function buildTaskReportStats(rows) {
     phaseStacked,
     phaseSectionStacked,
     phaseSubsectionStacked,
+    delayReasonStacked,
     total: rows.length
   };
 }
@@ -6359,46 +6370,11 @@ function attachReportCharts() {
   }
 
   const wrapDelayReason = document.getElementById("reportChartDelayReasonWrap");
-  const nDelayReason = drLabels.length || 1;
+  const delayReasonStack = s.delayReasonStacked;
+  const nDelayReason = delayReasonStack?.labels?.length || 1;
   setReportScrollableChartHeight(wrapDelayReason, nDelayReason, { maxPx: 900, minPx: 240, rowPx: 24 });
   const ctxDelayReason = document.getElementById("reportChartDelayReason");
-  if (ctxDelayReason) {
-    reportChartInstances.push(
-      new Chart(ctxDelayReason, {
-        type: "bar",
-        data: {
-          labels: drLabels,
-          datasets: [
-            {
-              label: "Задач",
-              data: drData,
-              backgroundColor: (context) => reportBarGradientHorizontal(context.chart, colorRot(context.dataIndex + 6))
-            }
-          ]
-        },
-        options: {
-          ...common,
-          ...REPORT_HBAR_OPTIONS_THIN,
-          indexAxis: "y",
-          scales: {
-            x: { ...REPORT_HBAR_SCALE_X },
-            y: {
-              ticks: {
-                autoSkip: false,
-                font: { size: nDelayReason > 45 ? 8 : nDelayReason > 25 ? 10 : 11 }
-              }
-            }
-          },
-          plugins: {
-            legend: {
-              ...barLegendRightWithCount
-            },
-            datalabels: hasDl ? makeDlBarHLong(nDelayReason) : { display: false }
-          }
-        }
-      })
-    );
-  }
+  renderStatusStackedHBar(ctxDelayReason, delayReasonStack, nDelayReason, (n) => (n > 45 ? 8 : n > 25 ? 10 : 11));
 
   const phaseSectionDonutSeries = makeDonutSeries(s.phaseSectionAll, 1);
   const ctxPhaseSectionDonut = document.getElementById("reportChartPhaseSectionDonut");
