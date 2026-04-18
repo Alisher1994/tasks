@@ -9187,7 +9187,7 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
     phase: String(taskRow[TASK_COLUMNS.phase] || "").trim(),
     section: String(taskRow[TASK_COLUMNS.phaseSection] || "").trim(),
     subsection: String(taskRow[TASK_COLUMNS.phaseSubsection] || "").trim(),
-    responsible: String(taskRow[TASK_COLUMNS.assignedResponsible] || "").trim()
+    responsibleList: parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible])
   };
 
   overlay.innerHTML = `
@@ -9207,7 +9207,7 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
           <div class="task-hierarchy-list" data-task-hierarchy-list="subsection"></div>
         </div>
         <div class="task-hierarchy-pane">
-          <div class="task-hierarchy-pane-title">Ответственный</div>
+          <div class="task-hierarchy-pane-title">Ответственный (мультивыбор)</div>
           <div class="task-hierarchy-list" data-task-hierarchy-list="responsible"></div>
         </div>
       </div>
@@ -9237,7 +9237,11 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
     }
     el.innerHTML = list
       .map((v) => `
-        <button type="button" class="task-hierarchy-item ${v === selectedValue ? "is-selected" : ""}" data-task-hierarchy-item="${escapeHtmlAttr(levelKey)}" data-value="${escapeHtmlAttr(v)}">${escapeHtmlText(v)}</button>
+        <button type="button" class="task-hierarchy-item ${
+          Array.isArray(selectedValue)
+            ? selectedValue.includes(v) ? "is-selected" : ""
+            : v === selectedValue ? "is-selected" : ""
+        }" data-task-hierarchy-item="${escapeHtmlAttr(levelKey)}" data-value="${escapeHtmlAttr(v)}">${escapeHtmlText(v)}</button>
       `)
       .join("");
   };
@@ -9252,8 +9256,8 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
     fillList(subsectionList, subsectionOptions, state.subsection, "subsection");
     const responsibleOptions = getResponsibleByHierarchy(state.phase, state.section, state.subsection);
     const responsibleList = responsibleOptions.length ? responsibleOptions : employees;
-    if (!responsibleList.includes(state.responsible)) state.responsible = "";
-    fillList(respList, responsibleList, state.responsible, "responsible");
+    state.responsibleList = state.responsibleList.filter((name) => responsibleList.includes(name));
+    fillList(respList, responsibleList, state.responsibleList, "responsible");
   };
 
   overlay.addEventListener("click", (event) => {
@@ -9272,16 +9276,20 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
       state.phase = value;
       state.section = "";
       state.subsection = "";
-      state.responsible = "";
+      state.responsibleList = [];
     } else if (level === "section") {
       state.section = value;
       state.subsection = "";
-      state.responsible = "";
+      state.responsibleList = [];
     } else if (level === "subsection") {
       state.subsection = value;
-      state.responsible = "";
+      state.responsibleList = [];
     } else if (level === "responsible") {
-      state.responsible = value;
+      if (state.responsibleList.includes(value)) {
+        state.responsibleList = state.responsibleList.filter((x) => x !== value);
+      } else {
+        state.responsibleList = [...state.responsibleList, value];
+      }
     }
     refreshCascade();
   });
@@ -9290,7 +9298,7 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
     state.phase = "";
     state.section = "";
     state.subsection = "";
-    state.responsible = "";
+    state.responsibleList = [];
     refreshCascade();
   });
   cancelBtn?.addEventListener("click", () => {
@@ -9302,7 +9310,7 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
       phase: state.phase,
       section: state.section,
       subsection: state.subsection,
-      responsible: state.responsible
+      responsible: state.responsibleList.join(", ")
     });
     overlay.remove();
     renderTablePreserveScroll();
