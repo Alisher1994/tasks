@@ -4306,13 +4306,49 @@ body.shared-report-mode .sidebar {
 }
 
 .tasks-gantt-modern-chart {
-  height: calc(100vh - 270px);
-  min-height: 420px;
-  max-height: 760px;
+  height: calc(100vh - 200px);
+  min-height: 520px;
+  max-height: 860px;
   border: 1px solid #dbe3ef;
   border-radius: 10px;
   overflow: hidden;
   background: #fff;
+}
+
+.tasks-gantt-modern-chart .gantt_hor_scroll,
+.tasks-gantt-modern-chart .gantt_ver_scroll {
+  background: #eef2f7 !important;
+  scrollbar-color: #9fb2cc #e6edf6;
+  scrollbar-width: auto;
+}
+
+.tasks-gantt-modern-chart .gantt_hor_scroll .gantt_layout_cell,
+.tasks-gantt-modern-chart .gantt_ver_scroll .gantt_layout_cell {
+  background: #eef2f7 !important;
+}
+
+.tasks-gantt-modern-chart .gantt_hor_scroll::-webkit-scrollbar,
+.tasks-gantt-modern-chart .gantt_ver_scroll::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.tasks-gantt-modern-chart .gantt_hor_scroll::-webkit-scrollbar-track,
+.tasks-gantt-modern-chart .gantt_ver_scroll::-webkit-scrollbar-track {
+  background: #e6edf6;
+  border-radius: 999px;
+}
+
+.tasks-gantt-modern-chart .gantt_hor_scroll::-webkit-scrollbar-thumb,
+.tasks-gantt-modern-chart .gantt_ver_scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #b8c5d9 0%, #9fb2cc 100%);
+  border-radius: 999px;
+  border: 2px solid #e6edf6;
+}
+
+.tasks-gantt-modern-chart .gantt_hor_scroll::-webkit-scrollbar-thumb:hover,
+.tasks-gantt-modern-chart .gantt_ver_scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #a9b9d1 0%, #8ea4c3 100%);
 }
 
 .gantt_grid_scale,
