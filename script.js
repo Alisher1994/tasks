@@ -5512,6 +5512,28 @@ function formatGanttDateLabel(date) {
   return formatStoredDateForDisplay(formatDatePartsStorage(date.getDate(), date.getMonth() + 1, date.getFullYear()));
 }
 
+const GANTT_MONTHS_SHORT_RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+
+function formatGanttScaleDayLongRu(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = GANTT_MONTHS_SHORT_RU[date.getMonth()] || "";
+  const yyyy = String(date.getFullYear());
+  return `${dd} ${mm} ${yyyy}`;
+}
+
+function formatGanttScaleDayShortRu(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = GANTT_MONTHS_SHORT_RU[date.getMonth()] || "";
+  return `${dd} ${mm}`;
+}
+
+function formatGanttScaleMonthShortRu(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  return GANTT_MONTHS_SHORT_RU[date.getMonth()] || "";
+}
+
 function buildTasksGanttDataset(entries, groupBy) {
   const dayMs = 86400000;
   const tasks = [];
@@ -5667,18 +5689,18 @@ function mountTasksGanttChart(entries) {
   const scaleMode = normalizeTasksGanttScale(displaySettings.tasksGanttScale);
   if (scaleMode === "day") {
     gantt.config.scales = [
-      { unit: "day", step: 1, format: "%d %M %Y" },
+      { unit: "day", step: 1, format: (date) => formatGanttScaleDayLongRu(date) },
       { unit: "hour", step: 6, format: "%H:%i" }
     ];
   } else if (scaleMode === "month") {
     gantt.config.scales = [
       { unit: "week", step: 1, format: "Неделя %W" },
-      { unit: "day", step: 1, format: "%d %M" }
+      { unit: "day", step: 1, format: (date) => formatGanttScaleDayShortRu(date) }
     ];
   } else if (scaleMode === "year") {
     gantt.config.scales = [
       { unit: "year", step: 1, format: "%Y" },
-      { unit: "month", step: 1, format: "%M" }
+      { unit: "month", step: 1, format: (date) => formatGanttScaleMonthShortRu(date) }
     ];
   }
   gantt.templates.task_class = (_start, _end, task) => String(task?.$css || "");
