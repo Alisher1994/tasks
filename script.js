@@ -5564,6 +5564,44 @@ function attachReportCharts() {
       }
     }
   };
+  const barLegendRightWithCount = {
+    display: true,
+    position: "right",
+    align: "center",
+    labels: {
+      boxWidth: 10,
+      boxHeight: 10,
+      padding: 10,
+      usePointStyle: true,
+      font: { size: 11 },
+      generateLabels: (chart) => {
+        const datasets = Array.isArray(chart?.data?.datasets) ? chart.data.datasets : [];
+        return datasets.map((dataset, datasetIndex) => {
+          const values = Array.isArray(dataset?.data) ? dataset.data : [];
+          const total = values.reduce((sum, value) => sum + (Number(value) || 0), 0);
+          const meta = chart.getDatasetMeta(datasetIndex);
+          const style = meta?.controller?.getStyle ? meta.controller.getStyle(0) : {};
+          const fillFallback = Array.isArray(dataset?.backgroundColor) ? dataset.backgroundColor[0] : dataset?.backgroundColor;
+          const fillStyle = style?.backgroundColor || fillFallback || "#94a3b8";
+          return {
+            text: `${String(dataset?.label || `Серия ${datasetIndex + 1}`)}: ${Math.round(total)}`,
+            fillStyle,
+            strokeStyle: style?.borderColor || fillStyle,
+            hidden: !chart.isDatasetVisible(datasetIndex),
+            datasetIndex,
+            pointStyle: "circle"
+          };
+        });
+      }
+    },
+    onClick: (_event, item, legend) => {
+      const chart = legend?.chart;
+      const dsIndex = Number(item?.datasetIndex);
+      if (!chart || !Number.isFinite(dsIndex)) return;
+      chart.setDatasetVisibility(dsIndex, !chart.isDatasetVisible(dsIndex));
+      chart.update();
+    }
+  };
 
   const stSorted = sortStatusEntriesForChart(s.statusCounts).filter((x) => x[1] > 0);
   const stLabelsFinal = stSorted.length ? stSorted.map((x) => x[0]) : ["Нет данных"];
@@ -5666,7 +5704,9 @@ function attachReportCharts() {
             y: { beginAtZero: true, ticks: { precision: 0 }, ...REPORT_VALUE_AXIS_GRACE }
           },
           plugins: {
-            legend: { display: false },
+            legend: {
+              ...barLegendRightWithCount
+            },
             datalabels: hasDl ? { ...dlBarV, display: true } : { display: false }
           }
         }
@@ -5782,7 +5822,9 @@ function attachReportCharts() {
             }
           },
           plugins: {
-            legend: { display: false },
+            legend: {
+              ...barLegendRightWithCount
+            },
             datalabels: hasDl ? makeDlBarHLong(nOv) : { display: false }
           }
         }
@@ -5843,9 +5885,7 @@ function attachReportCharts() {
           },
           plugins: {
             legend: {
-              display: true,
-              position: "top",
-              labels: { usePointStyle: true, padding: 12, font: { size: 11 } }
+              ...barLegendRightWithCount
             },
             datalabels: dlStacked
           }
@@ -6029,9 +6069,7 @@ function attachReportCharts() {
           },
           plugins: {
             legend: {
-              display: true,
-              position: "top",
-              labels: { usePointStyle: true, padding: 12, font: { size: 11 } }
+              ...barLegendRightWithCount
             },
             datalabels: dlDeptStacked
           }
@@ -6093,9 +6131,7 @@ function attachReportCharts() {
           },
           plugins: {
             legend: {
-              display: true,
-              position: "top",
-              labels: { usePointStyle: true, padding: 12, font: { size: 11 } }
+              ...barLegendRightWithCount
             },
             datalabels: dlRespStacked
           }
@@ -7089,6 +7125,12 @@ function isMediaColumn(colIndex) {
 function isReadonlyColumn(section, colIndex) {
   // Системный ID/№ всегда только для чтения.
   if (colIndex === 0 || isMediaColumn(colIndex)) {
+    return true;
+  }
+  if (
+    section.id === "tasks" &&
+    (colIndex === TASK_COLUMNS.closedDate || colIndex === TASK_COLUMNS.readState || colIndex === TASK_COLUMNS.lastSentAt)
+  ) {
     return true;
   }
   if (section.id === "employees" && (colIndex === EMPLOYEE_COLUMNS.chatId || colIndex === EMPLOYEE_COLUMNS.activity)) {
@@ -8153,7 +8195,7 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
     );
     return;
   }
-  if (section.id === "tasks" && (colIndex === TASK_COLUMNS.addedDate || colIndex === TASK_COLUMNS.dueDate || colIndex === TASK_COLUMNS.closedDate)) {
+  if (section.id === "tasks" && (colIndex === TASK_COLUMNS.addedDate || colIndex === TASK_COLUMNS.dueDate)) {
     openDatePickerModal(
       "Выбор даты",
       row[colIndex],
@@ -8520,7 +8562,7 @@ function buildEditor(section, rowIndex, colIndex, currentValue) {
     if (colIndex === TASK_COLUMNS.priority) {
       return createSelectEditor(PRIORITY_OPTIONS, currentValue);
     }
-    if (colIndex === TASK_COLUMNS.addedDate || colIndex === TASK_COLUMNS.dueDate || colIndex === TASK_COLUMNS.closedDate) {
+    if (colIndex === TASK_COLUMNS.addedDate || colIndex === TASK_COLUMNS.dueDate) {
       return createDateEditor(currentValue);
     }
   }
