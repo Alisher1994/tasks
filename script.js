@@ -5667,6 +5667,11 @@ function mountTasksGanttChart(entries) {
   const scaleMode = normalizeTasksGanttScale(displaySettings.tasksGanttScale);
   if (scaleMode === "day") {
     gantt.config.scales = [
+      { unit: "day", step: 1, format: "%d %M %Y" },
+      { unit: "hour", step: 6, format: "%H:%i" }
+    ];
+  } else if (scaleMode === "month") {
+    gantt.config.scales = [
       { unit: "week", step: 1, format: "Неделя %W" },
       { unit: "day", step: 1, format: "%d %M" }
     ];
@@ -5674,11 +5679,6 @@ function mountTasksGanttChart(entries) {
     gantt.config.scales = [
       { unit: "year", step: 1, format: "%Y" },
       { unit: "month", step: 1, format: "%M" }
-    ];
-  } else {
-    gantt.config.scales = [
-      { unit: "month", step: 1, format: "%F %Y" },
-      { unit: "day", step: 1, format: "%d" }
     ];
   }
   gantt.templates.task_class = (_start, _end, task) => String(task?.$css || "");
