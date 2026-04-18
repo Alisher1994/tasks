@@ -4239,8 +4239,10 @@ body.shared-report-mode .sidebar {
 .tasks-screen-switch-left {
   display: flex;
   align-items: center;
+  gap: 10px;
   min-height: 36px;
   flex: 1 1 260px;
+  flex-wrap: wrap;
 }
 
 .tasks-screen-switch-group {
@@ -4248,6 +4250,15 @@ body.shared-report-mode .sidebar {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+}
+
+.tasks-gantt-scale-group {
+  flex-shrink: 0;
+}
+
+.tasks-gantt-scale-group .tasks-segment span {
+  min-width: 58px;
+  text-align: center;
 }
 
 .tasks-screen-switch-label {

@@ -2398,6 +2398,7 @@ const STATUS_TABS = [
   { id: "trash", label: "Корзина" }
 ];
 const TASK_GANTT_GROUP_BY_OPTIONS = [
+  { id: "status", label: "По статусу" },
   { id: "none", label: "Без группировки" },
   { id: "object", label: "По объекту" },
   { id: "assignee", label: "По ответственному" },
@@ -2406,6 +2407,11 @@ const TASK_GANTT_GROUP_BY_OPTIONS = [
   { id: "subsection", label: "По подразделу" },
   { id: "overdue", label: "По просроченности" },
   { id: "priority", label: "По приоритету" }
+];
+const TASK_GANTT_SCALE_OPTIONS = [
+  { id: "day", label: "День" },
+  { id: "month", label: "Месяц" },
+  { id: "year", label: "Год" }
 ];
 const TASK_IMPORT_COLUMNS = [
   { key: "object", label: "Название объекта", aliases: ["Название объекта", "Объект"] },
@@ -2763,8 +2769,10 @@ let displaySettings = {
   tasksListPageSize: 50,
   /** flat | byObject | graph — таблица / выбор объекта / диаграмма Ганта */
   tasksListBrowseMode: "flat",
-  /** none | object | assignee | phase | section | subsection */
-  tasksGanttGroupBy: "none"
+  /** status | none | object | assignee | phase | section | subsection | overdue | priority */
+  tasksGanttGroupBy: "status",
+  /** day | month | year */
+  tasksGanttScale: "month"
 };
 let taskMultiState = {};
 const expandedTaskAssigneeRows = new Set();
@@ -3618,7 +3626,15 @@ function renderTable() {
         const curLabel = TASK_GANTT_GROUP_BY_OPTIONS.find((x) => x.id === curId)?.label || labels[0] || "";
         openSingleLookupModal("Группировка Ганта", labels, curLabel, (nextLabel) => {
           const picked = TASK_GANTT_GROUP_BY_OPTIONS.find((x) => x.label === String(nextLabel || "").trim());
-          displaySettings.tasksGanttGroupBy = normalizeTasksGanttGroupBy(picked?.id || "none");
+          displaySettings.tasksGanttGroupBy = normalizeTasksGanttGroupBy(picked?.id || "status");
+          saveDisplaySettings();
+          renderTablePreserveScroll();
+        });
+      });
+      Array.from(document.querySelectorAll('input[name="tasksGanttScaleMode"]')).forEach((input) => {
+        input.addEventListener("change", () => {
+          const val = input.value === "day" || input.value === "month" || input.value === "year" ? input.value : "month";
+          displaySettings.tasksGanttScale = normalizeTasksGanttScale(val);
           saveDisplaySettings();
           renderTablePreserveScroll();
         });
@@ -5441,10 +5457,16 @@ function getTaskGanttRangeMs(row) {
 
 function normalizeTasksGanttGroupBy(value) {
   const v = String(value || "").trim();
-  return TASK_GANTT_GROUP_BY_OPTIONS.some((x) => x.id === v) ? v : "none";
+  return TASK_GANTT_GROUP_BY_OPTIONS.some((x) => x.id === v) ? v : "status";
+}
+
+function normalizeTasksGanttScale(value) {
+  const v = String(value || "").trim();
+  return TASK_GANTT_SCALE_OPTIONS.some((x) => x.id === v) ? v : "month";
 }
 
 function getTasksGanttGroupLabel(row, groupBy) {
+  if (groupBy === "status") return String(row?.[TASK_COLUMNS.status] || "").trim() || "— без статуса —";
   if (groupBy === "object") return String(row?.[TASK_COLUMNS.object] || "").trim() || "— без объекта —";
   if (groupBy === "assignee") return String(row?.[TASK_COLUMNS.assignedResponsible] || "").trim() || "— не назначен —";
   if (groupBy === "phase") return String(row?.[TASK_COLUMNS.phase] || "").trim() || "— без фазы —";
@@ -5626,8 +5648,8 @@ function mountTasksGanttChart(entries) {
     { name: "text", label: "Задача", tree: true, width: 215, template: (task) => escapeHtmlText(String(task.text || "")) },
     { name: "responsible", label: "Ответственный", align: "left", width: 140, template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.responsible || "—"))) },
     { name: "priority", label: "Приоритет", align: "center", width: 95, template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.priority || "—"))) },
-    { name: "start_date", label: "Начало", align: "center", width: 105, template: (task) => formatGanttDateLabel(task.start_date) },
-    { name: "end_date", label: "Конец", align: "center", width: 105, template: (task) => formatGanttDateLabel(task.end_date) },
+    { name: "start_date", label: "Начало", align: "center", width: 120, template: (task) => formatGanttDateLabel(task.start_date) },
+    { name: "end_date", label: "Конец", align: "center", width: 120, template: (task) => formatGanttDateLabel(task.end_date) },
     {
       name: "due_state",
       label: "Срок",
@@ -5642,10 +5664,23 @@ function mountTasksGanttChart(entries) {
       }
     }
   ];
-  gantt.config.scales = [
-    { unit: "month", step: 1, format: "%F %Y" },
-    { unit: "day", step: 1, format: "%d" }
-  ];
+  const scaleMode = normalizeTasksGanttScale(displaySettings.tasksGanttScale);
+  if (scaleMode === "day") {
+    gantt.config.scales = [
+      { unit: "week", step: 1, format: "Неделя %W" },
+      { unit: "day", step: 1, format: "%d %M" }
+    ];
+  } else if (scaleMode === "year") {
+    gantt.config.scales = [
+      { unit: "year", step: 1, format: "%Y" },
+      { unit: "month", step: 1, format: "%M" }
+    ];
+  } else {
+    gantt.config.scales = [
+      { unit: "month", step: 1, format: "%F %Y" },
+      { unit: "day", step: 1, format: "%d" }
+    ];
+  }
   gantt.templates.task_class = (_start, _end, task) => String(task?.$css || "");
   gantt.templates.grid_row_class = (_start, _end, task) => (task?.type === "project" ? "mb-gantt-grid-group" : "");
   gantt.templates.task_row_class = (_start, _end, task) => (task?.type === "project" ? "mb-gantt-timeline-group" : "");
@@ -7540,13 +7575,25 @@ function renderTasksScreenModeSwitch(section) {
     ? displaySettings.tasksListBrowseMode
     : "flat";
   const groupBy = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
+  const scale = normalizeTasksGanttScale(displaySettings.tasksGanttScale);
   const groupByLabel = TASK_GANTT_GROUP_BY_OPTIONS.find((opt) => opt.id === groupBy)?.label || "Без группировки";
   const leftControls = mode === "graph"
     ? `<div class="tasks-screen-switch-left">
-        <label class="tasks-gantt-groupby-field">
-          <span>Группировка</span>
-          <button type="button" class="tasks-gantt-groupby-btn" id="tasksGanttGroupByBtn" title="Выбрать группировку">${escapeHtmlText(groupByLabel)}</button>
-        </label>
+        <div class="tasks-segment-group tasks-gantt-scale-group" role="radiogroup" aria-label="Масштаб графика">
+          <label class="tasks-segment">
+            <input type="radio" name="tasksGanttScaleMode" value="day" ${scale === "day" ? "checked" : ""} />
+            <span>День</span>
+          </label>
+          <label class="tasks-segment">
+            <input type="radio" name="tasksGanttScaleMode" value="month" ${scale === "month" ? "checked" : ""} />
+            <span>Месяц</span>
+          </label>
+          <label class="tasks-segment">
+            <input type="radio" name="tasksGanttScaleMode" value="year" ${scale === "year" ? "checked" : ""} />
+            <span>Год</span>
+          </label>
+        </div>
+        <button type="button" class="tasks-gantt-groupby-btn" id="tasksGanttGroupByBtn" title="Выбрать группировку">${escapeHtmlText(groupByLabel)}</button>
       </div>`
     : `<div class="tasks-screen-switch-left"></div>`;
   return `
@@ -11365,6 +11412,7 @@ function restoreDisplaySettings() {
       displaySettings.tasksListBrowseMode = "flat";
     }
     displaySettings.tasksGanttGroupBy = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
+    displaySettings.tasksGanttScale = normalizeTasksGanttScale(displaySettings.tasksGanttScale);
     let tps = Number(displaySettings.tasksListPageSize);
     if (!Number.isFinite(tps)) tps = 50;
     displaySettings.tasksListPageSize = Math.min(500, Math.max(5, Math.floor(tps)));
