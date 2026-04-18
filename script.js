@@ -8003,16 +8003,31 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
     return;
   }
   if (section.id === "tasks" && colIndex === TASK_COLUMNS.phase) {
-    openSingleLookupModal(
-      "Выбор фазы",
-      getUniqueValues(getSectionById("phases")?.rows || [], 1),
-      row[TASK_COLUMNS.phase],
-      (value) => {
-        row[TASK_COLUMNS.phase] = value;
-        normalizeRowAfterEdit(section, rowIndex, colIndex);
-      },
-      taskHistoryCtx(section, rowIndex, colIndex)
-    );
+    openTaskHierarchyQuickSelectModal(row, (next) => {
+      const prev = {
+        phase: String(row[TASK_COLUMNS.phase] || "").trim(),
+        section: String(row[TASK_COLUMNS.phaseSection] || "").trim(),
+        subsection: String(row[TASK_COLUMNS.phaseSubsection] || "").trim(),
+        responsible: String(row[TASK_COLUMNS.assignedResponsible] || "").trim()
+      };
+      row[TASK_COLUMNS.phase] = String(next.phase || "").trim();
+      row[TASK_COLUMNS.phaseSection] = String(next.section || "").trim();
+      row[TASK_COLUMNS.phaseSubsection] = String(next.subsection || "").trim();
+      row[TASK_COLUMNS.assignedResponsible] = String(next.responsible || "").trim();
+      cleanupTaskMultiStateForRow(row);
+      if (
+        prev.phase !== row[TASK_COLUMNS.phase]
+        || prev.section !== row[TASK_COLUMNS.phaseSection]
+        || prev.subsection !== row[TASK_COLUMNS.phaseSubsection]
+        || prev.responsible !== row[TASK_COLUMNS.assignedResponsible]
+      ) {
+        appendTaskHistoryEntry(
+          String(row[TASK_COLUMNS.number] || ""),
+          `Быстрый выбор: Фаза «${shortenHistorySnippet(prev.phase)}» → «${shortenHistorySnippet(row[TASK_COLUMNS.phase])}», Раздел «${shortenHistorySnippet(prev.section)}» → «${shortenHistorySnippet(row[TASK_COLUMNS.phaseSection])}», Подраздел «${shortenHistorySnippet(prev.subsection)}» → «${shortenHistorySnippet(row[TASK_COLUMNS.phaseSubsection])}», Ответственный «${shortenHistorySnippet(prev.responsible)}» → «${shortenHistorySnippet(row[TASK_COLUMNS.assignedResponsible])}»`
+        );
+      }
+      saveSectionsData();
+    });
     return;
   }
   if (section.id === "tasks" && colIndex === TASK_COLUMNS.object) {
@@ -8023,7 +8038,8 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
       (value) => {
         row[TASK_COLUMNS.object] = value;
       },
-      taskHistoryCtx(section, rowIndex, colIndex)
+      taskHistoryCtx(section, rowIndex, colIndex),
+      { allowClear: true }
     );
     return;
   }
@@ -8036,7 +8052,8 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
         row[TASK_COLUMNS.phaseSection] = value;
         normalizeRowAfterEdit(section, rowIndex, colIndex);
       },
-      taskHistoryCtx(section, rowIndex, colIndex)
+      taskHistoryCtx(section, rowIndex, colIndex),
+      { allowClear: true }
     );
     return;
   }
@@ -8049,7 +8066,8 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
         row[TASK_COLUMNS.phaseSubsection] = value;
         normalizeRowAfterEdit(section, rowIndex, colIndex);
       },
-      taskHistoryCtx(section, rowIndex, colIndex)
+      taskHistoryCtx(section, rowIndex, colIndex),
+      { allowClear: true }
     );
     return;
   }
@@ -9083,9 +9101,10 @@ function openEmployeeSingleSelectModal(section, rowIndex, colIndex) {
   search?.focus();
 }
 
-function openSingleLookupModal(title, options, currentValue, onApply, historyCtx) {
+function openSingleLookupModal(title, options, currentValue, onApply, historyCtx, modalOptions = {}) {
   const normalizedOptions = Array.from(new Set((options || []).map((item) => String(item || "").trim()).filter(Boolean)));
   let selectedValue = String(currentValue || "").trim();
+  const allowClear = Boolean(modalOptions?.allowClear);
 
   const overlay = document.createElement("div");
   overlay.className = "responsible-modal-overlay";
@@ -9156,6 +9175,131 @@ function openSingleLookupModal(title, options, currentValue, onApply, historyCtx
 
   renderOptions();
   search?.focus();
+}
+
+function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
+  if (!taskRow) return;
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  const phases = getUniqueValues(getSectionById("phases")?.rows || [], 1);
+  const employees = getEmployeesList();
+  const state = {
+    phase: String(taskRow[TASK_COLUMNS.phase] || "").trim(),
+    section: String(taskRow[TASK_COLUMNS.phaseSection] || "").trim(),
+    subsection: String(taskRow[TASK_COLUMNS.phaseSubsection] || "").trim(),
+    responsible: String(taskRow[TASK_COLUMNS.assignedResponsible] || "").trim()
+  };
+
+  overlay.innerHTML = `
+    <div class="responsible-modal task-hierarchy-modal">
+      <h4>Быстрый выбор: фаза → раздел → подраздел → ответственный</h4>
+      <div class="task-hierarchy-grid">
+        <label>
+          <span>Фаза</span>
+          <select class="cell-editor" data-task-hierarchy="phase"></select>
+        </label>
+        <label>
+          <span>Раздел</span>
+          <select class="cell-editor" data-task-hierarchy="section"></select>
+        </label>
+        <label>
+          <span>Подраздел</span>
+          <select class="cell-editor" data-task-hierarchy="subsection"></select>
+        </label>
+        <label>
+          <span>Ответственный</span>
+          <select class="cell-editor" data-task-hierarchy="responsible"></select>
+        </label>
+      </div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary task-hierarchy-reset-btn">Сбросить</button>
+        <button type="button" class="secondary responsible-cancel-btn">Отмена</button>
+        <button type="button" class="responsible-apply-btn">Выбрать</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const phaseSel = overlay.querySelector('[data-task-hierarchy="phase"]');
+  const sectionSel = overlay.querySelector('[data-task-hierarchy="section"]');
+  const subsectionSel = overlay.querySelector('[data-task-hierarchy="subsection"]');
+  const respSel = overlay.querySelector('[data-task-hierarchy="responsible"]');
+  const resetBtn = overlay.querySelector(".task-hierarchy-reset-btn");
+  const cancelBtn = overlay.querySelector(".responsible-cancel-btn");
+  const applyBtn = overlay.querySelector(".responsible-apply-btn");
+
+  const fillSelect = (el, options, value, placeholder) => {
+    if (!(el instanceof HTMLSelectElement)) return;
+    const list = Array.from(new Set((options || []).map((x) => String(x || "").trim()).filter(Boolean)));
+    el.innerHTML = [`<option value="">${escapeHtmlText(placeholder || "—")}</option>`, ...list.map((v) => `<option value="${escapeHtmlAttr(v)}">${escapeHtmlText(v)}</option>`)].join("");
+    el.value = list.includes(value) ? value : "";
+  };
+
+  const refreshCascade = () => {
+    fillSelect(phaseSel, phases, state.phase, "Выберите фазу");
+    const sectionOptions = state.phase ? getPhaseSections(state.phase) : [];
+    if (!sectionOptions.includes(state.section)) state.section = "";
+    fillSelect(sectionSel, sectionOptions, state.section, "Выберите раздел");
+    const subsectionOptions = state.phase && state.section ? getPhaseSubsections(state.phase, state.section) : [];
+    if (!subsectionOptions.includes(state.subsection)) state.subsection = "";
+    fillSelect(subsectionSel, subsectionOptions, state.subsection, "Выберите подраздел");
+    const responsibleOptions = getResponsibleByHierarchy(state.phase, state.section, state.subsection);
+    const respList = responsibleOptions.length ? responsibleOptions : employees;
+    if (!respList.includes(state.responsible)) state.responsible = "";
+    fillSelect(respSel, respList, state.responsible, "Выберите ответственного");
+  };
+
+  phaseSel?.addEventListener("change", () => {
+    state.phase = String(phaseSel.value || "").trim();
+    state.section = "";
+    state.subsection = "";
+    state.responsible = "";
+    refreshCascade();
+  });
+  sectionSel?.addEventListener("change", () => {
+    state.section = String(sectionSel.value || "").trim();
+    state.subsection = "";
+    state.responsible = "";
+    refreshCascade();
+  });
+  subsectionSel?.addEventListener("change", () => {
+    state.subsection = String(subsectionSel.value || "").trim();
+    state.responsible = "";
+    refreshCascade();
+  });
+  respSel?.addEventListener("change", () => {
+    state.responsible = String(respSel.value || "").trim();
+  });
+
+  resetBtn?.addEventListener("click", () => {
+    state.phase = "";
+    state.section = "";
+    state.subsection = "";
+    state.responsible = "";
+    refreshCascade();
+  });
+  cancelBtn?.addEventListener("click", () => {
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
+  applyBtn?.addEventListener("click", () => {
+    onApply?.({
+      phase: state.phase,
+      section: state.section,
+      subsection: state.subsection,
+      responsible: state.responsible
+    });
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      overlay.remove();
+      renderTablePreserveScroll();
+    }
+  });
+
+  refreshCascade();
 }
 
 function openTaskAssignedMultiSelectModal(taskRow, onApply) {
@@ -9285,6 +9429,7 @@ function openEmployeeLookupModal(title, currentValue, onApply, historyCtx) {
       </select>
       <div class="responsible-modal-list"></div>
       <div class="responsible-modal-actions">
+        ${allowClear ? '<button type="button" class="secondary responsible-clear-btn">Сбросить</button>' : ""}
         <button type="button" class="secondary responsible-cancel-btn">Отмена</button>
         <button type="button" class="responsible-apply-btn">Выбрать</button>
       </div>
@@ -9528,6 +9673,7 @@ function openReportFilterPickerModal(title, allLabel, items, currentValue, onApp
 
   const list = overlay.querySelector(".responsible-modal-list");
   const search = overlay.querySelector(".responsible-modal-search");
+  const clearBtn = overlay.querySelector(".responsible-clear-btn");
   const cancelBtn = overlay.querySelector(".responsible-cancel-btn");
   const applyBtn = overlay.querySelector(".responsible-apply-btn");
 
@@ -9562,6 +9708,22 @@ function openReportFilterPickerModal(title, allLabel, items, currentValue, onApp
   });
 
   search?.addEventListener("input", () => renderOptions(search.value));
+  clearBtn?.addEventListener("click", () => {
+    const newVal = "";
+    if (historyCtx?.taskId && typeof historyCtx.getOld === "function") {
+      const oldVal = historyCtx.getOld();
+      if (String(oldVal ?? "") !== "") {
+        appendTaskHistoryEntry(
+          historyCtx.taskId,
+          `${historyCtx.columnLabel}: «${shortenHistorySnippet(oldVal)}» → «—»`
+        );
+      }
+    }
+    onApply?.(newVal);
+    saveSectionsData();
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
   cancelBtn?.addEventListener("click", () => {
     overlay.remove();
   });
