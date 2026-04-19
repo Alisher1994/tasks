@@ -2631,6 +2631,11 @@ button.task-card-tab.is-active {
   background: #eef3ff;
 }
 
+.task-files-dropzone.is-loading {
+  background: #f1f5fb;
+  border-color: #b7c6da;
+}
+
 .task-files-dropzone-title {
   font-size: 13px;
   font-weight: 600;
@@ -2640,6 +2645,29 @@ button.task-card-tab.is-active {
 .task-files-dropzone-subtitle {
   font-size: 12px;
   color: #6b7a8f;
+}
+
+.task-files-dropzone-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #415874;
+}
+
+.task-files-loader-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #cfdaea;
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: task-file-spin 0.8s linear infinite;
+}
+
+@keyframes task-file-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .task-files-input-hidden {
@@ -2728,6 +2756,81 @@ button.task-card-tab.is-active {
 .task-file-actions {
   display: inline-flex;
   gap: 6px;
+}
+
+.task-file-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(10, 18, 28, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.task-file-viewer {
+  width: min(1120px, 100%);
+  height: min(88vh, 760px);
+  background: #0f1b2a;
+  border: 1px solid #314357;
+  border-radius: 12px;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.task-file-viewer-head {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(203, 220, 237, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.task-file-viewer-title {
+  color: #e8eff8;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-file-viewer-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.task-file-viewer-actions .icon-action-btn {
+  border-color: #5a7392;
+  color: #e7eef8;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.task-file-viewer-actions .icon-action-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.task-file-viewer-body {
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0b1623;
+}
+
+.task-file-viewer-media {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.task-file-viewer-pdf {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
 }
 
 .details-modal-actions {

@@ -8639,6 +8639,85 @@ function formatFileSizeRu(bytes) {
   return `${size.toFixed(fixed)} ${units[unitIndex]}`;
 }
 
+function getTaskAttachmentUrl(item) {
+  const stored = String(item?.stored || "").trim();
+  if (!stored) return "";
+  if (stored.startsWith("data:")) return stored;
+  const abs = toAbsoluteMediaUrl(stored);
+  if (abs) return abs;
+  if (/^https?:\/\//i.test(stored)) return stored;
+  const tg = buildTelegramMediaPreviewUrl(stored);
+  if (tg) return tg;
+  return stored;
+}
+
+function detectTaskAttachmentPreviewKind(item) {
+  const mime = String(item?.type || "").toLowerCase();
+  const name = String(item?.name || "").toLowerCase();
+  if (mime.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name)) return "image";
+  if (mime.startsWith("video/") || /\.(mp4|webm|ogg|mov|m4v)$/.test(name)) return "video";
+  if (mime === "application/pdf" || /\.pdf$/.test(name)) return "pdf";
+  return "other";
+}
+
+function openTaskAttachmentViewer(item) {
+  const safe = sanitizeTaskAttachmentEntry(item);
+  if (!safe) return;
+  const url = getTaskAttachmentUrl(safe);
+  if (!url) return;
+  const kind = detectTaskAttachmentPreviewKind(safe);
+  if (kind === "other") {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+  const overlay = document.createElement("div");
+  overlay.className = "task-file-viewer-overlay";
+  const mediaHtml =
+    kind === "image"
+      ? `<img class="task-file-viewer-media" src="${escapeHtmlAttr(url)}" alt="${escapeHtmlAttr(safe.name)}" />`
+      : kind === "video"
+        ? `<video class="task-file-viewer-media" src="${escapeHtmlAttr(url)}" controls autoplay playsinline></video>`
+        : `<iframe class="task-file-viewer-media task-file-viewer-pdf" src="${escapeHtmlAttr(url)}" title="${escapeHtmlAttr(safe.name)}"></iframe>`;
+  overlay.innerHTML = `
+    <div class="task-file-viewer">
+      <div class="task-file-viewer-head">
+        <div class="task-file-viewer-title" title="${escapeHtmlAttr(safe.name)}">${escapeHtmlText(safe.name)}</div>
+        <div class="task-file-viewer-actions">
+          <button type="button" class="icon-action-btn task-file-viewer-download" title="Скачать">
+            <i data-lucide="download" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="icon-action-btn task-file-viewer-open" title="Открыть в новой вкладке">
+            <i data-lucide="external-link" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="icon-action-btn task-file-viewer-close" title="Закрыть">
+            <i data-lucide="x" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+        </div>
+      </div>
+      <div class="task-file-viewer-body">${mediaHtml}</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  initLucideIcons();
+  const close = () => overlay.remove();
+  overlay.querySelector(".task-file-viewer-close")?.addEventListener("click", close);
+  overlay.querySelector(".task-file-viewer-open")?.addEventListener("click", () => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  });
+  overlay.querySelector(".task-file-viewer-download")?.addEventListener("click", () => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = safe.name || "file";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+}
+
 function attachMediaSlotHandlers(section) {
   const mediaCells = Array.from(document.querySelectorAll(".media-col.editable-cell"));
   if (!mediaCells.length) return;
@@ -12203,6 +12282,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
   };
   const attachmentsDraft = getTaskAttachmentItems(taskId).map((item) => ({ ...item }));
   let isDirty = false;
+  let filesUploadInFlight = 0;
 
   draftState.before.forEach((name, idx) => {
     const key = `before-${idx}`;
@@ -12278,6 +12358,10 @@ function openTaskDetailsModal(section, row, rowIndex) {
           <div class="task-files-dropzone" data-task-files-dropzone tabindex="0">
             <div class="task-files-dropzone-title">Перетащите файлы сюда</div>
             <div class="task-files-dropzone-subtitle">или вставьте через Ctrl+V, либо выберите вручную</div>
+            <div class="task-files-dropzone-loader hidden" data-task-files-loader>
+              <span class="task-files-loader-spinner" aria-hidden="true"></span>
+              <span class="task-files-loader-text" data-task-files-loader-text>Загрузка...</span>
+            </div>
             <button type="button" class="secondary task-files-add-btn" data-task-files-add>
               <i data-lucide="paperclip" class="lucide-icon" aria-hidden="true"></i>
               Добавить файл
@@ -12371,6 +12455,9 @@ function openTaskDetailsModal(section, row, rowIndex) {
               <button type="button" class="icon-action-btn task-file-open-btn" data-file-open="${escapeHtmlAttr(safe.id)}" title="Открыть">
                 <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
               </button>
+              <button type="button" class="icon-action-btn task-file-download-btn" data-file-download="${escapeHtmlAttr(safe.id)}" title="Скачать">
+                <i data-lucide="download" class="lucide-icon" aria-hidden="true"></i>
+              </button>
               <button type="button" class="icon-action-btn danger-btn task-file-delete-btn" data-file-delete="${escapeHtmlAttr(safe.id)}" title="Удалить">
                 <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
               </button>
@@ -12382,22 +12469,42 @@ function openTaskDetailsModal(section, row, rowIndex) {
     initLucideIcons();
   };
 
+  const refreshTaskFilesUploadUi = () => {
+    const dropzone = modal.querySelector("[data-task-files-dropzone]");
+    const addBtn = modal.querySelector("[data-task-files-add]");
+    const loader = modal.querySelector("[data-task-files-loader]");
+    const loaderText = modal.querySelector("[data-task-files-loader-text]");
+    const busy = filesUploadInFlight > 0;
+    if (dropzone) dropzone.classList.toggle("is-loading", busy);
+    if (addBtn instanceof HTMLButtonElement) addBtn.disabled = busy;
+    if (loader) loader.classList.toggle("hidden", !busy);
+    if (loaderText) loaderText.textContent = busy ? `Загрузка файлов: ${filesUploadInFlight}` : "Загрузка...";
+  };
+
   const addTaskAttachmentFiles = async (filesLike) => {
+    if (filesUploadInFlight > 0) return;
     const files = Array.from(filesLike || []).filter((f) => f instanceof File);
     if (!files.length) return;
+    filesUploadInFlight += files.length;
+    refreshTaskFilesUploadUi();
     for (const file of files) {
-      const resolved = await resolveStoredAttachmentFromFile(file).catch((e) => {
-        window.alert(`Не удалось добавить файл «${String(file.name || "")}»: ${String(e?.message || e)}`);
-        return null;
-      });
-      if (!resolved) continue;
-      const entry = sanitizeTaskAttachmentEntry({
-        ...resolved,
-        id: `f_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-      });
-      if (!entry) continue;
-      attachmentsDraft.push(entry);
-      isDirty = true;
+      try {
+        const resolved = await resolveStoredAttachmentFromFile(file).catch((e) => {
+          window.alert(`Не удалось добавить файл «${String(file.name || "")}»: ${String(e?.message || e)}`);
+          return null;
+        });
+        if (!resolved) continue;
+        const entry = sanitizeTaskAttachmentEntry({
+          ...resolved,
+          id: `f_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+        });
+        if (!entry) continue;
+        attachmentsDraft.push(entry);
+        isDirty = true;
+      } finally {
+        filesUploadInFlight = Math.max(0, filesUploadInFlight - 1);
+        refreshTaskFilesUploadUi();
+      }
     }
     persistTaskAttachments();
     renderTaskFilesList();
@@ -12483,6 +12590,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
   const filesInput = modal.querySelector('[data-task-files-input]');
   const addFilesBtn = modal.querySelector('[data-task-files-add]');
   const filesDropzone = modal.querySelector('[data-task-files-dropzone]');
+  refreshTaskFilesUploadUi();
 
   addFilesBtn?.addEventListener("click", () => {
     if (!(filesInput instanceof HTMLInputElement)) return;
@@ -12519,9 +12627,24 @@ function openTaskDetailsModal(section, row, rowIndex) {
       const item = attachmentsDraft.find((x) => String(x.id) === fileId);
       const safe = sanitizeTaskAttachmentEntry(item);
       if (!safe) return;
-      const url = String(safe.stored || "").trim();
+      openTaskAttachmentViewer(safe);
+      return;
+    }
+    const downloadBtn = event.target instanceof HTMLElement ? event.target.closest("[data-file-download]") : null;
+    if (downloadBtn) {
+      const fileId = String(downloadBtn.getAttribute("data-file-download") || "");
+      const item = attachmentsDraft.find((x) => String(x.id) === fileId);
+      const safe = sanitizeTaskAttachmentEntry(item);
+      if (!safe) return;
+      const url = getTaskAttachmentUrl(safe);
       if (!url) return;
-      window.open(url, "_blank", "noopener,noreferrer");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = safe.name || "file";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       return;
     }
     const delBtn = event.target instanceof HTMLElement ? event.target.closest("[data-file-delete]") : null;
@@ -12563,6 +12686,12 @@ function openTaskDetailsModal(section, row, rowIndex) {
 
   const close = () => modal.remove();
   const askUnsavedClose = () => {
+    if (filesUploadInFlight > 0) {
+      showCustomCloseConfirm(modal, () => {
+        closeAndCleanup();
+      }, "Идёт загрузка файлов. Закрыть окно и прервать загрузку?");
+      return;
+    }
     if (!isDirty) {
       closeAndCleanup();
       return;
@@ -12732,14 +12861,14 @@ function applyDraftToTask(section, rowIndex, taskId, draftState, options = {}) {
   saveSectionsData();
 }
 
-function showCustomCloseConfirm(modal, onConfirm) {
+function showCustomCloseConfirm(modal, onConfirm, message = "Материалы не сохранены. Закрыть без сохранения?") {
   const old = modal.querySelector(".unsaved-confirm");
   old?.remove();
   const prompt = document.createElement("div");
   prompt.className = "unsaved-confirm";
   prompt.innerHTML = `
     <div class="unsaved-confirm-box">
-      <p>Материалы не сохранены. Закрыть без сохранения?</p>
+      <p>${escapeHtmlText(message)}</p>
       <div class="unsaved-confirm-actions">
         <button type="button" class="confirm-btn confirm-cancel-btn">Отмена</button>
         <button type="button" class="confirm-btn confirm-close-btn">Закрыть</button>
