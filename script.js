@@ -8664,7 +8664,14 @@ function openTaskAttachmentViewer(item) {
   const safe = sanitizeTaskAttachmentEntry(item);
   if (!safe) return;
   const url = getTaskAttachmentUrl(safe);
-  if (!url) return;
+  if (!url) {
+    showStatusDialog({
+      title: "Просмотр файла",
+      message: "Не удалось определить ссылку на файл.",
+      type: "error"
+    });
+    return;
+  }
   const kind = detectTaskAttachmentPreviewKind(safe);
   if (kind === "other") {
     window.open(url, "_blank", "noopener,noreferrer");
@@ -12424,6 +12431,9 @@ function openTaskDetailsModal(section, row, rowIndex) {
       appendTaskHistoryEntry(taskId, `Файлы обновлены (${list.length})`);
     }
     saveSectionsData();
+    if (isHostedRuntime() && getAuthToken()) {
+      void pushAppToServerImmediate();
+    }
   };
 
   const renderTaskFilesList = () => {
