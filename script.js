@@ -25,6 +25,7 @@ const PHONE_MAX_LENGTH = PHONE_MAX_DIGITS + 1;
 const REPORT_SHARE_STORAGE_KEY = "mbc_report_share_links";
 const OVERDUE_NOTIFY_RUNTIME_KEY = "mbc_overdue_notify_runtime";
 const STATUS_REMINDER_RUNTIME_KEY = "mbc_status_reminder_runtime";
+const STATUS_REMINDER_SEND_WINDOW_MINUTES = 5;
 /** JWT при работе с сервером (Railway) */
 const AUTH_TOKEN_KEY = "mbc_jwt";
 const SESSION_STORAGE_KEY = "mbc_task_auth_user";
@@ -3515,7 +3516,10 @@ async function runStatusTaskReminderTick() {
       const targetTime = normalizeReminderNotifyTimeValue(conf?.time);
       const [hh, mm] = targetTime.split(":").map(Number);
       const targetMinutes = hh * 60 + mm;
+      // Без «догоняющих» отправок поздно вечером:
+      // отправляем только в коротком окне после выбранного времени.
       if (nowMinutes < targetMinutes) continue;
+      if (nowMinutes > targetMinutes + STATUS_REMINDER_SEND_WINDOW_MINUTES) continue;
 
       const addedParts = parseRuDateStringToParts(String(row[TASK_COLUMNS.addedDate] || "").trim());
       if (!addedParts) continue;
@@ -10954,19 +10958,6 @@ function renderOtherSettingsPanel() {
 
         <div class="other-settings-section ${activeSettingsTab === "notifications" ? "" : "hidden"}" data-other-settings-pane="notifications">
           <h4 class="other-settings-section-title">Настройки оповещения</h4>
-          <div class="other-settings-block">
-            <h4>Просроченные задачи</h4>
-            <label class="settings-option">
-              <input type="checkbox" id="overdueNotificationsEnabledCheckbox" ${displaySettings.overdueNotificationsEnabled === true ? "checked" : ""} />
-              <span>Отправлять уведомления о просроченных задачах</span>
-            </label>
-            <label class="settings-field-label" for="overdueNotificationsTimeInput">Время отправки</label>
-            <div class="overdue-time-row">
-              <input id="overdueNotificationsTimeInput" type="time" value="${escapeHtmlAttr(normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime))}" />
-              <button type="button" id="overdueNotificationsTimeSaveBtn" class="secondary hidden">Сохранить</button>
-            </div>
-            <p class="other-settings-hint">Ежедневно в выбранное время система отправит уведомления по всем открытым просроченным задачам.</p>
-          </div>
           <div class="settings-two-column settings-two-column--with-emulator">
             <div class="settings-two-column-main">
               <div class="other-settings-block">
@@ -11017,6 +11008,19 @@ function renderOtherSettingsPanel() {
               </div>
               <p class="telegram-emulator-footnote">Тот же пример задачи №42, что и в «Шаблон сообщений».</p>
             </aside>
+          </div>
+          <div class="other-settings-block">
+            <h4>Просроченные задачи</h4>
+            <label class="settings-option">
+              <input type="checkbox" id="overdueNotificationsEnabledCheckbox" ${displaySettings.overdueNotificationsEnabled === true ? "checked" : ""} />
+              <span>Отправлять уведомления о просроченных задачах</span>
+            </label>
+            <label class="settings-field-label" for="overdueNotificationsTimeInput">Время отправки</label>
+            <div class="overdue-time-row">
+              <input id="overdueNotificationsTimeInput" type="time" value="${escapeHtmlAttr(normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime))}" />
+              <button type="button" id="overdueNotificationsTimeSaveBtn" class="secondary hidden">Сохранить</button>
+            </div>
+            <p class="other-settings-hint">Ежедневно в выбранное время система отправит уведомления по всем открытым просроченным задачам.</p>
           </div>
         </div>
 
