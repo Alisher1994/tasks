@@ -12926,10 +12926,14 @@ function toAbsoluteMediaUrl(storedName) {
   if (!raw) return "";
   if (/^https?:\/\//i.test(raw)) return raw;
   if (raw.startsWith("data:")) return raw;
+  if (raw.startsWith("/")) return `${location.origin}${raw}`;
   if (raw.startsWith("/media/")) return `${location.origin}${raw}`;
   if (raw.startsWith("media/")) return `${location.origin}/${raw}`;
-  if (/^[\w.-]+\.[a-z0-9]{1,8}$/i.test(raw)) {
+  if (/^[^/]+\.[a-z0-9]{1,8}$/i.test(raw)) {
     return `${location.origin}/media/${encodeURIComponent(raw)}`;
+  }
+  if (/^[^:?#]+\/[^?#]+$/.test(raw)) {
+    return `${location.origin}/${raw.replace(/^\/+/, "")}`;
   }
   return "";
 }
