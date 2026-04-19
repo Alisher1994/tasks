@@ -11377,20 +11377,20 @@ function renderOtherSettingsPanel() {
                   </div>
                 </div>
                 <p class="telegram-emulator-footnote">Тот же пример задачи №42, что и в «Шаблон сообщений».</p>
-              </aside>
-              <div class="other-settings-block overdue-settings-block">
-                <h4>Просроченные задачи</h4>
-                <label class="settings-option">
-                  <input type="checkbox" id="overdueNotificationsEnabledCheckbox" ${displaySettings.overdueNotificationsEnabled === true ? "checked" : ""} />
-                  <span>Отправлять уведомления о просроченных задачах</span>
-                </label>
-                <label class="settings-field-label" for="overdueNotificationsTimeInput">Время отправки</label>
-                <div class="overdue-time-row">
-                  <input id="overdueNotificationsTimeInput" type="time" value="${escapeHtmlAttr(normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime))}" />
-                  <button type="button" id="overdueNotificationsTimeSaveBtn" class="secondary hidden">Сохранить</button>
+                <div class="other-settings-block overdue-settings-block">
+                  <h4>Просроченные задачи</h4>
+                  <label class="settings-option">
+                    <input type="checkbox" id="overdueNotificationsEnabledCheckbox" ${displaySettings.overdueNotificationsEnabled === true ? "checked" : ""} />
+                    <span>Отправлять уведомления о просроченных задачах</span>
+                  </label>
+                  <label class="settings-field-label" for="overdueNotificationsTimeInput">Время отправки</label>
+                  <div class="overdue-time-row">
+                    <input id="overdueNotificationsTimeInput" type="time" value="${escapeHtmlAttr(normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime))}" />
+                    <button type="button" id="overdueNotificationsTimeSaveBtn" class="secondary hidden">Сохранить</button>
+                  </div>
+                  <p class="other-settings-hint">Ежедневно в выбранное время система отправит уведомления по всем открытым просроченным задачам.</p>
                 </div>
-                <p class="other-settings-hint">Ежедневно в выбранное время система отправит уведомления по всем открытым просроченным задачам.</p>
-              </div>
+              </aside>
             </div>
           </div>
         </div>

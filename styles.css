@@ -537,7 +537,9 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
 }
 
 .overdue-settings-block {
-  margin-top: 0;
+  margin-top: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  border-color: #c7d7ea;
 }
 
 .telegram-emulator {
