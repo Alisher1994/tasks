@@ -6296,6 +6296,10 @@ function mountTasksGanttChart(entries) {
   }
 }
 
+function getNowDateTimeString() {
+  return formatTrashDate(Date.now());
+}
+
 function renderReportsPanel() {
   const rows = getReportFilteredRows();
   const stats = buildTaskReportStats(rows);
