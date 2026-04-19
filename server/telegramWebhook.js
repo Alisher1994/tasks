@@ -58,7 +58,9 @@ const PLACEHOLDERS = [
   ["[название_задачи]", "task"],
   ["[статус]", "status"],
   ["[объект]", "object"],
-  ["[причина_отставания]", "delayReason"]
+  ["[причина_отставания]", "delayReason"],
+  ["[причина_отстования]", "delayReason"],
+  ["[причина_отставаний]", "delayReason"]
 ];
 
 function normalizeTaskColumnLabel(raw) {

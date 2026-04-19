@@ -278,6 +278,8 @@ const TASK_MESSAGE_PLACEHOLDERS_LEGACY = [
   { token: "[примечание]", col: "note", label: "legacy" },
   { token: "[план]", col: "plan", label: "legacy" },
   { token: "[факт]", col: "fact", label: "legacy" },
+  { token: "[причина_отстования]", col: "delayReason", label: "legacy" },
+  { token: "[причина_отставаний]", col: "delayReason", label: "legacy" },
   { token: "[срок_задачи]", col: "dueDate", label: "legacy" },
   { token: "[дата_закрытия]", col: "closedDate", label: "legacy" },
   { token: "[Ид]", col: "number", label: "legacy" },
