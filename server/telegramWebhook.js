@@ -280,11 +280,20 @@ function syncTaskMultiStateForRow(payload, row) {
   const taskId = String(row?.[TASK_COLUMNS.number] ?? "").trim();
   if (!taskId) return;
   const store = ensureTaskMultiStateStore(payload);
+  const prevState = store[taskId] && typeof store[taskId] === "object" && !Array.isArray(store[taskId]) ? store[taskId] : {};
+  const existingFiles = Array.isArray(prevState.__files) ? prevState.__files : [];
   if (assignees.length <= 1) {
-    delete store[taskId];
+    if (existingFiles.length > 0) {
+      store[taskId] = { __files: existingFiles };
+    } else {
+      delete store[taskId];
+    }
     return;
   }
   const state = getTaskMultiStateForRow(payload, row, { create: true });
+  if (existingFiles.length > 0) {
+    state.__files = existingFiles;
+  }
   const known = new Set(assignees.map((x) => x.toLowerCase()));
   assignees.forEach((name) => {
     if (!state[name] || typeof state[name] !== "object" || Array.isArray(state[name])) {
@@ -295,6 +304,7 @@ function syncTaskMultiStateForRow(payload, row) {
     }
   });
   Object.keys(state).forEach((name) => {
+    if (String(name).startsWith("__")) return;
     if (!known.has(String(name).toLowerCase())) delete state[name];
   });
 }

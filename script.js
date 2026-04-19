@@ -8707,6 +8707,18 @@ function openTaskAttachmentViewer(item) {
   document.body.appendChild(overlay);
   initLucideIcons();
   const close = () => overlay.remove();
+  const mediaEl = overlay.querySelector(".task-file-viewer-media");
+  if (mediaEl) {
+    mediaEl.addEventListener("error", () => {
+      showStatusDialog({
+        title: "Просмотр файла",
+        message: "Не удалось открыть встроенный просмотр. Откроем файл в новой вкладке.",
+        type: "error"
+      });
+      window.open(url, "_blank", "noopener,noreferrer");
+      close();
+    }, { once: true });
+  }
   overlay.querySelector(".task-file-viewer-close")?.addEventListener("click", close);
   overlay.querySelector(".task-file-viewer-open")?.addEventListener("click", () => {
     window.open(url, "_blank", "noopener,noreferrer");
