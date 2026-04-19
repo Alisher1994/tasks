@@ -12695,7 +12695,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
   });
 
   modal.addEventListener("click", async (event) => {
-    const openBtn = event.target instanceof HTMLElement ? event.target.closest("[data-file-open]") : null;
+    const openBtn = event.target instanceof Element ? event.target.closest("[data-file-open]") : null;
     if (openBtn) {
       const fileId = String(openBtn.getAttribute("data-file-open") || "");
       const item = attachmentsDraft.find((x) => String(x.id) === fileId);
@@ -12704,7 +12704,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
       openTaskAttachmentViewer(safe);
       return;
     }
-    const downloadBtn = event.target instanceof HTMLElement ? event.target.closest("[data-file-download]") : null;
+    const downloadBtn = event.target instanceof Element ? event.target.closest("[data-file-download]") : null;
     if (downloadBtn) {
       const fileId = String(downloadBtn.getAttribute("data-file-download") || "");
       const item = attachmentsDraft.find((x) => String(x.id) === fileId);
@@ -12721,7 +12721,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
       a.remove();
       return;
     }
-    const delBtn = event.target instanceof HTMLElement ? event.target.closest("[data-file-delete]") : null;
+    const delBtn = event.target instanceof Element ? event.target.closest("[data-file-delete]") : null;
     if (delBtn) {
       const fileId = String(delBtn.getAttribute("data-file-delete") || "");
       const idx = attachmentsDraft.findIndex((x) => String(x.id) === fileId);
