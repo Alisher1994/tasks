@@ -41,6 +41,7 @@ const TRASH_STORAGE_KEY = "mbc_task_trash_data";
 /** История действий по задачам: { [taskId]: Array<{ t, who, action }> } */
 const TASK_HISTORY_STORAGE_KEY = "mbc_task_action_history";
 const TASK_MULTI_STATE_STORAGE_KEY = "mbc_task_multi_state";
+const TASK_ATTACHMENTS_STORAGE_KEY = "mbc_task_attachments";
 const TASK_HISTORY_MAX_PER_TASK = 300;
 const REPORT_CHART_ORDER_STORAGE_KEY = "mbc_report_chart_tile_order";
 /** «row» — Топ фаз / Разделы / Подразделы в одной строке; «separate» — каждый график на всю ширину */
@@ -839,12 +840,14 @@ function stopSessionIdleWatcher() {
 
 function buildAppPayload() {
   normalizeTaskMultiStateStore();
+  cleanupTaskAttachmentsStore();
   return {
     sections: JSON.parse(JSON.stringify(sections)),
     displaySettings: JSON.parse(JSON.stringify(displaySettings)),
     trashBySection: JSON.parse(JSON.stringify(trashBySection)),
     taskHistory: loadTaskHistoryStore(),
     taskMultiState: JSON.parse(JSON.stringify(taskMultiState)),
+    taskAttachments: JSON.parse(JSON.stringify(taskAttachmentsByTaskId)),
     reportShares: loadReportShares(),
     reportChartOrder: loadReportChartOrder(),
     reportPhaseLayout: loadReportPhaseGroupLayout()
@@ -1344,6 +1347,14 @@ function applyServerBundle(data, options = {}) {
     try {
       localStorage.setItem(TASK_MULTI_STATE_STORAGE_KEY, JSON.stringify(data.taskMultiState));
       restoreTaskMultiState();
+    } catch (_) {
+      /* noop */
+    }
+  }
+  if (data.taskAttachments && typeof data.taskAttachments === "object" && !Array.isArray(data.taskAttachments)) {
+    try {
+      localStorage.setItem(TASK_ATTACHMENTS_STORAGE_KEY, JSON.stringify(data.taskAttachments));
+      restoreTaskAttachmentsData();
     } catch (_) {
       /* noop */
     }
@@ -3181,6 +3192,7 @@ let displaySettings = {
   tasksGanttScale: "month"
 };
 let taskMultiState = {};
+let taskAttachmentsByTaskId = {};
 const expandedTaskAssigneeRows = new Set();
 
 function iconSvg(name) {
@@ -7649,6 +7661,19 @@ function getTaskMultiAssigneeMap(taskId, { create = false } = {}) {
   return taskMultiState[id];
 }
 
+function getTaskAttachmentStoreMap(taskId, { create = false } = {}) {
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  if (!taskAttachmentsByTaskId || typeof taskAttachmentsByTaskId !== "object" || Array.isArray(taskAttachmentsByTaskId)) {
+    taskAttachmentsByTaskId = {};
+  }
+  if (!Array.isArray(taskAttachmentsByTaskId[id])) {
+    if (!create) return null;
+    taskAttachmentsByTaskId[id] = [];
+  }
+  return taskAttachmentsByTaskId[id];
+}
+
 function sanitizeTaskAttachmentEntry(item) {
   if (!item || typeof item !== "object" || Array.isArray(item)) return null;
   const stored = String(item.stored || "").trim();
@@ -7670,31 +7695,21 @@ function sanitizeTaskAttachmentEntry(item) {
 }
 
 function getTaskAttachmentItems(taskId, { create = false } = {}) {
-  const map = getTaskMultiAssigneeMap(taskId, { create });
-  if (!map) return [];
-  if (!Array.isArray(map.__files)) {
-    if (!create) return [];
-    map.__files = [];
-  }
-  map.__files = map.__files
+  const list = getTaskAttachmentStoreMap(taskId, { create });
+  if (!list) return [];
+  const normalized = list
     .map((item) => sanitizeTaskAttachmentEntry(item))
     .filter(Boolean);
-  return map.__files;
+  taskAttachmentsByTaskId[String(taskId || "").trim()] = normalized;
+  return normalized;
 }
 
 function cleanupTaskMultiStateForRow(taskRow) {
   const taskId = getTaskIdForMultiState(taskRow);
   if (!taskId) return;
   const assignees = parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible]);
-  const existingAttachments = getTaskAttachmentItems(taskId);
   if (assignees.length <= 1) {
-    if (existingAttachments.length > 0) {
-      taskMultiState[taskId] = {
-        __files: existingAttachments
-      };
-    } else {
-      delete taskMultiState[taskId];
-    }
+    delete taskMultiState[taskId];
     return;
   }
   const map = getTaskMultiAssigneeMap(taskId, { create: true });
@@ -7715,12 +7730,6 @@ function cleanupTaskMultiStateForRow(taskRow) {
     if (String(name).startsWith("__")) return;
     if (!known.has(String(name).toLowerCase())) delete map[name];
   });
-  const files = getTaskAttachmentItems(taskId);
-  if (files.length > 0) {
-    map.__files = files;
-  } else {
-    delete map.__files;
-  }
 }
 
 function normalizeTaskMultiStateStore() {
@@ -7737,6 +7746,36 @@ function normalizeTaskMultiStateStore() {
   });
   Object.keys(taskMultiState).forEach((taskId) => {
     if (!existingTaskIds.has(taskId)) delete taskMultiState[taskId];
+  });
+}
+
+function cleanupTaskAttachmentsStore() {
+  if (!taskAttachmentsByTaskId || typeof taskAttachmentsByTaskId !== "object" || Array.isArray(taskAttachmentsByTaskId)) {
+    taskAttachmentsByTaskId = {};
+    return;
+  }
+  const tasksRows = getSectionById("tasks")?.rows || [];
+  const existingTaskIds = new Set();
+  tasksRows.forEach((row) => {
+    const id = getTaskIdForMultiState(row);
+    if (!id) return;
+    existingTaskIds.add(id);
+  });
+  Object.keys(taskAttachmentsByTaskId).forEach((taskId) => {
+    if (!existingTaskIds.has(taskId)) {
+      delete taskAttachmentsByTaskId[taskId];
+      return;
+    }
+    if (!Array.isArray(taskAttachmentsByTaskId[taskId])) {
+      delete taskAttachmentsByTaskId[taskId];
+      return;
+    }
+    taskAttachmentsByTaskId[taskId] = taskAttachmentsByTaskId[taskId]
+      .map((item) => sanitizeTaskAttachmentEntry(item))
+      .filter(Boolean);
+    if (!taskAttachmentsByTaskId[taskId].length) {
+      delete taskAttachmentsByTaskId[taskId];
+    }
   });
 }
 
@@ -12428,21 +12467,18 @@ function openTaskDetailsModal(section, row, rowIndex) {
     const list = attachmentsDraft
       .map((item) => sanitizeTaskAttachmentEntry(item))
       .filter(Boolean);
-    const map = getTaskMultiAssigneeMap(taskId, { create: list.length > 0 });
-    if (map) {
+    const key = String(taskId || "").trim();
+    if (key) {
       if (list.length > 0) {
-        map.__files = list;
+        taskAttachmentsByTaskId[key] = list;
       } else {
-        delete map.__files;
-      }
-      if (!Object.keys(map).length) {
-        delete taskMultiState[taskId];
+        delete taskAttachmentsByTaskId[key];
       }
     }
     if (appendHistory) {
       appendTaskHistoryEntry(taskId, `Файлы обновлены (${list.length})`);
     }
-    saveSectionsData();
+    saveTaskAttachmentsData({ skipServerSync: true });
     if (isHostedRuntime() && getAuthToken()) {
       void pushAppToServerImmediate();
     }
@@ -13848,8 +13884,10 @@ function getTodayRuDate() {
 
 function saveSectionsData() {
   normalizeTaskMultiStateStore();
+  cleanupTaskAttachmentsStore();
   localStorage.setItem(DATA_STORAGE_KEY, JSON.stringify(sections));
   localStorage.setItem(TASK_MULTI_STATE_STORAGE_KEY, JSON.stringify(taskMultiState));
+  localStorage.setItem(TASK_ATTACHMENTS_STORAGE_KEY, JSON.stringify(taskAttachmentsByTaskId));
   scheduleServerSync();
 }
 
@@ -13872,6 +13910,62 @@ function restoreTaskMultiState() {
   } catch (_) {
     // ignore broken storage
   }
+}
+
+function saveTaskAttachmentsData(opts = {}) {
+  cleanupTaskAttachmentsStore();
+  try {
+    localStorage.setItem(TASK_ATTACHMENTS_STORAGE_KEY, JSON.stringify(taskAttachmentsByTaskId));
+  } catch (_) {
+    /* noop */
+  }
+  if (!opts.skipServerSync) {
+    scheduleServerSync();
+  }
+}
+
+function restoreTaskAttachmentsData() {
+  const raw = localStorage.getItem(TASK_ATTACHMENTS_STORAGE_KEY);
+  if (!raw) {
+    migrateAttachmentsFromTaskMultiState();
+    cleanupTaskAttachmentsStore();
+    return;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      taskAttachmentsByTaskId = parsed;
+    }
+  } catch (_) {
+    // ignore broken storage
+  }
+  migrateAttachmentsFromTaskMultiState();
+  cleanupTaskAttachmentsStore();
+}
+
+function migrateAttachmentsFromTaskMultiState() {
+  if (!taskMultiState || typeof taskMultiState !== "object" || Array.isArray(taskMultiState)) return;
+  Object.entries(taskMultiState).forEach(([taskId, state]) => {
+    if (!taskId || !state || typeof state !== "object" || Array.isArray(state)) return;
+    const list = Array.isArray(state.__files) ? state.__files : [];
+    if (!list.length) return;
+    const existing = Array.isArray(taskAttachmentsByTaskId[taskId]) ? taskAttachmentsByTaskId[taskId] : [];
+    const merged = existing.concat(list)
+      .map((item) => sanitizeTaskAttachmentEntry(item))
+      .filter(Boolean);
+    const dedup = [];
+    const seen = new Set();
+    merged.forEach((item) => {
+      const key = `${String(item.stored || "")}::${String(item.name || "")}`;
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      dedup.push(item);
+    });
+    if (dedup.length) {
+      taskAttachmentsByTaskId[taskId] = dedup;
+    }
+    delete state.__files;
+  });
 }
 
 function getTrashRows(sectionId) {
@@ -14482,6 +14576,7 @@ logoutBtn.innerHTML = withLucideIcon("log-out", "Выйти");
 restoreDisplaySettings();
 restoreSectionsData();
 restoreTaskMultiState();
+restoreTaskAttachmentsData();
 cleanupPendingImportedTaskIds({ save: false });
 applyObjectsSeedIfNeeded();
 loadObjectPhotoThumbsFromStorage();

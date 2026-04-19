@@ -50,7 +50,14 @@ export function validateAppPayload(data) {
     }
   }
 
-  const optionalObjects = ["displaySettings", "trashBySection", "taskHistory", "reportShares"];
+  const optionalObjects = [
+    "displaySettings",
+    "trashBySection",
+    "taskHistory",
+    "taskMultiState",
+    "taskAttachments",
+    "reportShares"
+  ];
   for (const key of optionalObjects) {
     if (data[key] !== undefined && (data[key] === null || typeof data[key] !== "object" || Array.isArray(data[key]))) {
       return { ok: false, error: `Поле ${key} должно быть объектом` };
