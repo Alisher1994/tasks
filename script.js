@@ -294,6 +294,7 @@ const TEMPLATE_EDITOR_TEXTAREA_SELECTOR = ".task-message-template-input, .remind
 let activeTemplateEditorSource = null;
 const templateEditorBySource = new WeakMap();
 const templateSourceByEditor = new WeakMap();
+const templateSelectionByEditor = new WeakMap();
 let draggingTemplateTokenChip = null;
 let draggingTemplateTokenSource = null;
 const templateTokenList = Array.from(
@@ -331,13 +332,18 @@ function splitTemplateTextByTokens(text) {
 }
 
 function createTemplateTokenChip(token) {
+  const displayToken = String(token || "")
+    .replace(/^\[/, "")
+    .replace(/\]$/, "")
+    .replace(/^\{/, "")
+    .replace(/\}$/, "");
   const chip = document.createElement("span");
   chip.className = "template-token-chip";
   chip.setAttribute("contenteditable", "false");
   chip.setAttribute("draggable", "true");
   chip.dataset.token = String(token || "");
   chip.innerHTML = `
-    <span class="template-token-chip__label">${escapeHtmlText(String(token || ""))}</span>
+    <span class="template-token-chip__label">${escapeHtmlText(displayToken)}</span>
     <button type="button" class="template-token-chip__remove" aria-label="Удалить тег" title="Удалить тег">×</button>
   `;
   return chip;
@@ -409,17 +415,79 @@ function placeCaretAfterNode(node) {
   sel.addRange(range);
 }
 
+function captureTemplateEditorSelection(editor) {
+  const sel = window.getSelection?.();
+  if (!sel || sel.rangeCount === 0 || !editor) return;
+  const range = sel.getRangeAt(0);
+  if (!editor.contains(range.commonAncestorContainer)) return;
+  templateSelectionByEditor.set(editor, range.cloneRange());
+}
+
+function restoreTemplateEditorSelection(editor) {
+  if (!editor) return false;
+  const sel = window.getSelection?.();
+  if (!sel) return false;
+  const saved = templateSelectionByEditor.get(editor);
+  if (saved && editor.contains(saved.commonAncestorContainer)) {
+    sel.removeAllRanges();
+    sel.addRange(saved);
+    return true;
+  }
+  const range = document.createRange();
+  range.selectNodeContents(editor);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  templateSelectionByEditor.set(editor, range.cloneRange());
+  return true;
+}
+
+function getCaretRangeFromPoint(clientX, clientY, editor) {
+  if (!editor) return null;
+  let range = null;
+  if (document.caretRangeFromPoint) {
+    range = document.caretRangeFromPoint(clientX, clientY);
+  } else if (document.caretPositionFromPoint) {
+    const pos = document.caretPositionFromPoint(clientX, clientY);
+    if (pos) {
+      range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+      range.collapse(true);
+    }
+  }
+  if (!range) return null;
+  if (!editor.contains(range.commonAncestorContainer)) return null;
+  const chipAncestor =
+    range.startContainer instanceof Element
+      ? range.startContainer.closest(".template-token-chip")
+      : range.startContainer.parentElement?.closest?.(".template-token-chip");
+  if (chipAncestor instanceof HTMLElement && editor.contains(chipAncestor)) {
+    const rect = chipAncestor.getBoundingClientRect();
+    const placeBefore = clientX < rect.left + rect.width / 2;
+    range = document.createRange();
+    if (placeBefore) range.setStartBefore(chipAncestor);
+    else range.setStartAfter(chipAncestor);
+    range.collapse(true);
+  }
+  return range;
+}
+
 function insertTokenChipAtCaret(editor, token) {
   if (!editor || !token) return false;
   editor.focus();
   const sel = window.getSelection?.();
-  if (!sel || sel.rangeCount === 0) return false;
+  if (!sel) return false;
+  if (!sel.rangeCount || !editor.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+    restoreTemplateEditorSelection(editor);
+  }
+  if (!sel.rangeCount) return false;
   const range = sel.getRangeAt(0);
   if (!editor.contains(range.commonAncestorContainer)) return false;
   range.deleteContents();
   const chip = createTemplateTokenChip(token);
   range.insertNode(chip);
   placeCaretAfterNode(chip);
+  captureTemplateEditorSelection(editor);
   return true;
 }
 
@@ -502,6 +570,7 @@ function initTemplateTokenEditors() {
 
     editor.addEventListener("focus", () => {
       activeTemplateEditorSource = source;
+      captureTemplateEditorSelection(editor);
     });
     editor.addEventListener("click", (event) => {
       const removeBtn = event.target instanceof HTMLElement ? event.target.closest(".template-token-chip__remove") : null;
@@ -509,10 +578,14 @@ function initTemplateTokenEditors() {
         const chip = removeBtn.closest(".template-token-chip");
         chip?.remove();
         syncTemplateEditorToSource(editor, source);
+        captureTemplateEditorSelection(editor);
         return;
       }
       activeTemplateEditorSource = source;
+      captureTemplateEditorSelection(editor);
     });
+    editor.addEventListener("keyup", () => captureTemplateEditorSelection(editor));
+    editor.addEventListener("mouseup", () => captureTemplateEditorSelection(editor));
     editor.addEventListener("beforeinput", (event) => {
       if (event.inputType === "insertParagraph") {
         event.preventDefault();
@@ -544,40 +617,40 @@ function initTemplateTokenEditors() {
       if (!(draggingTemplateTokenChip instanceof HTMLElement)) return;
       if (draggingTemplateTokenSource !== source) return;
       event.preventDefault();
-      const target = event.target instanceof HTMLElement ? event.target.closest(".template-token-chip") : null;
-      editor.querySelectorAll(".template-token-chip.drop-before, .template-token-chip.drop-after").forEach((el) => {
-        if (el !== target) el.classList.remove("drop-before", "drop-after");
-      });
-      if (!(target instanceof HTMLElement) || target === draggingTemplateTokenChip) return;
-      const rect = target.getBoundingClientRect();
-      const before = event.clientX < rect.left + rect.width / 2;
-      target.classList.toggle("drop-before", before);
-      target.classList.toggle("drop-after", !before);
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
     });
     editor.addEventListener("drop", (event) => {
       if (!(draggingTemplateTokenChip instanceof HTMLElement)) return;
       if (draggingTemplateTokenSource !== source) return;
       event.preventDefault();
-      const target = event.target instanceof HTMLElement ? event.target.closest(".template-token-chip") : null;
       editor.querySelectorAll(".template-token-chip.drop-before, .template-token-chip.drop-after").forEach((el) => {
         el.classList.remove("drop-before", "drop-after");
       });
-      if (target instanceof HTMLElement && target !== draggingTemplateTokenChip) {
-        const rect = target.getBoundingClientRect();
-        const before = event.clientX < rect.left + rect.width / 2;
-        target.insertAdjacentElement(before ? "beforebegin" : "afterend", draggingTemplateTokenChip);
-      } else {
-        editor.appendChild(draggingTemplateTokenChip);
+      let dropRange = getCaretRangeFromPoint(event.clientX, event.clientY, editor);
+      if (!dropRange) {
+        restoreTemplateEditorSelection(editor);
+        const sel = window.getSelection?.();
+        dropRange = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
       }
+      if (!dropRange || !editor.contains(dropRange.commonAncestorContainer)) {
+        dropRange = document.createRange();
+        dropRange.selectNodeContents(editor);
+        dropRange.collapse(false);
+      }
+      draggingTemplateTokenChip.remove();
+      dropRange.insertNode(draggingTemplateTokenChip);
       placeCaretAfterNode(draggingTemplateTokenChip);
+      captureTemplateEditorSelection(editor);
       syncTemplateEditorToSource(editor, source);
     });
     editor.addEventListener("input", () => {
       activeTemplateEditorSource = source;
+      captureTemplateEditorSelection(editor);
       syncTemplateEditorToSource(editor, source);
     });
     editor.addEventListener("blur", () => {
       syncTemplateEditorToSource(editor, source, { normalize: true });
+      captureTemplateEditorSelection(editor);
     });
   });
 }
