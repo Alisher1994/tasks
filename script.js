@@ -290,6 +290,297 @@ const TASK_MESSAGE_PLACEHOLDERS_LEGACY = [
   { token: "{Название объекта}", col: "object", label: "legacy" }
 ];
 const TASK_MESSAGE_PLACEHOLDERS = [...TASK_MESSAGE_PLACEHOLDERS_UI, ...TASK_MESSAGE_PLACEHOLDERS_LEGACY];
+const TEMPLATE_EDITOR_TEXTAREA_SELECTOR = ".task-message-template-input, .reminder-text-input, #telegramCloseAcceptedInput";
+let activeTemplateEditorSource = null;
+const templateEditorBySource = new WeakMap();
+const templateSourceByEditor = new WeakMap();
+let draggingTemplateTokenChip = null;
+let draggingTemplateTokenSource = null;
+const templateTokenList = Array.from(
+  new Set(TASK_MESSAGE_PLACEHOLDERS.map((item) => String(item.token || "").trim()).filter(Boolean))
+).sort((a, b) => b.length - a.length);
+
+function escapeRegexLiteral(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getTemplateTokenRegex() {
+  if (!templateTokenList.length) return null;
+  return new RegExp(`(${templateTokenList.map((token) => escapeRegexLiteral(token)).join("|")})`, "g");
+}
+
+function splitTemplateTextByTokens(text) {
+  const src = String(text || "");
+  const re = getTemplateTokenRegex();
+  if (!re) return [{ type: "text", value: src }];
+  const out = [];
+  let last = 0;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    if (m.index > last) {
+      out.push({ type: "text", value: src.slice(last, m.index) });
+    }
+    out.push({ type: "token", value: m[0] });
+    last = m.index + m[0].length;
+  }
+  if (last < src.length) {
+    out.push({ type: "text", value: src.slice(last) });
+  }
+  if (!out.length) out.push({ type: "text", value: "" });
+  return out;
+}
+
+function createTemplateTokenChip(token) {
+  const chip = document.createElement("span");
+  chip.className = "template-token-chip";
+  chip.setAttribute("contenteditable", "false");
+  chip.setAttribute("draggable", "true");
+  chip.dataset.token = String(token || "");
+  chip.innerHTML = `
+    <span class="template-token-chip__label">${escapeHtmlText(String(token || ""))}</span>
+    <button type="button" class="template-token-chip__remove" aria-label="Удалить тег" title="Удалить тег">×</button>
+  `;
+  return chip;
+}
+
+function extractTemplateEditorValue(editor) {
+  if (!editor) return "";
+  let out = "";
+  const walk = (node) => {
+    if (!node) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      out += node.nodeValue || "";
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = /** @type {HTMLElement} */ (node);
+    if (el.classList?.contains("template-token-chip")) {
+      out += String(el.dataset.token || "");
+      return;
+    }
+    if (el.tagName === "BR") {
+      out += "\n";
+      return;
+    }
+    const tag = el.tagName;
+    const isBlock = tag === "DIV" || tag === "P";
+    const children = Array.from(el.childNodes);
+    children.forEach((child) => walk(child));
+    if (isBlock && !out.endsWith("\n")) {
+      out += "\n";
+    }
+  };
+  Array.from(editor.childNodes).forEach((node) => walk(node));
+  return out.replace(/\u200B/g, "");
+}
+
+function renderTemplateEditorFromValue(editor, value) {
+  if (!editor) return;
+  const prevScroll = editor.scrollTop;
+  editor.innerHTML = "";
+  const parts = splitTemplateTextByTokens(value);
+  parts.forEach((part) => {
+    if (part.type === "token") {
+      editor.appendChild(createTemplateTokenChip(part.value));
+      return;
+    }
+    editor.appendChild(document.createTextNode(part.value));
+  });
+  editor.scrollTop = prevScroll;
+}
+
+function syncTemplateEditorToSource(editor, source, { normalize = false } = {}) {
+  if (!editor || !source) return;
+  const value = extractTemplateEditorValue(editor);
+  if (normalize) {
+    renderTemplateEditorFromValue(editor, value);
+  }
+  source.value = value;
+  source.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function placeCaretAfterNode(node) {
+  const sel = window.getSelection?.();
+  if (!sel || !node) return;
+  const range = document.createRange();
+  range.setStartAfter(node);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function insertTokenChipAtCaret(editor, token) {
+  if (!editor || !token) return false;
+  editor.focus();
+  const sel = window.getSelection?.();
+  if (!sel || sel.rangeCount === 0) return false;
+  const range = sel.getRangeAt(0);
+  if (!editor.contains(range.commonAncestorContainer)) return false;
+  range.deleteContents();
+  const chip = createTemplateTokenChip(token);
+  range.insertNode(chip);
+  placeCaretAfterNode(chip);
+  return true;
+}
+
+function insertTokenIntoTemplateSource(source, token) {
+  if (!source || !token) return false;
+  const editor = templateEditorBySource.get(source);
+  if (editor && insertTokenChipAtCaret(editor, token)) {
+    syncTemplateEditorToSource(editor, source);
+    return true;
+  }
+  const start = typeof source.selectionStart === "number" ? source.selectionStart : source.value.length;
+  const end = typeof source.selectionEnd === "number" ? source.selectionEnd : source.value.length;
+  const v = source.value;
+  source.value = `${v.slice(0, start)}${token}${v.slice(end)}`;
+  const pos = start + token.length;
+  source.focus();
+  if (typeof source.setSelectionRange === "function") source.setSelectionRange(pos, pos);
+  source.dispatchEvent(new Event("input", { bubbles: true }));
+  return true;
+}
+
+function resolveTemplateEditorSource(selector) {
+  const matchesSelector = (el) => el instanceof HTMLTextAreaElement && (!selector || el.matches(selector));
+
+  if (matchesSelector(activeTemplateEditorSource)) {
+    return activeTemplateEditorSource;
+  }
+
+  const sel = window.getSelection?.();
+  const anchorNode = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
+  const anchorEl =
+    anchorNode instanceof Element
+      ? anchorNode
+      : anchorNode && anchorNode.parentElement instanceof Element
+        ? anchorNode.parentElement
+        : null;
+  const editorFromSelection = anchorEl ? anchorEl.closest(".template-token-editor") : null;
+  if (editorFromSelection instanceof HTMLElement) {
+    const source = templateSourceByEditor.get(editorFromSelection);
+    if (matchesSelector(source)) {
+      activeTemplateEditorSource = source;
+      return source;
+    }
+  }
+
+  const focused = document.activeElement;
+  if (focused instanceof HTMLElement) {
+    const focusedEditor = focused.closest(".template-token-editor");
+    if (focusedEditor instanceof HTMLElement) {
+      const source = templateSourceByEditor.get(focusedEditor);
+      if (matchesSelector(source)) {
+        activeTemplateEditorSource = source;
+        return source;
+      }
+    }
+  }
+
+  const fallback = document.querySelector(selector || TEMPLATE_EDITOR_TEXTAREA_SELECTOR);
+  return fallback instanceof HTMLTextAreaElement ? fallback : null;
+}
+
+function initTemplateTokenEditors() {
+  const sources = Array.from(document.querySelectorAll(TEMPLATE_EDITOR_TEXTAREA_SELECTOR));
+  sources.forEach((source) => {
+    if (!(source instanceof HTMLTextAreaElement)) return;
+    if (templateEditorBySource.has(source)) return;
+    const editor = document.createElement("div");
+    editor.className = "template-token-editor";
+    editor.setAttribute("contenteditable", "true");
+    editor.setAttribute("spellcheck", "false");
+    editor.dataset.sourceFor = source.id || "";
+    renderTemplateEditorFromValue(editor, source.value);
+    source.classList.add("template-token-source");
+    source.setAttribute("aria-hidden", "true");
+    source.tabIndex = -1;
+    source.style.display = "none";
+    source.insertAdjacentElement("afterend", editor);
+    templateEditorBySource.set(source, editor);
+    templateSourceByEditor.set(editor, source);
+
+    editor.addEventListener("focus", () => {
+      activeTemplateEditorSource = source;
+    });
+    editor.addEventListener("click", (event) => {
+      const removeBtn = event.target instanceof HTMLElement ? event.target.closest(".template-token-chip__remove") : null;
+      if (removeBtn) {
+        const chip = removeBtn.closest(".template-token-chip");
+        chip?.remove();
+        syncTemplateEditorToSource(editor, source);
+        return;
+      }
+      activeTemplateEditorSource = source;
+    });
+    editor.addEventListener("beforeinput", (event) => {
+      if (event.inputType === "insertParagraph") {
+        event.preventDefault();
+        document.execCommand("insertText", false, "\n");
+      }
+    });
+    editor.addEventListener("dragstart", (event) => {
+      const target = event.target instanceof HTMLElement ? event.target.closest(".template-token-chip") : null;
+      if (!(target instanceof HTMLElement)) return;
+      draggingTemplateTokenChip = target;
+      draggingTemplateTokenSource = source;
+      target.classList.add("is-dragging");
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", String(target.dataset.token || ""));
+      }
+    });
+    editor.addEventListener("dragend", () => {
+      if (draggingTemplateTokenChip instanceof HTMLElement) {
+        draggingTemplateTokenChip.classList.remove("is-dragging");
+      }
+      editor.querySelectorAll(".template-token-chip.drop-before, .template-token-chip.drop-after").forEach((el) => {
+        el.classList.remove("drop-before", "drop-after");
+      });
+      draggingTemplateTokenChip = null;
+      draggingTemplateTokenSource = null;
+    });
+    editor.addEventListener("dragover", (event) => {
+      if (!(draggingTemplateTokenChip instanceof HTMLElement)) return;
+      if (draggingTemplateTokenSource !== source) return;
+      event.preventDefault();
+      const target = event.target instanceof HTMLElement ? event.target.closest(".template-token-chip") : null;
+      editor.querySelectorAll(".template-token-chip.drop-before, .template-token-chip.drop-after").forEach((el) => {
+        if (el !== target) el.classList.remove("drop-before", "drop-after");
+      });
+      if (!(target instanceof HTMLElement) || target === draggingTemplateTokenChip) return;
+      const rect = target.getBoundingClientRect();
+      const before = event.clientX < rect.left + rect.width / 2;
+      target.classList.toggle("drop-before", before);
+      target.classList.toggle("drop-after", !before);
+    });
+    editor.addEventListener("drop", (event) => {
+      if (!(draggingTemplateTokenChip instanceof HTMLElement)) return;
+      if (draggingTemplateTokenSource !== source) return;
+      event.preventDefault();
+      const target = event.target instanceof HTMLElement ? event.target.closest(".template-token-chip") : null;
+      editor.querySelectorAll(".template-token-chip.drop-before, .template-token-chip.drop-after").forEach((el) => {
+        el.classList.remove("drop-before", "drop-after");
+      });
+      if (target instanceof HTMLElement && target !== draggingTemplateTokenChip) {
+        const rect = target.getBoundingClientRect();
+        const before = event.clientX < rect.left + rect.width / 2;
+        target.insertAdjacentElement(before ? "beforebegin" : "afterend", draggingTemplateTokenChip);
+      } else {
+        editor.appendChild(draggingTemplateTokenChip);
+      }
+      placeCaretAfterNode(draggingTemplateTokenChip);
+      syncTemplateEditorToSource(editor, source);
+    });
+    editor.addEventListener("input", () => {
+      activeTemplateEditorSource = source;
+      syncTemplateEditorToSource(editor, source);
+    });
+    editor.addEventListener("blur", () => {
+      syncTemplateEditorToSource(editor, source, { normalize: true });
+    });
+  });
+}
 
 function isHostedRuntime() {
   return typeof window !== "undefined" && (window.location.protocol === "http:" || window.location.protocol === "https:");
@@ -11146,6 +11437,7 @@ function renderOtherSettingsPanel() {
 }
 
 function attachOtherSettingsHandlers() {
+  initTemplateTokenEditors();
   document.getElementById("otherSettingsRefreshBtn")?.addEventListener("click", () => {
     refreshCurrentViewData();
   });
@@ -11172,15 +11464,7 @@ function attachOtherSettingsHandlers() {
     });
   });
 
-  let lastTaskTemplateTextarea = null;
   const templateInputs = Array.from(document.querySelectorAll(".task-message-template-input"));
-  templateInputs.forEach((ta) => {
-    const mark = () => {
-      lastTaskTemplateTextarea = ta;
-    };
-    ta.addEventListener("focus", mark);
-    ta.addEventListener("click", mark);
-  });
   const commitTaskTemplate = (input) => {
     const status = String(input.dataset.status || "");
     if (!status) return;
@@ -11191,25 +11475,21 @@ function attachOtherSettingsHandlers() {
     saveDisplaySettings();
   };
   templateInputs.forEach((input) => {
+    input.addEventListener("input", () => {
+      commitTaskTemplate(input);
+      if (typeof window._mbcRefreshTaskFormatPreview === "function") {
+        window._mbcRefreshTaskFormatPreview();
+      }
+    });
     input.addEventListener("blur", () => commitTaskTemplate(input));
     input.addEventListener("change", () => commitTaskTemplate(input));
   });
   Array.from(document.querySelectorAll(".task-placeholder-insert-btn")).forEach((btn) => {
     btn.addEventListener("click", () => {
       const token = String(btn.getAttribute("data-insert-token") || "");
-      let ta = lastTaskTemplateTextarea;
-      if (!ta) ta = document.querySelector(".task-message-template-input");
+      const ta = resolveTemplateEditorSource(".task-message-template-input");
       if (!ta || !token) return;
-      const start = typeof ta.selectionStart === "number" ? ta.selectionStart : ta.value.length;
-      const end = typeof ta.selectionEnd === "number" ? ta.selectionEnd : ta.value.length;
-      const v = ta.value;
-      ta.value = `${v.slice(0, start)}${token}${v.slice(end)}`;
-      const pos = start + token.length;
-      ta.focus();
-      if (typeof ta.setSelectionRange === "function") {
-        ta.setSelectionRange(pos, pos);
-      }
-      commitTaskTemplate(ta);
+      insertTokenIntoTemplateSource(ta, token);
       if (typeof window._mbcRefreshTaskFormatPreview === "function") {
         window._mbcRefreshTaskFormatPreview();
       }
@@ -11363,6 +11643,12 @@ function attachOtherSettingsHandlers() {
     displaySettings.telegramCloseAcceptedTemplate = String(closeAcceptedInput.value || "").trim();
     saveDisplaySettings();
   };
+  closeAcceptedInput?.addEventListener("input", () => {
+    commitCloseAccepted();
+    if (typeof window._mbcRefreshTaskFormatPreview === "function") {
+      window._mbcRefreshTaskFormatPreview();
+    }
+  });
   closeAcceptedInput?.addEventListener("blur", () => {
     commitCloseAccepted();
     if (typeof window._mbcRefreshTaskFormatPreview === "function") {
@@ -11456,14 +11742,8 @@ function attachOtherSettingsHandlers() {
     });
   });
 
-  let lastReminderTextInput = null;
   const reminderTextInputs = Array.from(document.querySelectorAll(".reminder-text-input"));
   reminderTextInputs.forEach((input) => {
-    const markLast = () => {
-      lastReminderTextInput = input;
-    };
-    input.addEventListener("focus", markLast);
-    input.addEventListener("click", markLast);
     const commit = () => {
       const status = String(input.dataset.status || "");
       if (!status) return;
@@ -11476,36 +11756,20 @@ function attachOtherSettingsHandlers() {
         text: String(input.value || "").trim()
       };
       saveDisplaySettings();
+      if (typeof window._mbcRefreshReminderPreview === "function") {
+        window._mbcRefreshReminderPreview();
+      }
     };
+    input.addEventListener("input", commit);
     input.addEventListener("blur", commit);
     input.addEventListener("change", commit);
   });
   Array.from(document.querySelectorAll(".reminder-placeholder-insert-btn")).forEach((btn) => {
     btn.addEventListener("click", () => {
       const token = String(btn.getAttribute("data-insert-token") || "");
-      let el = lastReminderTextInput;
-      if (!el) el = document.querySelector(".reminder-text-input");
+      const el = resolveTemplateEditorSource(".reminder-text-input");
       if (!el || !token) return;
-      const start = typeof el.selectionStart === "number" ? el.selectionStart : el.value.length;
-      const end = typeof el.selectionEnd === "number" ? el.selectionEnd : el.value.length;
-      const v = el.value;
-      el.value = `${v.slice(0, start)}${token}${v.slice(end)}`;
-      const pos = start + token.length;
-      el.focus();
-      if (typeof el.setSelectionRange === "function") {
-        el.setSelectionRange(pos, pos);
-      }
-      const status = String(el.dataset.status || "");
-      if (!status) return;
-      if (!displaySettings.reminderSettings) {
-        displaySettings.reminderSettings = {};
-      }
-      const current = displaySettings.reminderSettings[status] || { days: "none", time: "09:00", text: "" };
-      displaySettings.reminderSettings[status] = {
-        ...current,
-        text: String(el.value || "").trim()
-      };
-      saveDisplaySettings();
+      insertTokenIntoTemplateSource(el, token);
       if (typeof window._mbcRefreshReminderPreview === "function") {
         window._mbcRefreshReminderPreview();
       }

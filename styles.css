@@ -692,6 +692,97 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   outline: none;
 }
 
+.template-token-source {
+  display: none !important;
+}
+
+.template-token-editor {
+  width: 100%;
+  min-height: 88px;
+  border: 1px solid #c7d1dc;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  font-family: inherit;
+  background: #fff;
+  color: #1f2a37;
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-y: auto;
+  cursor: text;
+}
+
+.template-token-editor:focus {
+  border-color: var(--brand-input-focus);
+  box-shadow: 0 0 0 2px var(--brand-focus-ring);
+  outline: none;
+}
+
+.template-token-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  margin: 1px 2px;
+  border-radius: 999px;
+  border: 1px solid #b8c4ef;
+  background: #eef2ff;
+  color: #2f3f8f;
+  font-size: 12px;
+  line-height: 1.25;
+  vertical-align: baseline;
+  cursor: grab;
+  user-select: none;
+}
+
+.template-token-chip:active {
+  cursor: grabbing;
+}
+
+.template-token-chip.is-dragging {
+  opacity: 0.55;
+}
+
+.template-token-chip.drop-before {
+  box-shadow: -2px 0 0 0 var(--brand);
+}
+
+.template-token-chip.drop-after {
+  box-shadow: 2px 0 0 0 var(--brand);
+}
+
+.template-token-chip__label {
+  white-space: nowrap;
+}
+
+.template-token-chip__remove {
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #4f5d95;
+  padding: 0;
+  font-size: 12px;
+  line-height: 14px;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.template-token-chip:hover .template-token-chip__remove,
+.template-token-chip:focus-within .template-token-chip__remove {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.template-token-chip__remove:hover {
+  background: rgba(60, 84, 170, 0.14);
+}
+
 .other-settings-section {
   display: flex;
   flex-direction: column;
@@ -2155,6 +2246,14 @@ body.app-booting .app-boot-loader {
   border-color: var(--brand-input-focus);
   box-shadow: 0 0 0 2px var(--brand-focus-ring);
   outline: none;
+}
+
+.reminder-item-body .template-token-editor {
+  min-height: 64px;
+}
+
+.telegram-close-accepted-input + .template-token-editor {
+  min-height: 48px;
 }
 
 .reminder-status {
