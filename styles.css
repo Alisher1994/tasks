@@ -743,9 +743,9 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 8px;
+  padding: 3px 8px;
   margin: 1px 2px;
-  border-radius: 999px;
+  border-radius: 6px;
   border: 1px solid #b8c4ef;
   background: #eef2ff;
   color: #2f3f8f;
@@ -780,7 +780,7 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   width: 14px;
   height: 14px;
   border: none;
-  border-radius: 50%;
+  border-radius: 4px;
   background: transparent;
   color: #4f5d95;
   padding: 0;
