@@ -1402,7 +1402,11 @@ function isTasksGraphModeActive() {
 }
 
 function hasActiveTaskUiOverlay() {
-  return Boolean(document.querySelector(".details-modal-overlay, .task-file-viewer-overlay"));
+  return Boolean(
+    document.querySelector(
+      ".details-modal-overlay, .task-file-viewer-overlay, .responsible-modal-overlay"
+    )
+  );
 }
 
 function startRemoteAutoPull() {
