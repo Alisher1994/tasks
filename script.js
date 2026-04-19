@@ -12321,9 +12321,6 @@ function openTaskDetailsModal(section, row, rowIndex) {
       <div class="details-modal-header">
         <h3>Карточка задачи #${taskId}</h3>
         <div class="details-modal-actions">
-          <button type="button" class="icon-action-btn save-details-btn" title="Сохранить">
-            <i data-lucide="save" class="lucide-icon" aria-hidden="true"></i>
-          </button>
           <button type="button" class="icon-action-btn download-pdf-btn" title="Скачать PDF">
             <i data-lucide="download" class="lucide-icon" aria-hidden="true"></i>
           </button>
@@ -12500,7 +12497,6 @@ function openTaskDetailsModal(section, row, rowIndex) {
         });
         if (!entry) continue;
         attachmentsDraft.push(entry);
-        isDirty = true;
       } finally {
         filesUploadInFlight = Math.max(0, filesUploadInFlight - 1);
         refreshTaskFilesUploadUi();
@@ -12653,7 +12649,6 @@ function openTaskDetailsModal(section, row, rowIndex) {
       const idx = attachmentsDraft.findIndex((x) => String(x.id) === fileId);
       if (idx < 0) return;
       attachmentsDraft.splice(idx, 1);
-      isDirty = true;
       persistTaskAttachments();
       renderTaskFilesList();
     }
@@ -12692,29 +12687,12 @@ function openTaskDetailsModal(section, row, rowIndex) {
       }, "Идёт загрузка файлов. Закрыть окно и прервать загрузку?");
       return;
     }
-    if (!isDirty) {
-      closeAndCleanup();
-      return;
-    }
-    showCustomCloseConfirm(modal, () => {
-      closeAndCleanup();
-    });
+    closeAndCleanup();
   };
   const closeAndCleanup = () => {
     document.removeEventListener("paste", onPaste);
     close();
   };
-  modal.querySelector(".save-details-btn")?.addEventListener("click", () => {
-    try {
-      applyDraftToTask(section, rowIndex, taskId, draftState);
-      persistTaskAttachments({ appendHistory: false });
-      isDirty = false;
-      renderTablePreserveScroll();
-      closeAndCleanup();
-    } catch (e) {
-      window.alert(`Не удалось сохранить карточку: ${String(e?.message || e)}`);
-    }
-  });
   modal.querySelector(".close-details-btn")?.addEventListener("click", askUnsavedClose);
   modal.querySelector(".download-pdf-btn")?.addEventListener("click", () => {
     downloadTaskCardAsPdf(modal, taskId);
@@ -12947,9 +12925,10 @@ function toAbsoluteMediaUrl(storedName) {
   const raw = String(storedName || "").trim();
   if (!raw) return "";
   if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith("data:")) return raw;
   if (raw.startsWith("/media/")) return `${location.origin}${raw}`;
   if (raw.startsWith("media/")) return `${location.origin}/${raw}`;
-  if (/^[\w.-]+\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(raw)) {
+  if (/^[\w.-]+\.[a-z0-9]{1,8}$/i.test(raw)) {
     return `${location.origin}/media/${encodeURIComponent(raw)}`;
   }
   return "";
