@@ -2604,6 +2604,132 @@ button.task-card-tab.is-active {
   color: #1e293b;
 }
 
+.task-files-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.task-files-dropzone {
+  border: 1px dashed #b8c8dc;
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 14px;
+  text-align: center;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.task-files-dropzone:focus {
+  outline: none;
+  border-color: var(--brand-input-focus);
+  box-shadow: 0 0 0 2px var(--brand-focus-ring);
+}
+
+.task-files-dropzone.is-drag-over {
+  border-color: var(--brand);
+  background: #eef3ff;
+}
+
+.task-files-dropzone-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2f4057;
+}
+
+.task-files-dropzone-subtitle {
+  font-size: 12px;
+  color: #6b7a8f;
+}
+
+.task-files-input-hidden {
+  display: none !important;
+}
+
+.task-files-list-wrap {
+  border: 1px solid #dce4ee;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.task-files-list-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #46586e;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e6ecf3;
+  background: #f7fafd;
+}
+
+.task-files-list {
+  max-height: min(36vh, 330px);
+  overflow: auto;
+}
+
+.task-files-empty {
+  padding: 14px 10px;
+  font-size: 12px;
+  color: #718197;
+}
+
+.task-file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid #eef2f6;
+}
+
+.task-file-row:last-child {
+  border-bottom: none;
+}
+
+.task-file-meta {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-file-ext {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 2px 5px;
+  border: 1px solid #c8d4e4;
+  border-radius: 6px;
+  background: #f3f7fc;
+  color: #4f6480;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.task-file-name {
+  font-size: 13px;
+  color: #253449;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-file-extra {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+  color: #6d7b8f;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.task-file-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
 .details-modal-actions {
   display: flex;
   align-items: center;

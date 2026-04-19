@@ -7645,12 +7645,52 @@ function getTaskMultiAssigneeMap(taskId, { create = false } = {}) {
   return taskMultiState[id];
 }
 
+function sanitizeTaskAttachmentEntry(item) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+  const stored = String(item.stored || "").trim();
+  if (!stored) return null;
+  const name = String(item.name || "").trim() || getMediaDisplayName(stored);
+  const type = String(item.type || "").trim();
+  const size = Number(item.size);
+  const addedAt = String(item.addedAt || "").trim();
+  const idRaw = String(item.id || "").trim();
+  const id = idRaw || `f_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  return {
+    id,
+    stored,
+    name,
+    type,
+    size: Number.isFinite(size) && size >= 0 ? Math.floor(size) : 0,
+    addedAt: addedAt || getNowDateTimeString()
+  };
+}
+
+function getTaskAttachmentItems(taskId, { create = false } = {}) {
+  const map = getTaskMultiAssigneeMap(taskId, { create });
+  if (!map) return [];
+  if (!Array.isArray(map.__files)) {
+    if (!create) return [];
+    map.__files = [];
+  }
+  map.__files = map.__files
+    .map((item) => sanitizeTaskAttachmentEntry(item))
+    .filter(Boolean);
+  return map.__files;
+}
+
 function cleanupTaskMultiStateForRow(taskRow) {
   const taskId = getTaskIdForMultiState(taskRow);
   if (!taskId) return;
   const assignees = parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible]);
+  const existingAttachments = getTaskAttachmentItems(taskId);
   if (assignees.length <= 1) {
-    delete taskMultiState[taskId];
+    if (existingAttachments.length > 0) {
+      taskMultiState[taskId] = {
+        __files: existingAttachments
+      };
+    } else {
+      delete taskMultiState[taskId];
+    }
     return;
   }
   const map = getTaskMultiAssigneeMap(taskId, { create: true });
@@ -7668,8 +7708,15 @@ function cleanupTaskMultiStateForRow(taskRow) {
     }
   });
   Object.keys(map).forEach((name) => {
+    if (String(name).startsWith("__")) return;
     if (!known.has(String(name).toLowerCase())) delete map[name];
   });
+  const files = getTaskAttachmentItems(taskId);
+  if (files.length > 0) {
+    map.__files = files;
+  } else {
+    delete map.__files;
+  }
 }
 
 function normalizeTaskMultiStateStore() {
@@ -8548,6 +8595,44 @@ async function resolveStoredMediaFromFile(file) {
     stored: file.name || `media-${Date.now()}.png`,
     preview: { name: file.name, type: file.type, url: URL.createObjectURL(file) }
   };
+}
+
+async function resolveStoredAttachmentFromFile(file) {
+  const uploadedUrl = await uploadTaskMediaToServer(file).catch(() => null);
+  if (uploadedUrl) {
+    return {
+      stored: uploadedUrl,
+      name: String(file.name || getMediaDisplayName(uploadedUrl) || "Файл"),
+      type: String(file.type || "").trim(),
+      size: Number(file.size) || 0,
+      addedAt: getNowDateTimeString()
+    };
+  }
+  const dataUrl = await readFileAsDataUrl(file);
+  if (!dataUrl.startsWith("data:")) {
+    throw new Error("Не удалось прочитать файл");
+  }
+  return {
+    stored: dataUrl,
+    name: String(file.name || "Файл"),
+    type: String(file.type || "").trim(),
+    size: Number(file.size) || 0,
+    addedAt: getNowDateTimeString()
+  };
+}
+
+function formatFileSizeRu(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  const units = ["Б", "КБ", "МБ", "ГБ"];
+  let size = n;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const fixed = size >= 100 || unitIndex === 0 ? 0 : 1;
+  return `${size.toFixed(fixed)} ${units[unitIndex]}`;
 }
 
 function attachMediaSlotHandlers(section) {
@@ -12112,6 +12197,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
     after: getMediaItems(row[TASK_COLUMNS.mediaAfter]),
     preview: {}
   };
+  const attachmentsDraft = getTaskAttachmentItems(taskId).map((item) => ({ ...item }));
   let isDirty = false;
 
   draftState.before.forEach((name, idx) => {
@@ -12164,6 +12250,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
       </div>
       <div class="task-card-tabs" role="tablist" aria-label="Разделы карточки">
         <button type="button" class="task-card-tab is-active" role="tab" aria-selected="true" data-task-tab="main">Карточка</button>
+        <button type="button" class="task-card-tab" role="tab" aria-selected="false" data-task-tab="files">Файлы</button>
         <button type="button" class="task-card-tab" role="tab" aria-selected="false" data-task-tab="history">История</button>
       </div>
       <div class="task-card-panel" data-task-panel="main">
@@ -12182,6 +12269,23 @@ function openTaskDetailsModal(section, row, rowIndex) {
           <div class="gallery-list" data-gallery-kind="after">${afterGallery}</div>
         </div>
       </div>
+      <div class="task-card-panel task-card-panel--hidden" data-task-panel="files" role="tabpanel">
+        <div class="task-files-panel">
+          <div class="task-files-dropzone" data-task-files-dropzone tabindex="0">
+            <div class="task-files-dropzone-title">Перетащите файлы сюда</div>
+            <div class="task-files-dropzone-subtitle">или вставьте через Ctrl+V, либо выберите вручную</div>
+            <button type="button" class="secondary task-files-add-btn" data-task-files-add>
+              <i data-lucide="paperclip" class="lucide-icon" aria-hidden="true"></i>
+              Добавить файл
+            </button>
+            <input type="file" class="task-files-input-hidden" data-task-files-input multiple />
+          </div>
+          <div class="task-files-list-wrap">
+            <div class="task-files-list-title">Список файлов</div>
+            <div class="task-files-list" data-task-files-list></div>
+          </div>
+        </div>
+      </div>
       <div class="task-card-panel task-card-panel--hidden" data-task-panel="history" role="tabpanel">
         ${historyPanelHtml}
       </div>
@@ -12190,9 +12294,11 @@ function openTaskDetailsModal(section, row, rowIndex) {
 
   document.body.appendChild(modal);
   initLucideIcons();
+  let activeTaskTab = "main";
   modal.querySelectorAll(".task-card-tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       const id = tab.getAttribute("data-task-tab");
+      activeTaskTab = String(id || "main");
       modal.querySelectorAll(".task-card-tab").forEach((t) => {
         const on = t.getAttribute("data-task-tab") === id;
         t.classList.toggle("is-active", on);
@@ -12212,6 +12318,85 @@ function openTaskDetailsModal(section, row, rowIndex) {
   const persistDraftMediaNow = () => {
     applyDraftToTask(section, rowIndex, taskId, draftState, { appendHistory: false });
     isDirty = false;
+  };
+
+  const persistTaskAttachments = ({ appendHistory = false } = {}) => {
+    const list = attachmentsDraft
+      .map((item) => sanitizeTaskAttachmentEntry(item))
+      .filter(Boolean);
+    const map = getTaskMultiAssigneeMap(taskId, { create: list.length > 0 });
+    if (map) {
+      if (list.length > 0) {
+        map.__files = list;
+      } else {
+        delete map.__files;
+      }
+      if (!Object.keys(map).length) {
+        delete taskMultiState[taskId];
+      }
+    }
+    if (appendHistory) {
+      appendTaskHistoryEntry(taskId, `Файлы обновлены (${list.length})`);
+    }
+    saveSectionsData();
+  };
+
+  const renderTaskFilesList = () => {
+    const listEl = modal.querySelector('[data-task-files-list]');
+    if (!listEl) return;
+    if (!attachmentsDraft.length) {
+      listEl.innerHTML = `<div class="task-files-empty">Файлы не добавлены.</div>`;
+      return;
+    }
+    listEl.innerHTML = attachmentsDraft
+      .map((item) => {
+        const safe = sanitizeTaskAttachmentEntry(item);
+        if (!safe) return "";
+        const ext = String(safe.name || "").split(".").pop()?.toUpperCase() || "FILE";
+        return `
+          <div class="task-file-row" data-file-id="${escapeHtmlAttr(safe.id)}">
+            <div class="task-file-meta">
+              <span class="task-file-ext">${escapeHtmlText(ext.slice(0, 5))}</span>
+              <span class="task-file-name" title="${escapeHtmlAttr(safe.name)}">${escapeHtmlText(safe.name)}</span>
+            </div>
+            <div class="task-file-extra">
+              <span>${escapeHtmlText(formatFileSizeRu(safe.size))}</span>
+              <span>${escapeHtmlText(String(safe.addedAt || "—"))}</span>
+            </div>
+            <div class="task-file-actions">
+              <button type="button" class="icon-action-btn task-file-open-btn" data-file-open="${escapeHtmlAttr(safe.id)}" title="Открыть">
+                <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="icon-action-btn danger-btn task-file-delete-btn" data-file-delete="${escapeHtmlAttr(safe.id)}" title="Удалить">
+                <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
+              </button>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+    initLucideIcons();
+  };
+
+  const addTaskAttachmentFiles = async (filesLike) => {
+    const files = Array.from(filesLike || []).filter((f) => f instanceof File);
+    if (!files.length) return;
+    for (const file of files) {
+      const resolved = await resolveStoredAttachmentFromFile(file).catch((e) => {
+        window.alert(`Не удалось добавить файл «${String(file.name || "")}»: ${String(e?.message || e)}`);
+        return null;
+      });
+      if (!resolved) continue;
+      const entry = sanitizeTaskAttachmentEntry({
+        ...resolved,
+        id: `f_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+      });
+      if (!entry) continue;
+      attachmentsDraft.push(entry);
+      isDirty = true;
+    }
+    persistTaskAttachments();
+    renderTaskFilesList();
   };
 
   const refreshModalGalleries = () => {
@@ -12289,9 +12474,74 @@ function openTaskDetailsModal(section, row, rowIndex) {
   };
 
   bindGalleryControls();
+  renderTaskFilesList();
+
+  const filesInput = modal.querySelector('[data-task-files-input]');
+  const addFilesBtn = modal.querySelector('[data-task-files-add]');
+  const filesDropzone = modal.querySelector('[data-task-files-dropzone]');
+
+  addFilesBtn?.addEventListener("click", () => {
+    if (!(filesInput instanceof HTMLInputElement)) return;
+    filesInput.click();
+  });
+  filesInput?.addEventListener("change", async () => {
+    if (!(filesInput instanceof HTMLInputElement)) return;
+    await addTaskAttachmentFiles(filesInput.files || []);
+    filesInput.value = "";
+  });
+  filesDropzone?.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    filesDropzone.classList.add("is-drag-over");
+  });
+  filesDropzone?.addEventListener("dragleave", () => {
+    filesDropzone.classList.remove("is-drag-over");
+  });
+  filesDropzone?.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    filesDropzone.classList.remove("is-drag-over");
+    await addTaskAttachmentFiles(event.dataTransfer?.files || []);
+  });
+  filesDropzone?.addEventListener("paste", async (event) => {
+    const files = event.clipboardData?.files || [];
+    if (!files.length) return;
+    event.preventDefault();
+    await addTaskAttachmentFiles(files);
+  });
+
+  modal.addEventListener("click", async (event) => {
+    const openBtn = event.target instanceof HTMLElement ? event.target.closest("[data-file-open]") : null;
+    if (openBtn) {
+      const fileId = String(openBtn.getAttribute("data-file-open") || "");
+      const item = attachmentsDraft.find((x) => String(x.id) === fileId);
+      const safe = sanitizeTaskAttachmentEntry(item);
+      if (!safe) return;
+      const url = String(safe.stored || "").trim();
+      if (!url) return;
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const delBtn = event.target instanceof HTMLElement ? event.target.closest("[data-file-delete]") : null;
+    if (delBtn) {
+      const fileId = String(delBtn.getAttribute("data-file-delete") || "");
+      const idx = attachmentsDraft.findIndex((x) => String(x.id) === fileId);
+      if (idx < 0) return;
+      attachmentsDraft.splice(idx, 1);
+      isDirty = true;
+      persistTaskAttachments();
+      renderTaskFilesList();
+    }
+  });
 
   const onPaste = async (event) => {
     if (!document.body.contains(modal)) return;
+    if (activeTaskTab === "files") {
+      const pastedFiles = Array.from(event.clipboardData?.files || []);
+      if (pastedFiles.length > 0) {
+        event.preventDefault();
+        await addTaskAttachmentFiles(pastedFiles);
+        return;
+      }
+    }
     if (!activeMediaTarget) return;
     const clipboardItems = event.clipboardData?.items || [];
     const imageItem = Array.from(clipboardItems).find((item) => item.type.startsWith("image/"));
@@ -12324,6 +12574,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
   modal.querySelector(".save-details-btn")?.addEventListener("click", () => {
     try {
       applyDraftToTask(section, rowIndex, taskId, draftState);
+      persistTaskAttachments({ appendHistory: false });
       isDirty = false;
       renderTablePreserveScroll();
       closeAndCleanup();
