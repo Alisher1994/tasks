@@ -161,6 +161,7 @@ const SYSTEM_DELAY_REASONS = [
 const STATUS_DECISION_OLD = "Треб. реш. рук.";
 const STATUS_DECISION = "Требует решение руководителя";
 const STATUS_OPTIONS = ["Новый", "В процессе", "Закрыт"];
+const REMINDER_STATUS_OPTIONS = STATUS_OPTIONS.filter((status) => status !== "Закрыт");
 
 /** Подписи месяцев для графика «Добавление задач по месяцам» (текущий год, ось X). */
 const REPORT_MONTH_LABELS_RU = ["Янв.", "Февр.", "Мар.", "Апр.", "Май", "Июн.", "Июл.", "Авг.", "Сен.", "Окт.", "Ноя.", "Дек."];
@@ -1494,7 +1495,7 @@ function attachTelegramTemplatePreviews() {
 
   let taskPreviewMode = "status";
   let taskPreviewStatus = STATUS_OPTIONS[0];
-  let reminderPreviewStatus = STATUS_OPTIONS[0];
+  let reminderPreviewStatus = REMINDER_STATUS_OPTIONS[0] || STATUS_OPTIONS[0];
 
   const setTaskKeyboardVisible = (show) => {
     if (kbTask) kbTask.classList.toggle("telegram-emulator-keyboard--hidden", !show);
@@ -1573,11 +1574,11 @@ function attachTelegramTemplatePreviews() {
 
   document.querySelectorAll(".reminder-text-input").forEach((el) => {
     el.addEventListener("focus", () => {
-      reminderPreviewStatus = String(el.dataset.status || STATUS_OPTIONS[0]).trim() || STATUS_OPTIONS[0];
+      reminderPreviewStatus = String(el.dataset.status || REMINDER_STATUS_OPTIONS[0] || STATUS_OPTIONS[0]).trim() || REMINDER_STATUS_OPTIONS[0] || STATUS_OPTIONS[0];
       refreshReminderPreview();
     });
     el.addEventListener("input", () => {
-      reminderPreviewStatus = String(el.dataset.status || STATUS_OPTIONS[0]).trim() || STATUS_OPTIONS[0];
+      reminderPreviewStatus = String(el.dataset.status || REMINDER_STATUS_OPTIONS[0] || STATUS_OPTIONS[0]).trim() || REMINDER_STATUS_OPTIONS[0] || STATUS_OPTIONS[0];
       refreshReminderPreview();
     });
   });
@@ -1587,7 +1588,7 @@ function attachTelegramTemplatePreviews() {
       if (e.target.closest("input, textarea, select")) return;
       const inp = item.querySelector(".reminder-text-input");
       if (!inp) return;
-      reminderPreviewStatus = String(inp.dataset.status || STATUS_OPTIONS[0]).trim() || STATUS_OPTIONS[0];
+      reminderPreviewStatus = String(inp.dataset.status || REMINDER_STATUS_OPTIONS[0] || STATUS_OPTIONS[0]).trim() || REMINDER_STATUS_OPTIONS[0] || STATUS_OPTIONS[0];
       inp.focus();
       refreshReminderPreview();
     });
@@ -2776,7 +2777,7 @@ let displaySettings = {
   overdueNotificationsEnabled: false,
   overdueNotificationsTime: "09:00",
   reminderSettings: Object.fromEntries(
-    STATUS_OPTIONS.map((status) => [status, { days: "none", time: "09:00", text: "" }])
+    REMINDER_STATUS_OPTIONS.map((status) => [status, { days: "none", time: "09:00", text: "" }])
   ),
   taskMessageTemplatesByStatus: Object.fromEntries(STATUS_OPTIONS.map((status) => [status, ""])),
   /** ID сотрудников (колонка ID): всегда получают копию по всем задачам при отправке в Telegram */
@@ -10964,7 +10965,7 @@ function renderOtherSettingsPanel() {
                 <h4>Напоминания по статусам задач</h4>
                 <div class="task-placeholder-bar reminder-placeholder-bar" aria-label="Токены для напоминания">${reminderPlaceholderBarHtml}</div>
                 <div class="reminder-status-grid">
-                  ${STATUS_OPTIONS.map((status) => {
+                  ${REMINDER_STATUS_OPTIONS.map((status) => {
                     const conf = displaySettings.reminderSettings?.[status] || { days: "none", time: "09:00", text: "" };
                     const statusClass = getStatusClass(status);
                     const cardMod = REMINDER_CARD_UI[status] || "new";
@@ -11614,7 +11615,7 @@ function restoreDisplaySettings() {
   try {
     const parsed = JSON.parse(raw);
     const defaultReminderSettings = Object.fromEntries(
-      STATUS_OPTIONS.map((status) => [status, { days: "none", time: "09:00", text: "" }])
+      REMINDER_STATUS_OPTIONS.map((status) => [status, { days: "none", time: "09:00", text: "" }])
     );
     const defaultTaskTemplates = Object.fromEntries(STATUS_OPTIONS.map((status) => [status, ""]));
     const parsedReminderSettings = parsed && typeof parsed === "object" ? parsed.reminderSettings : null;
@@ -11648,7 +11649,7 @@ function restoreDisplaySettings() {
     }
     const validReminderDays = new Set(REMINDER_DAYS_OPTIONS.map((opt) => String(opt.value)));
     const normalizedReminderSettings = {};
-    STATUS_OPTIONS.forEach((status) => {
+    REMINDER_STATUS_OPTIONS.forEach((status) => {
       const cur = displaySettings.reminderSettings?.[status] || {};
       const days = String(cur.days || "none");
       normalizedReminderSettings[status] = {
