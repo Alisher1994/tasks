@@ -2118,9 +2118,22 @@ body.app-booting .app-boot-loader {
   flex: 1;
 }
 
+.reminder-period-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px;
+  gap: 6px 8px;
+  align-items: center;
+}
+
 .reminder-item-body select:hover,
+.reminder-item-body .reminder-time-input:hover,
 .reminder-item-body .reminder-text-input:hover {
   border-color: #c7d1dc;
+}
+
+.reminder-time-input {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .reminder-text-input {
@@ -3636,6 +3649,10 @@ button.report-filter-icon-btn .lucide-icon {
 @media (max-width: 900px) {
   .task-format-status-list,
   .reminder-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reminder-period-row {
     grid-template-columns: 1fr;
   }
 

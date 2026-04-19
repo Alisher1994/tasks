@@ -24,6 +24,7 @@ const PHONE_MAX_DIGITS = 15;
 const PHONE_MAX_LENGTH = PHONE_MAX_DIGITS + 1;
 const REPORT_SHARE_STORAGE_KEY = "mbc_report_share_links";
 const OVERDUE_NOTIFY_RUNTIME_KEY = "mbc_overdue_notify_runtime";
+const STATUS_REMINDER_RUNTIME_KEY = "mbc_status_reminder_runtime";
 /** JWT при работе с сервером (Railway) */
 const AUTH_TOKEN_KEY = "mbc_jwt";
 const SESSION_STORAGE_KEY = "mbc_task_auth_user";
@@ -484,6 +485,8 @@ let serverSyncTimer = null;
 let remotePullTimer = null;
 let overdueNotifyTimer = null;
 let overdueNotifyInFlight = false;
+let statusReminderTimer = null;
+let statusReminderInFlight = false;
 let hasUnsyncedLocalChanges = false;
 let serverPushInFlight = false;
 let authExpiredNoticeShown = false;
@@ -937,6 +940,7 @@ function applyServerBundle(data, options = {}) {
       localStorage.setItem(DISPLAY_SETTINGS_KEY, JSON.stringify(data.displaySettings));
       restoreDisplaySettings();
       startOverdueTaskNotificationsScheduler();
+      startStatusTaskRemindersScheduler();
     } catch (_) {
       /* noop */
     }
@@ -2771,7 +2775,7 @@ let displaySettings = {
   overdueNotificationsEnabled: false,
   overdueNotificationsTime: "09:00",
   reminderSettings: Object.fromEntries(
-    STATUS_OPTIONS.map((status) => [status, { days: "none", text: "" }])
+    STATUS_OPTIONS.map((status) => [status, { days: "none", time: "09:00", text: "" }])
   ),
   taskMessageTemplatesByStatus: Object.fromEntries(STATUS_OPTIONS.map((status) => [status, ""])),
   /** ID сотрудников (колонка ID): всегда получают копию по всем задачам при отправке в Telegram */
@@ -3319,6 +3323,10 @@ function normalizeOverdueNotifyTimeValue(value) {
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
+function normalizeReminderNotifyTimeValue(value) {
+  return normalizeOverdueNotifyTimeValue(value);
+}
+
 function loadOverdueNotifyRuntime() {
   try {
     const raw = localStorage.getItem(OVERDUE_NOTIFY_RUNTIME_KEY);
@@ -3337,6 +3345,31 @@ function saveOverdueNotifyRuntime(runtime) {
     localStorage.setItem(OVERDUE_NOTIFY_RUNTIME_KEY, JSON.stringify({
       lastRunDate: String(runtime?.lastRunDate || "")
     }));
+  } catch (_) {
+    /* noop */
+  }
+}
+
+function loadStatusReminderRuntime() {
+  try {
+    const raw = localStorage.getItem(STATUS_REMINDER_RUNTIME_KEY);
+    if (!raw) return { sentByKey: {} };
+    const parsed = JSON.parse(raw);
+    const sentByKey = parsed?.sentByKey && typeof parsed.sentByKey === "object" ? parsed.sentByKey : {};
+    return { sentByKey: { ...sentByKey } };
+  } catch (_) {
+    return { sentByKey: {} };
+  }
+}
+
+function saveStatusReminderRuntime(runtime) {
+  try {
+    localStorage.setItem(
+      STATUS_REMINDER_RUNTIME_KEY,
+      JSON.stringify({
+        sentByKey: runtime?.sentByKey && typeof runtime.sentByKey === "object" ? runtime.sentByKey : {}
+      })
+    );
   } catch (_) {
     /* noop */
   }
@@ -3419,6 +3452,91 @@ async function sendOverdueTaskNotification(row, overdueDays, token) {
     })
   );
   return { ok: results.some(Boolean), sentCount: results.filter(Boolean).length, total: results.length };
+}
+
+function buildStatusReminderTelegramText(row, status, conf) {
+  const title = `⏰ Напоминание по задаче (${status})`;
+  const templ = String(conf?.text || "").trim();
+  const body = templ ? String(applyTaskMessageTemplate(templ, row) || "").trim() : "";
+  return [title, "", body || buildDefaultFullTaskText(row)].join("\n");
+}
+
+async function sendStatusReminderNotification(row, status, conf, token) {
+  const recipientNames = collectTaskTelegramRecipientNames(row);
+  if (!recipientNames.length) return { ok: false, reason: "no_recipients" };
+  const targets = resolveEmployeeTelegramTargetsByFullNames(recipientNames);
+  if (!targets.length) return { ok: false, reason: "no_targets" };
+  const text = buildStatusReminderTelegramText(row, status, conf);
+  const results = await Promise.all(
+    targets.map(async (t) => {
+      try {
+        const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: t.chatId,
+            text
+          })
+        });
+        const apiJson = await response.json().catch(() => ({}));
+        return response.ok && apiJson.ok === true;
+      } catch (_) {
+        return false;
+      }
+    })
+  );
+  return { ok: results.some(Boolean), sentCount: results.filter(Boolean).length, total: results.length };
+}
+
+async function runStatusTaskReminderTick() {
+  if (statusReminderInFlight) return;
+  if (!getAuthToken()) return;
+  const token = String(displaySettings.telegramBotToken || "").trim();
+  if (!token) return;
+  const nowMinutes = getCurrentMinutesInTimezone();
+  const today = getTodayStorageDateInTimezone();
+  const todayParts = parseRuDateStringToParts(today);
+  if (!todayParts) return;
+
+  const rows = getSectionById("tasks")?.rows || [];
+  const runtime = loadStatusReminderRuntime();
+  let changed = false;
+
+  statusReminderInFlight = true;
+  try {
+    for (const row of rows) {
+      const status = normalizeTaskStatusValue(String(row[TASK_COLUMNS.status] || "").trim());
+      if (!status || status === "Закрыт") continue;
+      const conf = displaySettings.reminderSettings?.[status];
+      const daysRaw = String(conf?.days || "none").trim();
+      if (daysRaw === "none") continue;
+      const intervalDays = Number(daysRaw);
+      if (!Number.isFinite(intervalDays) || intervalDays <= 0) continue;
+      const targetTime = normalizeReminderNotifyTimeValue(conf?.time);
+      const [hh, mm] = targetTime.split(":").map(Number);
+      const targetMinutes = hh * 60 + mm;
+      if (nowMinutes < targetMinutes) continue;
+
+      const addedParts = parseRuDateStringToParts(String(row[TASK_COLUMNS.addedDate] || "").trim());
+      if (!addedParts) continue;
+      const diffDays = calendarDiffDays(addedParts, todayParts);
+      if (diffDays < intervalDays) continue;
+      if (diffDays % intervalDays !== 0) continue;
+
+      const taskId = normalizeTaskIdValue(row[TASK_COLUMNS.number]);
+      if (!taskId) continue;
+      const runKey = `${taskId}|${status}|${intervalDays}|${targetTime}`;
+      if (runtime.sentByKey[runKey] === today) continue;
+
+      const result = await sendStatusReminderNotification(row, status, conf, token);
+      if (!result.ok) continue;
+      runtime.sentByKey[runKey] = today;
+      changed = true;
+    }
+  } finally {
+    statusReminderInFlight = false;
+    if (changed) saveStatusReminderRuntime(runtime);
+  }
 }
 
 async function runOverdueTaskNotificationTick() {
@@ -3554,6 +3672,22 @@ function startOverdueTaskNotificationsScheduler() {
 function stopOverdueTaskNotificationsScheduler() {
   clearInterval(overdueNotifyTimer);
   overdueNotifyTimer = null;
+}
+
+function startStatusTaskRemindersScheduler() {
+  clearInterval(statusReminderTimer);
+  statusReminderTimer = null;
+  if (!isHostedRuntime() || !getAuthToken()) return;
+  statusReminderTimer = setInterval(() => {
+    if (document.hidden) return;
+    runStatusTaskReminderTick().catch(() => {});
+  }, 60000);
+  runStatusTaskReminderTick().catch(() => {});
+}
+
+function stopStatusTaskRemindersScheduler() {
+  clearInterval(statusReminderTimer);
+  statusReminderTimer = null;
 }
 
 function detachTasksChunksObserver() {
@@ -10840,7 +10974,7 @@ function renderOtherSettingsPanel() {
                 <div class="task-placeholder-bar reminder-placeholder-bar" aria-label="Токены для напоминания">${reminderPlaceholderBarHtml}</div>
                 <div class="reminder-status-grid">
                   ${STATUS_OPTIONS.map((status) => {
-                    const conf = displaySettings.reminderSettings?.[status] || { days: "none", text: "" };
+                    const conf = displaySettings.reminderSettings?.[status] || { days: "none", time: "09:00", text: "" };
                     const statusClass = getStatusClass(status);
                     const cardMod = REMINDER_CARD_UI[status] || "new";
                     return `
@@ -10849,10 +10983,14 @@ function renderOtherSettingsPanel() {
                       <span class="reminder-status ${statusClass}">${status}</span>
                     </div>
                     <div class="reminder-item-body" data-reminder-body="${status}">
-                      <label class="settings-field-label">Периодичность</label>
-                      <select class="reminder-days-select" data-status="${status}">
-                        ${REMINDER_DAYS_OPTIONS.map((opt) => `<option value="${opt.value}" ${String(conf.days) === opt.value ? "selected" : ""}>${opt.label}</option>`).join("")}
-                      </select>
+                      <div class="reminder-period-row">
+                        <label class="settings-field-label">Периодичность</label>
+                        <label class="settings-field-label">Время</label>
+                        <select class="reminder-days-select" data-status="${status}">
+                          ${REMINDER_DAYS_OPTIONS.map((opt) => `<option value="${opt.value}" ${String(conf.days) === opt.value ? "selected" : ""}>${opt.label}</option>`).join("")}
+                        </select>
+                        <input type="time" class="reminder-time-input" data-status="${status}" value="${escapeHtmlAttr(normalizeReminderNotifyTimeValue(conf.time))}" />
+                      </div>
                       <div class="reminder-text-wrap" data-reminder-text-wrap="${status}">
                         <label class="settings-field-label">Текст напоминания</label>
                         <textarea class="reminder-text-input" data-status="${status}" rows="3" placeholder="Текст для сотрудника">${escapeHtmlText(String(conf.text || ""))}</textarea>
@@ -11285,11 +11423,30 @@ function attachOtherSettingsHandlers() {
       if (!displaySettings.reminderSettings) {
         displaySettings.reminderSettings = {};
       }
-      const current = displaySettings.reminderSettings[status] || { days: "none", text: "" };
+      const current = displaySettings.reminderSettings[status] || { days: "none", time: "09:00", text: "" };
       displaySettings.reminderSettings[status] = {
         ...current,
         days: String(select.value || "none")
       };
+      saveDisplaySettings();
+    });
+  });
+
+  const reminderTimeInputs = Array.from(document.querySelectorAll(".reminder-time-input"));
+  reminderTimeInputs.forEach((input) => {
+    input.addEventListener("change", () => {
+      const status = String(input.dataset.status || "");
+      if (!status) return;
+      if (!displaySettings.reminderSettings) {
+        displaySettings.reminderSettings = {};
+      }
+      const current = displaySettings.reminderSettings[status] || { days: "none", time: "09:00", text: "" };
+      const nextTime = normalizeReminderNotifyTimeValue(input.value);
+      displaySettings.reminderSettings[status] = {
+        ...current,
+        time: nextTime
+      };
+      input.value = nextTime;
       saveDisplaySettings();
     });
   });
@@ -11308,7 +11465,7 @@ function attachOtherSettingsHandlers() {
       if (!displaySettings.reminderSettings) {
         displaySettings.reminderSettings = {};
       }
-      const current = displaySettings.reminderSettings[status] || { days: "none", text: "" };
+      const current = displaySettings.reminderSettings[status] || { days: "none", time: "09:00", text: "" };
       displaySettings.reminderSettings[status] = {
         ...current,
         text: String(input.value || "").trim()
@@ -11338,7 +11495,7 @@ function attachOtherSettingsHandlers() {
       if (!displaySettings.reminderSettings) {
         displaySettings.reminderSettings = {};
       }
-      const current = displaySettings.reminderSettings[status] || { days: "none", text: "" };
+      const current = displaySettings.reminderSettings[status] || { days: "none", time: "09:00", text: "" };
       displaySettings.reminderSettings[status] = {
         ...current,
         text: String(el.value || "").trim()
@@ -11453,7 +11610,7 @@ function restoreDisplaySettings() {
   try {
     const parsed = JSON.parse(raw);
     const defaultReminderSettings = Object.fromEntries(
-      STATUS_OPTIONS.map((status) => [status, { days: "none", text: "" }])
+      STATUS_OPTIONS.map((status) => [status, { days: "none", time: "09:00", text: "" }])
     );
     const defaultTaskTemplates = Object.fromEntries(STATUS_OPTIONS.map((status) => [status, ""]));
     const parsedReminderSettings = parsed && typeof parsed === "object" ? parsed.reminderSettings : null;
@@ -11485,6 +11642,18 @@ function restoreDisplaySettings() {
     if (typeof displaySettings.serverTimezone !== "string") {
       displaySettings.serverTimezone = "";
     }
+    const validReminderDays = new Set(REMINDER_DAYS_OPTIONS.map((opt) => String(opt.value)));
+    const normalizedReminderSettings = {};
+    STATUS_OPTIONS.forEach((status) => {
+      const cur = displaySettings.reminderSettings?.[status] || {};
+      const days = String(cur.days || "none");
+      normalizedReminderSettings[status] = {
+        days: validReminderDays.has(days) ? days : "none",
+        time: normalizeReminderNotifyTimeValue(cur.time),
+        text: String(cur.text || "")
+      };
+    });
+    displaySettings.reminderSettings = normalizedReminderSettings;
     displaySettings.dateDisplayFormat = normalizeDateDisplayFormatId(displaySettings.dateDisplayFormat);
     displaySettings.timeDisplayFormat = normalizeTimeDisplayFormatId(displaySettings.timeDisplayFormat);
     displaySettings.timeShowSeconds = Boolean(displaySettings.timeShowSeconds);
@@ -12844,6 +13013,7 @@ function showApp(userName) {
   renderTable();
   startRemoteAutoPull();
   startOverdueTaskNotificationsScheduler();
+  startStatusTaskRemindersScheduler();
   startSessionIdleWatcher();
   hideBootLoaderAfterRender();
 }
@@ -12875,6 +13045,7 @@ function showLogin() {
   isSettingsOpen = false;
   stopRemoteAutoPull();
   stopOverdueTaskNotificationsScheduler();
+  stopStatusTaskRemindersScheduler();
   stopSessionIdleWatcher();
   currentAuthRole = "user";
   hideBootLoaderAfterRender();
