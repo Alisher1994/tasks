@@ -182,8 +182,32 @@ function mimeToExt(mime) {
   if (m === "image/png") return "png";
   if (m === "image/webp") return "webp";
   if (m === "image/gif") return "gif";
+  if (m === "image/svg+xml") return "svg";
+  if (m === "image/bmp") return "bmp";
+  if (m === "video/mp4") return "mp4";
+  if (m === "video/webm") return "webm";
+  if (m === "video/ogg") return "ogv";
+  if (m === "video/quicktime") return "mov";
+  if (m === "video/x-m4v") return "m4v";
   if (m === "application/pdf") return "pdf";
   return "bin";
+}
+
+function extFromFileName(fileName) {
+  const src = String(fileName || "").trim();
+  if (!src) return "";
+  const clean = src.replace(/[?#].*$/, "");
+  const dot = clean.lastIndexOf(".");
+  if (dot <= 0 || dot >= clean.length - 1) return "";
+  const ext = clean.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!ext) return "";
+  const allow = new Set([
+    "jpg", "jpeg", "png", "webp", "gif", "svg", "bmp",
+    "mp4", "webm", "ogv", "mov", "m4v",
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+    "txt", "csv", "zip", "rar", "7z"
+  ]);
+  return allow.has(ext) ? ext : "";
 }
 
 function parseDataUrl(dataUrl) {
@@ -568,6 +592,7 @@ app.post("/api/media/upload", authMiddleware, async (req, res) => {
   try {
     await ensureMediaStorageDir();
     const dataUrl = String(req.body?.dataUrl || "").trim();
+    const sourceFileName = String(req.body?.fileName || "").trim();
     const parsed = parseDataUrl(dataUrl);
     if (!parsed) {
       return res.status(400).json({ error: "Неверный формат файла (ожидается data URL)." });
@@ -575,7 +600,7 @@ app.post("/api/media/upload", authMiddleware, async (req, res) => {
     if (parsed.base64.length > 24 * 1024 * 1024) {
       return res.status(413).json({ error: "Файл слишком большой (максимум ~18MB)." });
     }
-    const ext = mimeToExt(parsed.mime);
+    const ext = extFromFileName(sourceFileName) || mimeToExt(parsed.mime);
     const fileName = `${Date.now()}-${randomBytes(6).toString("hex")}.${ext}`;
     const absPath = path.join(MEDIA_STORAGE_PATH, fileName);
     const buf = Buffer.from(parsed.base64, "base64");
