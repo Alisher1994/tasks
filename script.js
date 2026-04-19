@@ -1075,6 +1075,7 @@ async function mergeTaskReadStateFromServer(localPayload) {
 
 async function pullTaskReadStateFromServerIntoLocal({ rerender = true } = {}) {
   if (!isHostedRuntime() || !getAuthToken()) return false;
+  if (hasActiveTaskUiOverlay()) return false;
   try {
     const r = await fetch("/api/data", {
       headers: { Authorization: `Bearer ${getAuthToken()}` }
@@ -1292,6 +1293,7 @@ async function flushTelegramBotTokenToServer(options = {}) {
 async function pullRemoteAppState(options = {}) {
   const rerender = Boolean(options.rerender);
   if (!isHostedRuntime() || !getAuthToken()) return;
+  if (hasActiveTaskUiOverlay()) return;
   const r = await fetch("/api/data", {
     headers: { Authorization: `Bearer ${getAuthToken()}` }
   });
@@ -1399,12 +1401,17 @@ function isTasksGraphModeActive() {
   return mode === "graph";
 }
 
+function hasActiveTaskUiOverlay() {
+  return Boolean(document.querySelector(".details-modal-overlay, .task-file-viewer-overlay"));
+}
+
 function startRemoteAutoPull() {
   clearInterval(remotePullTimer);
   remotePullTimer = null;
   if (!isHostedRuntime() || !getAuthToken()) return;
   remotePullTimer = setInterval(() => {
     if (document.hidden) return;
+    if (hasActiveTaskUiOverlay()) return;
     const graphMode = isTasksGraphModeActive();
     // Bot-managed поля задач (прочитано/статус/комментарий и т.п.) подтягиваем всегда,
     // даже если пользователь сейчас в настройках или есть локальные несинхр. правки.
@@ -1418,7 +1425,9 @@ function startRemoteAutoPull() {
     if (serverPushInFlight || hasUnsyncedLocalChanges) return;
     pullRemoteAppState({ rerender: true }).catch(() => {});
   }, 8000);
-  pullTaskReadStateFromServerIntoLocal({ rerender: activeSectionId === "tasks" && !isTasksGraphModeActive() }).catch(() => {});
+  if (!hasActiveTaskUiOverlay()) {
+    pullTaskReadStateFromServerIntoLocal({ rerender: activeSectionId === "tasks" && !isTasksGraphModeActive() }).catch(() => {});
+  }
 }
 
 function stopRemoteAutoPull() {
@@ -12463,7 +12472,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
     isDirty = false;
   };
 
-  const persistTaskAttachments = ({ appendHistory = false } = {}) => {
+  const persistTaskAttachments = async ({ appendHistory = false } = {}) => {
     const list = attachmentsDraft
       .map((item) => sanitizeTaskAttachmentEntry(item))
       .filter(Boolean);
@@ -12480,7 +12489,14 @@ function openTaskDetailsModal(section, row, rowIndex) {
     }
     saveTaskAttachmentsData({ skipServerSync: true });
     if (isHostedRuntime() && getAuthToken()) {
-      void pushAppToServerImmediate();
+      const ok = await pushAppToServerImmediate();
+      if (!ok) {
+        showStatusDialog({
+          title: "Файлы задачи",
+          message: "Файлы добавлены локально, но не удалось сохранить на сервер. Проверьте подключение и повторите позже.",
+          type: "error"
+        });
+      }
     }
   };
 
@@ -12560,7 +12576,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
         refreshTaskFilesUploadUi();
       }
     }
-    persistTaskAttachments();
+    await persistTaskAttachments();
     renderTaskFilesList();
   };
 
@@ -12707,7 +12723,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
       const idx = attachmentsDraft.findIndex((x) => String(x.id) === fileId);
       if (idx < 0) return;
       attachmentsDraft.splice(idx, 1);
-      persistTaskAttachments();
+      await persistTaskAttachments();
       renderTaskFilesList();
     }
   });
