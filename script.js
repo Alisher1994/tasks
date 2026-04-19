@@ -332,11 +332,7 @@ function splitTemplateTextByTokens(text) {
 }
 
 function createTemplateTokenChip(token) {
-  const displayToken = String(token || "")
-    .replace(/^\[/, "")
-    .replace(/\]$/, "")
-    .replace(/^\{/, "")
-    .replace(/\}$/, "");
+  const displayToken = formatTemplateTokenDisplay(token);
   const chip = document.createElement("span");
   chip.className = "template-token-chip";
   chip.setAttribute("contenteditable", "false");
@@ -347,6 +343,14 @@ function createTemplateTokenChip(token) {
     <button type="button" class="template-token-chip__remove" aria-label="Удалить тег" title="Удалить тег">×</button>
   `;
   return chip;
+}
+
+function formatTemplateTokenDisplay(token) {
+  return String(token || "")
+    .replace(/^\[/, "")
+    .replace(/\]$/, "")
+    .replace(/^\{/, "")
+    .replace(/\}$/, "");
 }
 
 function extractTemplateEditorValue(editor) {
@@ -11135,12 +11139,12 @@ function renderOtherSettingsPanel() {
 
   const placeholderBarHtml = TASK_MESSAGE_PLACEHOLDERS_UI.map(
     (p) =>
-      `<button type="button" class="task-placeholder-insert-btn" data-insert-token="${escapeHtmlText(p.token)}" title="${escapeHtmlText(p.label)}">${escapeHtmlText(p.token)}</button>`
+      `<button type="button" class="task-placeholder-insert-btn" data-insert-token="${escapeHtmlText(p.token)}" title="${escapeHtmlText(p.label)}">${escapeHtmlText(formatTemplateTokenDisplay(p.token))}</button>`
   ).join("");
 
   const reminderPlaceholderBarHtml = TASK_MESSAGE_PLACEHOLDERS_UI.map(
     (p) =>
-      `<button type="button" class="reminder-placeholder-insert-btn" data-insert-token="${escapeHtmlText(p.token)}" title="${escapeHtmlText(p.label)}">${escapeHtmlText(p.token)}</button>`
+      `<button type="button" class="reminder-placeholder-insert-btn" data-insert-token="${escapeHtmlText(p.token)}" title="${escapeHtmlText(p.label)}">${escapeHtmlText(formatTemplateTokenDisplay(p.token))}</button>`
   ).join("");
 
   const taskFormatByStatus = displaySettings.taskMessageTemplatesByStatus || {};
@@ -11358,34 +11362,36 @@ function renderOtherSettingsPanel() {
                 </div>
               </div>
             </div>
-            <aside class="telegram-emulator" id="reminderTelegramEmulator" aria-label="Предпросмотр Telegram">
-              <div class="telegram-emulator-heading">Предпросмотр</div>
-              <div class="telegram-emulator-frame">
-                <div class="telegram-emulator-notch" aria-hidden="true"></div>
-                <div class="telegram-emulator-chat-bg">
-                  <div id="reminderTelegramCaption" class="telegram-emulator-subtitle">Напоминание</div>
-                  <div class="telegram-emulator-bubble-wrap">
-                    <div class="telegram-emulator-bubble telegram-emulator-bubble--incoming">
-                      <p id="reminderTelegramBubbleText" class="telegram-emulator-bubble-text">—</p>
+            <div class="settings-two-column-side">
+              <aside class="telegram-emulator" id="reminderTelegramEmulator" aria-label="Предпросмотр Telegram">
+                <div class="telegram-emulator-heading">Предпросмотр</div>
+                <div class="telegram-emulator-frame">
+                  <div class="telegram-emulator-notch" aria-hidden="true"></div>
+                  <div class="telegram-emulator-chat-bg">
+                    <div id="reminderTelegramCaption" class="telegram-emulator-subtitle">Напоминание</div>
+                    <div class="telegram-emulator-bubble-wrap">
+                      <div class="telegram-emulator-bubble telegram-emulator-bubble--incoming">
+                        <p id="reminderTelegramBubbleText" class="telegram-emulator-bubble-text">—</p>
+                      </div>
                     </div>
                   </div>
                 </div>
+                <p class="telegram-emulator-footnote">Тот же пример задачи №42, что и в «Шаблон сообщений».</p>
+              </aside>
+              <div class="other-settings-block overdue-settings-block">
+                <h4>Просроченные задачи</h4>
+                <label class="settings-option">
+                  <input type="checkbox" id="overdueNotificationsEnabledCheckbox" ${displaySettings.overdueNotificationsEnabled === true ? "checked" : ""} />
+                  <span>Отправлять уведомления о просроченных задачах</span>
+                </label>
+                <label class="settings-field-label" for="overdueNotificationsTimeInput">Время отправки</label>
+                <div class="overdue-time-row">
+                  <input id="overdueNotificationsTimeInput" type="time" value="${escapeHtmlAttr(normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime))}" />
+                  <button type="button" id="overdueNotificationsTimeSaveBtn" class="secondary hidden">Сохранить</button>
+                </div>
+                <p class="other-settings-hint">Ежедневно в выбранное время система отправит уведомления по всем открытым просроченным задачам.</p>
               </div>
-              <p class="telegram-emulator-footnote">Тот же пример задачи №42, что и в «Шаблон сообщений».</p>
-            </aside>
-          </div>
-          <div class="other-settings-block">
-            <h4>Просроченные задачи</h4>
-            <label class="settings-option">
-              <input type="checkbox" id="overdueNotificationsEnabledCheckbox" ${displaySettings.overdueNotificationsEnabled === true ? "checked" : ""} />
-              <span>Отправлять уведомления о просроченных задачах</span>
-            </label>
-            <label class="settings-field-label" for="overdueNotificationsTimeInput">Время отправки</label>
-            <div class="overdue-time-row">
-              <input id="overdueNotificationsTimeInput" type="time" value="${escapeHtmlAttr(normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime))}" />
-              <button type="button" id="overdueNotificationsTimeSaveBtn" class="secondary hidden">Сохранить</button>
             </div>
-            <p class="other-settings-hint">Ежедневно в выбранное время система отправит уведомления по всем открытым просроченным задачам.</p>
           </div>
         </div>
 

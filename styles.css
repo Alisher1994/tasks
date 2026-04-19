@@ -524,6 +524,22 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   gap: 10px;
 }
 
+.settings-two-column-side {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-two-column-side .telegram-emulator {
+  position: sticky;
+  top: 8px;
+}
+
+.overdue-settings-block {
+  margin-top: 0;
+}
+
 .telegram-emulator {
   position: sticky;
   top: 8px;
@@ -642,6 +658,7 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
     grid-template-columns: 1fr;
   }
 
+  .settings-two-column-side .telegram-emulator,
   .telegram-emulator {
     position: relative;
     top: auto;
