@@ -14604,7 +14604,6 @@ ensureSystemRoles();
 ensureSystemDepartments();
 normalizePhaseAndSectionCatalogs();
 restoreTrashData();
-clearTasksTrashNow({ save: true });
 registerHotkeys();
 activeSectionId = restoreActiveSection();
 isSettingsOpen = activeSectionId !== "tasks" && activeSectionId !== "report";
