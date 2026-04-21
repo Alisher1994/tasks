@@ -870,6 +870,7 @@ let lastSessionActivityWriteAt = 0;
 let turboLoaderProgress = 0;
 let turboLoaderProgressTimer = null;
 let turboLoaderHideTimer = null;
+let employeeChatIdAutoRefreshTimer = null;
 
 function handleServerAuthExpired() {
   if (authExpiredNoticeShown) return;
@@ -2730,6 +2731,87 @@ async function triggerGoogleSheetsManualSync() {
   }
 }
 
+async function triggerEmployeesChatIdRefresh(options = {}) {
+  const silent = options?.silent === true;
+  const employeesSection = getSectionById("employees");
+  if (!employeesSection) return false;
+
+  if (!isHostedRuntime() || !getAuthToken()) {
+    const total = employeesSection.rows.length;
+    let clearedCount = 0;
+    employeesSection.rows.forEach((row) => {
+      if (String(row[EMPLOYEE_COLUMNS.chatId] || "").trim()) {
+        clearedCount += 1;
+      }
+      row[EMPLOYEE_COLUMNS.telegram] = "Не подключен";
+      row[EMPLOYEE_COLUMNS.chatId] = "";
+      row[EMPLOYEE_COLUMNS.activity] = "Не активен";
+    });
+    saveSectionsData();
+    renderTablePreserveScroll();
+    if (!silent) {
+      showStatusDialog({
+        title: "Сотрудники",
+        message: `Chat ID обновлены локально.\nВсего сотрудников: ${total}\nОчищено Chat ID: ${clearedCount}`,
+        type: "success"
+      });
+    }
+    return true;
+  }
+
+  try {
+    const r = await fetch("/api/employees/refresh-chat-ids", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({})
+    });
+    if (r.status === 401) {
+      handleServerAuthExpired();
+      return false;
+    }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j?.ok !== true) {
+      if (!silent) {
+        showStatusDialog({
+          title: "Сотрудники",
+          message: String(j?.error || "Не удалось обновить Chat ID сотрудников."),
+          type: "error"
+        });
+      }
+      return false;
+    }
+    await pullRemoteAppState({ rerender: true });
+    if (!silent) {
+      showStatusDialog({
+        title: "Сотрудники",
+        message: `Chat ID обновлены.\nВсего сотрудников: ${Number(j?.total) || 0}\nПодтянуто: ${Number(j?.connectedCount) || 0}\nОчищено: ${Number(j?.clearedCount) || 0}`,
+        type: "success"
+      });
+    }
+    return true;
+  } catch (_) {
+    if (!silent) {
+      showStatusDialog({
+        title: "Сотрудники",
+        message: "Ошибка сети при обновлении Chat ID сотрудников.",
+        type: "error"
+      });
+    }
+    return false;
+  }
+}
+
+function scheduleEmployeeChatIdAutoRefresh() {
+  if (!isHostedRuntime() || !getAuthToken()) return;
+  clearTimeout(employeeChatIdAutoRefreshTimer);
+  employeeChatIdAutoRefreshTimer = setTimeout(() => {
+    triggerEmployeesChatIdRefresh({ silent: true }).catch(() => {});
+  }, 500);
+}
+
 function getServerTimezone() {
   const raw = displaySettings.serverTimezone;
   if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
@@ -3662,6 +3744,10 @@ function renderSectionHeaderIconButtons(section) {
           ${section.id === "tasks" ? `
           <button type="button" class="icon-action-btn" id="sendOverdueTasksBtn" title="Отправить просроченные">
             <i data-lucide="bell-ring" class="lucide-icon" aria-hidden="true"></i>
+          </button>` : ""}
+          ${section.id === "employees" ? `
+          <button type="button" class="icon-action-btn" id="refreshEmployeeChatIdsBtn" title="Обновить Chat ID сотрудников">
+            <i data-lucide="rotate-cw" class="lucide-icon" aria-hidden="true"></i>
           </button>` : ""}
           <button type="button" class="icon-action-btn refresh-section-btn" id="refreshSectionBtn" title="Обновить">
             <i data-lucide="refresh-cw" class="lucide-icon" aria-hidden="true"></i>
@@ -9761,6 +9847,7 @@ function normalizeRowAfterEdit(section, rowIndex, colIndex) {
       row[EMPLOYEE_COLUMNS.phone] = formatUzPhoneDisplay(normalizeUzPhone(row[EMPLOYEE_COLUMNS.phone]));
       resetEmployeeTelegramBindingOnPhoneChange(row, prevPhoneRaw);
       delete row.__prevEmployeePhoneForNormalize;
+      scheduleEmployeeChatIdAutoRefresh();
     }
     if (colIndex === EMPLOYEE_COLUMNS.telegram || colIndex === EMPLOYEE_COLUMNS.phone) {
       applyEmployeeTelegramDerivedFields(row);
@@ -11274,6 +11361,7 @@ function fromInputDate(value) {
 
 function attachHeaderActionHandlers(section, filteredEntries) {
   const refreshSectionBtn = document.getElementById("refreshSectionBtn");
+  const refreshEmployeeChatIdsBtn = document.getElementById("refreshEmployeeChatIdsBtn");
   const googleSheetsSyncTasksBtn = document.getElementById("googleSheetsSyncTasksBtn");
   const sendOverdueTasksBtn = document.getElementById("sendOverdueTasksBtn");
   const openTaskImportModalBtn = document.getElementById("openTaskImportModalBtn");
@@ -11285,6 +11373,19 @@ function attachHeaderActionHandlers(section, filteredEntries) {
   if (refreshSectionBtn) {
     refreshSectionBtn.addEventListener("click", () => {
       refreshCurrentViewData();
+    });
+  }
+  if (refreshEmployeeChatIdsBtn && section.id === "employees") {
+    refreshEmployeeChatIdsBtn.addEventListener("click", async () => {
+      if (refreshEmployeeChatIdsBtn.dataset.busy === "1") return;
+      refreshEmployeeChatIdsBtn.dataset.busy = "1";
+      refreshEmployeeChatIdsBtn.disabled = true;
+      try {
+        await triggerEmployeesChatIdRefresh();
+      } finally {
+        refreshEmployeeChatIdsBtn.disabled = false;
+        refreshEmployeeChatIdsBtn.dataset.busy = "0";
+      }
     });
   }
 

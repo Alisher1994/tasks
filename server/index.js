@@ -72,6 +72,32 @@ function findEmployeeByPhoneInPayload(payload, phone) {
   return null;
 }
 
+function refreshEmployeeChatIdsByPhoneBindings(payload) {
+  const employees = getEmployeesSection(payload);
+  const rows = Array.isArray(employees?.rows) ? employees.rows : [];
+  const map = payload?.telegramPhoneChatBindings && typeof payload.telegramPhoneChatBindings === "object"
+    ? payload.telegramPhoneChatBindings
+    : {};
+  let connectedCount = 0;
+  let clearedCount = 0;
+  for (const row of rows) {
+    const phone = normalizePhone(row?.[4] || "");
+    const mappedChatId = phone ? String(map[phone] || "").trim() : "";
+    if (mappedChatId) {
+      row[5] = "Подключен";
+      row[6] = mappedChatId;
+      row[7] = "Активен";
+      connectedCount += 1;
+      continue;
+    }
+    row[5] = "Не подключен";
+    row[6] = "";
+    row[7] = "Не активен";
+    clearedCount += 1;
+  }
+  return { total: rows.length, connectedCount, clearedCount };
+}
+
 function getTaskRows(payload) {
   const sections = Array.isArray(payload?.sections) ? payload.sections : [];
   const tasks = sections.find((s) => s && s.id === "tasks");
@@ -454,6 +480,26 @@ app.post("/api/telegram/set-webhook", authMiddleware, async (req, res) => {
   }
 });
 
+app.post("/api/employees/refresh-chat-ids", authMiddleware, async (_req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
+    const payload = rows[0]?.payload && typeof rows[0].payload === "object"
+      ? JSON.parse(JSON.stringify(rows[0].payload))
+      : {};
+    const stats = refreshEmployeeChatIdsByPhoneBindings(payload);
+    await pool.query(
+      `INSERT INTO app_state (id, payload, updated_at)
+       VALUES (1, $1::jsonb, NOW())
+       ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+      [JSON.stringify(payload)]
+    );
+    return res.json({ ok: true, ...stats });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Не удалось обновить Chat ID сотрудников." });
+  }
+});
+
 app.post("/api/telegram/send-photo-proxy", authMiddleware, async (req, res) => {
   try {
     const chatId = String(req.body?.chatId || "").trim();
@@ -645,9 +691,14 @@ app.put("/api/data", authMiddleware, async (req, res) => {
          payload = jsonb_set(
            jsonb_set(
              jsonb_set(
-               EXCLUDED.payload,
-               '{telegramSessions}',
-               COALESCE(app_state.payload->'telegramSessions', '{}'::jsonb),
+               jsonb_set(
+                 EXCLUDED.payload,
+                 '{telegramSessions}',
+                 COALESCE(app_state.payload->'telegramSessions', '{}'::jsonb),
+                 true
+               ),
+               '{telegramPhoneChatBindings}',
+               COALESCE(app_state.payload->'telegramPhoneChatBindings', '{}'::jsonb),
                true
              ),
              '{telegramCloseRequests}',

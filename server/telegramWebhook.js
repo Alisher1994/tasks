@@ -848,6 +848,11 @@ function normalizePhoneForMatch(raw) {
   return digits;
 }
 
+function normalizePhoneBindingKey(raw) {
+  const digits = normalizePhoneForMatch(raw);
+  return digits ? `+${digits}` : "";
+}
+
 function findEmployeeByPhone(employees, phoneRaw) {
   const rows = employees?.rows || [];
   const phone = normalizePhoneForMatch(phoneRaw);
@@ -925,6 +930,13 @@ async function bindEmployeeToChat({ employees, employee, chatId, from, pool, pay
   employee[EMPLOYEE_COLUMNS.chatId] = myChat;
   employee[EMPLOYEE_COLUMNS.telegram] = "Подключен";
   employee[EMPLOYEE_COLUMNS.activity] = "Активен";
+  if (!payload.telegramPhoneChatBindings || typeof payload.telegramPhoneChatBindings !== "object") {
+    payload.telegramPhoneChatBindings = {};
+  }
+  const phoneKey = normalizePhoneBindingKey(employee[EMPLOYEE_COLUMNS.phone]);
+  if (phoneKey) {
+    payload.telegramPhoneChatBindings[phoneKey] = myChat;
+  }
   await savePayload(pool, payload);
 
   const name = String(employee[EMPLOYEE_COLUMNS.fullName] || "").trim() || "Сотрудник";
