@@ -943,8 +943,17 @@ async function bindEmployeeToChat({ employees, employee, chatId, from, pool, pay
   const first = String(from?.first_name || "").trim();
   await tg(token, "sendMessage", {
     chat_id: chatId,
-    text: `Здравствуйте${first ? `, ${first}` : ""}!\n\nВы подключены к боту как «${name}». Ваш Telegram ID сохранён в системе — уведомления по задачам будут приходить сюда.`
+    text: `Здравствуйте${first ? `, ${first}` : ""}!\n\nВы подключены к боту как «${name}». Ваш Telegram ID сохранён в системе — уведомления по задачам будут приходить сюда.`,
+    reply_markup: { remove_keyboard: true }
   });
+}
+
+function contactShareKeyboard() {
+  return {
+    keyboard: [[{ text: "Поделиться контактом", request_contact: true }]],
+    resize_keyboard: true,
+    one_time_keyboard: true
+  };
 }
 
 async function handleTelegramStart(msg, pool, token) {
@@ -982,11 +991,7 @@ async function handleTelegramStart(msg, pool, token) {
     await tg(token, "sendMessage", {
       chat_id: chatId,
       text: "Нажмите кнопку ниже и отправьте свой номер телефона:",
-      reply_markup: {
-        keyboard: [[{ text: "Поделиться номером", request_contact: true }]],
-        resize_keyboard: true,
-        one_time_keyboard: true
-      }
+      reply_markup: contactShareKeyboard()
     });
     return;
   }
@@ -1457,7 +1462,8 @@ async function handleMessage(msg, pool, token) {
       await tg(token, "sendMessage", {
         chat_id: chatId,
         text:
-          "Не найден сотрудник с таким номером в справочнике. Проверьте номер в карточке сотрудника (международный формат, например +998..., +7..., +90...) и попробуйте снова."
+          "Не найден сотрудник с таким номером в справочнике. Проверьте номер в карточке сотрудника (международный формат, например +998..., +7..., +90...) и попробуйте снова.",
+        reply_markup: contactShareKeyboard()
       });
       return;
     }
@@ -1524,7 +1530,19 @@ async function handleMessage(msg, pool, token) {
       await savePayload(pool, payload);
     }
   }
-  if (!sess || !sess.taskId) return;
+  if (!sess || !sess.taskId) {
+    const employees = getEmployeesSection(payload);
+    const emp = findEmployeeByChatId(employees, chatKey);
+    if (!emp && (text || hasPhoto || hasImageDocument)) {
+      await tg(token, "sendMessage", {
+        chat_id: chatId,
+        text:
+          "Чтобы подключиться к задачам, нажмите кнопку ниже и отправьте свой контакт. Либо используйте ссылку вида /start e_<ID>.",
+        reply_markup: contactShareKeyboard()
+      });
+    }
+    return;
+  }
 
   const tasks = getTasksSection(payload);
   const row = findTaskRow(tasks, sess.taskId);
