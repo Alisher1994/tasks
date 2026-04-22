@@ -434,6 +434,12 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
 .other-settings-panel {
   display: grid;
   gap: 12px;
+  min-width: 0;
+}
+
+.settings-two-column {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .other-settings-tabs {
@@ -507,6 +513,7 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   align-items: start;
+  min-width: 0;
 }
 
 /* Двухколоночный макет: формы + предпросмотр Telegram */
@@ -515,13 +522,18 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
   gap: 16px;
   align-items: start;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .settings-two-column-main {
   min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow-x: hidden;
 }
 
 .settings-two-column-side {
@@ -810,6 +822,7 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .other-settings-section-title {
@@ -1129,9 +1142,11 @@ select.date-time-settings-select {
 .table-card > .other-settings-panel--fill {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: auto;
 }
 
 .table-card.report-dashboard-card {
