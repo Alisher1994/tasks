@@ -5333,9 +5333,9 @@ function renderReportChartTileFragment(id, opts = {}) {
 
 function renderReportChartsGridHtml() {
   const order = loadReportChartOrder();
-  const topTrio = REPORT_TOP_TRIO_IDS.filter((id) => order.includes(id));
-  const phaseBars = REPORT_PHASE_GROUP_IDS.filter((id) => order.includes(id));
-  const phaseDonuts = REPORT_PHASE_DONUT_GROUP_IDS.filter((id) => order.includes(id));
+  const topTrio = order.filter((id) => REPORT_TOP_TRIO_IDS.includes(id));
+  const phaseBars = order.filter((id) => REPORT_PHASE_GROUP_IDS.includes(id));
+  const phaseDonuts = order.filter((id) => REPORT_PHASE_DONUT_GROUP_IDS.includes(id));
 
   const groupedIds = new Set([...topTrio, ...phaseBars, ...phaseDonuts]);
   const rest = order.filter((id) => !groupedIds.has(id));
@@ -5520,16 +5520,20 @@ function attachReportChartTileDragHandlers() {
     }
   };
 
-  grid.querySelectorAll(".report-tile[data-report-chart]").forEach((tile) => {
-    tile.setAttribute("draggable", "true");
-    tile.addEventListener("dragstart", (e) => {
-      const fromHandle = e.target?.closest?.(".report-chart-drag-handle");
-      if (!fromHandle) {
-        e.preventDefault();
-        return;
-      }
-      const id = String(tile.getAttribute("data-report-chart") || "");
-      if (!id) {
+  const clearDragState = () => {
+    reportChartDragId = null;
+    grid.classList.remove("report-grid--dragging");
+    grid.querySelectorAll(".report-tile").forEach((t) => {
+      t.classList.remove("report-tile--dragging", "report-tile--drop-target");
+    });
+  };
+
+  grid.querySelectorAll(".report-chart-drag-handle").forEach((handle) => {
+    handle.setAttribute("draggable", "true");
+    handle.addEventListener("dragstart", (e) => {
+      const tile = handle.closest(".report-tile[data-report-chart]");
+      const id = String(tile?.getAttribute("data-report-chart") || "");
+      if (!tile || !id) {
         e.preventDefault();
         return;
       }
@@ -5540,13 +5544,11 @@ function attachReportChartTileDragHandlers() {
       tile.classList.add("report-tile--dragging");
       grid.classList.add("report-grid--dragging");
     });
-    tile.addEventListener("dragend", () => {
-      reportChartDragId = null;
-      grid.classList.remove("report-grid--dragging");
-      grid.querySelectorAll(".report-tile").forEach((t) => {
-        t.classList.remove("report-tile--dragging", "report-tile--drop-target");
-      });
-    });
+    handle.addEventListener("dragend", clearDragState);
+  });
+
+  grid.querySelectorAll(".report-tile[data-report-chart]").forEach((tile) => {
+    tile.setAttribute("draggable", "false");
   });
 
   grid.addEventListener("dragover", (e) => {
@@ -5559,15 +5561,25 @@ function attachReportChartTileDragHandlers() {
   grid.addEventListener("drop", (e) => {
     e.preventDefault();
     const tile = e.target.closest?.(".report-tile[data-report-chart]");
-    grid.classList.remove("report-grid--dragging");
     grid.querySelectorAll(".report-tile--drop-target").forEach((el) => el.classList.remove("report-tile--drop-target"));
     const fromId = String(e.dataTransfer.getData("application/x-mbc-chart") || reportChartDragId || "");
     const toId = tile ? String(tile.getAttribute("data-report-chart") || "") : "";
-    if (!fromId || !toId || fromId === toId) return;
+    if (!fromId || !toId || fromId === toId) {
+      clearDragState();
+      return;
+    }
     const cur = loadReportChartOrder();
     const next = reorderReportChartOrder(cur, fromId, toId);
     saveReportChartOrder(next);
+    clearDragState();
     refreshReportView();
+  });
+
+  grid.addEventListener("dragleave", (e) => {
+    const rel = e.relatedTarget;
+    if (!rel || !grid.contains(rel)) {
+      grid.querySelectorAll(".report-tile--drop-target").forEach((el) => el.classList.remove("report-tile--drop-target"));
+    }
   });
 }
 
