@@ -1034,16 +1034,18 @@ app.put("/api/data", authMiddleware, async (req, res) => {
            jsonb_set(
              jsonb_set(
                jsonb_set(
-                 EXCLUDED.payload,
-                 '{telegramSessions}',
-                 COALESCE(app_state.payload->'telegramSessions', '{}'::jsonb),
-                 true
-               ),
-               '{telegramPhoneChatBindings}',
-               COALESCE(app_state.payload->'telegramPhoneChatBindings', '{}'::jsonb),
-               true
-             ),
-             '{telegramCloseRequests}',
+                 jsonb_set(
+                   jsonb_set(
+                     EXCLUDED.payload,
+                     '{telegramSessions}',
+                     COALESCE(app_state.payload->'telegramSessions', '{}'::jsonb),
+                     true
+                   ),
+                   '{telegramPhoneChatBindings}',
+                   COALESCE(app_state.payload->'telegramPhoneChatBindings', '{}'::jsonb),
+                   true
+                 ),
+                 '{telegramCloseRequests}',
                  COALESCE(app_state.payload->'telegramCloseRequests', '{}'::jsonb),
                  true
                ),
