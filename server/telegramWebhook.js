@@ -1022,19 +1022,31 @@ function mergeTaskRowsWithCurrent(currentPayload, nextPayload) {
     nextById.set(id, row);
   }
 
-  // Важно: источник истины по составу задач — текущая БД.
-  // Webhook может только обновлять существующие задачи, но не "возрождать"
-  // удалённые/архивные записи из устаревшего снимка.
+  // Источник истины по составу задач — текущая БД.
+  // Webhook обновляет только bot-managed поля, чтобы устаревший снимок
+  // не откатывал новые/изменённые данные таблицы.
+  const BOT_MANAGED_COLS = [
+    TASK_COLUMNS.status,
+    TASK_COLUMNS.plan,
+    TASK_COLUMNS.mediaAfter,
+    TASK_COLUMNS.closedDate,
+    TASK_COLUMNS.readState,
+    TASK_COLUMNS.lastSentAt,
+    TASK_COLUMNS.delayReason
+  ];
+
   const mergedRows = currentTasks.rows.map((currentRow) => {
     const id = String(currentRow?.[TASK_COLUMNS.number] || "").trim();
     const nextRow = id ? nextById.get(id) : null;
     if (!Array.isArray(nextRow)) {
       return Array.isArray(currentRow) ? [...currentRow] : currentRow;
     }
-    const merged = [...nextRow];
-    for (let col = 0; col < TASK_ROW_LENGTH; col += 1) {
-      if (isBlankTaskCell(merged[col]) && !isBlankTaskCell(currentRow[col])) {
-        merged[col] = currentRow[col];
+    const merged = Array.isArray(currentRow) ? [...currentRow] : new Array(TASK_ROW_LENGTH).fill("");
+    for (const col of BOT_MANAGED_COLS) {
+      const nextVal = nextRow[col];
+      const curVal = currentRow[col];
+      if (!isBlankTaskCell(nextVal) || isBlankTaskCell(curVal)) {
+        merged[col] = nextVal;
       }
     }
     return merged;

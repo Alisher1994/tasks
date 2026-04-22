@@ -1455,7 +1455,6 @@ function applyServerBundle(data, options = {}) {
     try {
       localStorage.setItem(TRASH_STORAGE_KEY, JSON.stringify(data.trashBySection));
       restoreTrashData();
-      clearTasksTrashNow({ save: true });
     } catch (_) {
       /* noop */
     }
