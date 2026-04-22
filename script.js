@@ -6526,7 +6526,10 @@ function formatGanttScaleDayNumRu(date) {
 function getTasksGanttMinColumnWidth(scaleMode, zoomPercent) {
   const zoom = normalizeTasksGanttZoomPercent(zoomPercent) / 100;
   const base = scaleMode === "day" ? 70 : scaleMode === "year" ? 48 : 58;
-  return Math.round(base * zoom);
+  const width = Math.round(base * zoom);
+  if (scaleMode === "day") return Math.max(64, width);
+  if (scaleMode === "month") return Math.max(48, width);
+  return Math.max(40, width);
 }
 
 function normalizeTasksGanttGridWidth(value, fallback = 0) {
@@ -6778,10 +6781,11 @@ function mountTasksGanttChart(entries) {
   const scaleMode = getTasksGanttScaleModeByZoom(zoomPercent);
   gantt.config.min_column_width = getTasksGanttMinColumnWidth(scaleMode, zoomPercent);
   if (scaleMode === "day") {
+    const hourStep = zoomPercent <= 80 ? 12 : 6;
     gantt.config.scale_height = 44;
     gantt.config.scales = [
       { unit: "day", step: 1, format: (date) => formatGanttScaleDayLongRu(date) },
-      { unit: "hour", step: 6, format: "%H:%i" }
+      { unit: "hour", step: hourStep, format: "%H:%i" }
     ];
   } else if (scaleMode === "month") {
     gantt.config.scale_height = 52;
