@@ -64,9 +64,15 @@ const REPORT_CUSTOM_GROUP_BY_OPTIONS = [
 const REPORT_CUSTOM_CHART_TYPES = [
   { id: "donut", label: "Donut" },
   { id: "bar", label: "Bar" },
+  { id: "hbar", label: "Horizontal Bar" },
   { id: "line", label: "Line" },
   { id: "pie", label: "Pie" }
 ];
+const REPORT_CUSTOM_DATA_MODES = [
+  { id: "total", label: "Общее" },
+  { id: "by_status", label: "По статусу" }
+];
+const REPORT_CUSTOM_STATUS_SERIES = ["Новый", "В процессе", "Закрыт"];
 const REPORT_TOP_TRIO_IDS = ["status", "priority", "priorityDonut"];
 const REPORT_PHASE_GROUP_IDS = ["phase", "phaseSection", "phaseSubsection"];
 const REPORT_PHASE_GROUP_SET = new Set(REPORT_PHASE_GROUP_IDS);
@@ -5189,13 +5195,15 @@ function loadReportCustomCharts() {
     }
     const validTypes = new Set(REPORT_CUSTOM_CHART_TYPES.map((x) => x.id));
     const validGroups = new Set(REPORT_CUSTOM_GROUP_BY_OPTIONS.map((x) => x.id));
+    const validModes = new Set(REPORT_CUSTOM_DATA_MODES.map((x) => x.id));
     const out = parsed
       .map((item, idx) => {
         const id = String(item?.id || `custom_${Date.now()}_${idx}`).trim();
         const type = validTypes.has(String(item?.type || "").trim()) ? String(item.type).trim() : "bar";
         const groupBy = validGroups.has(String(item?.groupBy || "").trim()) ? String(item.groupBy).trim() : "status";
+        const dataMode = validModes.has(String(item?.dataMode || "").trim()) ? String(item.dataMode).trim() : "total";
         const name = String(item?.name || "").trim() || `Кастомный график ${idx + 1}`;
-        return { id, type, groupBy, name };
+        return { id, type, groupBy, dataMode, name };
       })
       .slice(0, REPORT_CUSTOM_MAX_CHARTS);
     reportCustomChartsCache = out;
@@ -5404,6 +5412,9 @@ function renderReportSystemHiddenControlsHtml() {
 
 function renderReportCustomBuilderHtml() {
   if (sharedReportMode) return "";
+  const modeOptions = REPORT_CUSTOM_DATA_MODES
+    .map((opt) => `<option value="${escapeHtmlAttr(opt.id)}">${escapeHtmlText(opt.label)}</option>`)
+    .join("");
   const groupOptions = REPORT_CUSTOM_GROUP_BY_OPTIONS
     .map((opt) => `<option value="${escapeHtmlAttr(opt.id)}">${escapeHtmlText(opt.label)}</option>`)
     .join("");
@@ -5413,6 +5424,7 @@ function renderReportCustomBuilderHtml() {
   return `
     <div class="report-custom-builder">
       <input type="text" id="reportCustomNameInput" class="report-custom-input" maxlength="70" placeholder="Название диаграммы" />
+      <select id="reportCustomDataModeSelect" class="report-custom-select">${modeOptions}</select>
       <select id="reportCustomGroupBySelect" class="report-custom-select">${groupOptions}</select>
       <select id="reportCustomTypeSelect" class="report-custom-select">${typeOptions}</select>
       <button type="button" class="report-custom-add-btn" id="reportCustomAddBtn">Добавить</button>
@@ -5451,6 +5463,7 @@ function renderReportCustomChartsHtml() {
 
 function buildCustomReportCounts(rows, groupBy) {
   const counts = new Map();
+  const byStatus = new Map();
   const employees = getSectionById("employees")?.rows || [];
   const getDepartmentByEmployee = (name) => {
     const n = normalizePersonName(name);
@@ -5462,20 +5475,34 @@ function buildCustomReportCounts(rows, groupBy) {
     const key = String(label || "—").trim() || "—";
     counts.set(key, (counts.get(key) || 0) + 1);
   };
+  const addByStatus = (label, statusRaw) => {
+    const key = String(label || "—").trim() || "—";
+    if (!byStatus.has(key)) {
+      byStatus.set(key, Object.fromEntries(REPORT_CUSTOM_STATUS_SERIES.map((s) => [s, 0])));
+    }
+    const normalized = normalizeTaskStatusValue(String(statusRaw || "").trim());
+    const status = REPORT_CUSTOM_STATUS_SERIES.includes(normalized) ? normalized : "Новый";
+    byStatus.get(key)[status] += 1;
+  };
   (Array.isArray(rows) ? rows : []).forEach((row) => {
     const r = Array.isArray(row) ? row : [];
-    if (groupBy === "status") add(normalizeTaskStatusValue(String(r[TASK_COLUMNS.status] || "").trim()) || "—");
-    else if (groupBy === "priority") add(String(r[TASK_COLUMNS.priority] || "").trim() || "—");
-    else if (groupBy === "object") add(String(r[TASK_COLUMNS.object] || "").trim() || "—");
-    else if (groupBy === "phase") add(String(r[TASK_COLUMNS.phase] || "").trim() || "—");
-    else if (groupBy === "section") add(String(r[TASK_COLUMNS.phaseSection] || "").trim() || "—");
-    else if (groupBy === "subsection") add(String(r[TASK_COLUMNS.phaseSubsection] || "").trim() || "—");
-    else if (groupBy === "responsible") add(String(r[TASK_COLUMNS.assignedResponsible] || "").trim() || "—");
-    else if (groupBy === "department") add(getDepartmentByEmployee(String(r[TASK_COLUMNS.assignedResponsible] || "").trim()));
-    else if (groupBy === "overdue") add(isTaskOverdueForReport(r) ? "Просрочено" : "Не просрочено");
-    else add("—");
+    let key = "—";
+    if (groupBy === "status") key = normalizeTaskStatusValue(String(r[TASK_COLUMNS.status] || "").trim()) || "—";
+    else if (groupBy === "priority") key = String(r[TASK_COLUMNS.priority] || "").trim() || "—";
+    else if (groupBy === "object") key = String(r[TASK_COLUMNS.object] || "").trim() || "—";
+    else if (groupBy === "phase") key = String(r[TASK_COLUMNS.phase] || "").trim() || "—";
+    else if (groupBy === "section") key = String(r[TASK_COLUMNS.phaseSection] || "").trim() || "—";
+    else if (groupBy === "subsection") key = String(r[TASK_COLUMNS.phaseSubsection] || "").trim() || "—";
+    else if (groupBy === "responsible") key = String(r[TASK_COLUMNS.assignedResponsible] || "").trim() || "—";
+    else if (groupBy === "department") key = getDepartmentByEmployee(String(r[TASK_COLUMNS.assignedResponsible] || "").trim());
+    else if (groupBy === "overdue") key = isTaskOverdueForReport(r) ? "Просрочено" : "Не просрочено";
+    add(key);
+    addByStatus(key, r[TASK_COLUMNS.status]);
   });
-  return Array.from(counts.entries()).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 24);
+  const entries = Array.from(counts.entries()).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 24);
+  const labels = entries.map((x) => x[0]);
+  const byStatusTrimmed = labels.map((label) => ({ label, counts: byStatus.get(label) || Object.fromEntries(REPORT_CUSTOM_STATUS_SERIES.map((s) => [s, 0])) }));
+  return { entries, byStatus: byStatusTrimmed };
 }
 
 function attachReportChartTileDragHandlers() {
@@ -7443,11 +7470,14 @@ function attachReportCustomBuilderHandlers() {
   const addBtn = root.querySelector("#reportCustomAddBtn");
   addBtn?.addEventListener("click", () => {
     const nameInput = root.querySelector("#reportCustomNameInput");
+    const modeInput = root.querySelector("#reportCustomDataModeSelect");
     const groupInput = root.querySelector("#reportCustomGroupBySelect");
     const typeInput = root.querySelector("#reportCustomTypeSelect");
     const name = String(nameInput?.value || "").trim() || "Кастомный график";
+    const dataMode = String(modeInput?.value || "total").trim();
     const groupBy = String(groupInput?.value || "status").trim();
     const type = String(typeInput?.value || "bar").trim();
+    const validMode = REPORT_CUSTOM_DATA_MODES.some((x) => x.id === dataMode) ? dataMode : "total";
     const validGroup = REPORT_CUSTOM_GROUP_BY_OPTIONS.some((x) => x.id === groupBy) ? groupBy : "status";
     const validType = REPORT_CUSTOM_CHART_TYPES.some((x) => x.id === type) ? type : "bar";
     const list = loadReportCustomCharts();
@@ -7458,6 +7488,7 @@ function attachReportCustomBuilderHandlers() {
     const item = {
       id: `custom_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       name,
+      dataMode: validMode,
       groupBy: validGroup,
       type: validType
     };
@@ -7480,17 +7511,119 @@ function attachCustomReportCharts() {
   const hasDl = ensureReportChartPlugins();
   const rows = getReportFilteredRows();
   const list = loadReportCustomCharts();
+  const donutLegendWithCount = {
+    display: true,
+    position: "right",
+    labels: {
+      boxWidth: 10,
+      boxHeight: 10,
+      usePointStyle: true,
+      padding: 10,
+      font: { size: 11 },
+      generateLabels: (chart) => {
+        const labels = Array.isArray(chart?.data?.labels) ? chart.data.labels : [];
+        const ds = chart?.data?.datasets?.[0];
+        const data = Array.isArray(ds?.data) ? ds.data : [];
+        return labels.map((label, i) => ({
+          text: `${label}: ${Number(data[i] || 0)}`,
+          fillStyle: Array.isArray(ds?.backgroundColor) ? ds.backgroundColor[i] : ds?.backgroundColor,
+          hidden: false,
+          index: i
+        }));
+      }
+    }
+  };
+  const datasetLegendWithCount = {
+    display: true,
+    position: "right",
+    labels: {
+      boxWidth: 10,
+      boxHeight: 10,
+      usePointStyle: true,
+      padding: 10,
+      font: { size: 11 },
+      generateLabels: (chart) => {
+        const datasets = Array.isArray(chart?.data?.datasets) ? chart.data.datasets : [];
+        return datasets.map((ds, idx) => {
+          const vals = Array.isArray(ds?.data) ? ds.data : [];
+          const total = vals.reduce((sum, value) => sum + (Number(value) || 0), 0);
+          const bg = Array.isArray(ds?.backgroundColor) ? ds.backgroundColor[0] : ds?.backgroundColor;
+          const border = Array.isArray(ds?.borderColor) ? ds.borderColor[0] : ds?.borderColor;
+          return {
+            text: `${String(ds?.label || `Серия ${idx + 1}`)}: ${Math.round(total)}`,
+            fillStyle: bg || border || "#94a3b8",
+            strokeStyle: border || bg || "#94a3b8",
+            hidden: !chart.isDatasetVisible(idx),
+            datasetIndex: idx,
+            pointStyle: "circle"
+          };
+        });
+      }
+    },
+    onClick: (_event, item, legend) => {
+      const chart = legend?.chart;
+      const dsIndex = Number(item?.datasetIndex);
+      if (!chart || !Number.isFinite(dsIndex)) return;
+      chart.setDatasetVisibility(dsIndex, !chart.isDatasetVisible(dsIndex));
+      chart.update();
+    }
+  };
   list.forEach((item, index) => {
     const canvas = document.getElementById(`reportCustomChart_${String(item.id || "")}`);
     if (!canvas) return;
-    const entries = buildCustomReportCounts(rows, item.groupBy);
+    const packed = buildCustomReportCounts(rows, item.groupBy);
+    const entries = packed.entries;
     const labels = entries.length ? entries.map((x) => x[0]) : ["Нет данных"];
     const values = entries.length ? entries.map((x) => x[1]) : [0];
     const colors = labels.map((_, i) => REPORT_CHART_COLORS[(index + i) % REPORT_CHART_COLORS.length]);
     const common = { responsive: true, maintainAspectRatio: false };
     const chartType = item.type === "donut" ? "doughnut" : item.type === "pie" ? "pie" : item.type === "line" ? "line" : "bar";
+    const dataMode = item.dataMode === "by_status" ? "by_status" : "total";
+    const statusSeries = REPORT_CUSTOM_STATUS_SERIES.map((statusName) => ({
+      label: statusName,
+      data: packed.byStatus.map((x) => Number(x.counts?.[statusName] || 0)),
+      backgroundColor: reportHexToRgba(colorForStatusLabel(statusName), 0.8),
+      borderColor: colorForStatusLabel(statusName),
+      borderWidth: 1,
+      tension: 0.25,
+      fill: false
+    }));
     const cfg =
-      chartType === "line"
+      (item.type === "donut" || item.type === "pie") && dataMode === "by_status"
+        ? {
+            type: chartType,
+            data: {
+              labels: REPORT_CUSTOM_STATUS_SERIES,
+              datasets: [
+                {
+                  data: REPORT_CUSTOM_STATUS_SERIES.map((statusName) =>
+                    statusSeries.reduce((sum, ds) => sum + (ds.label === statusName ? ds.data.reduce((a, b) => a + (Number(b) || 0), 0) : 0), 0)
+                  ),
+                  backgroundColor: REPORT_CUSTOM_STATUS_SERIES.map((statusName) => colorForStatusLabel(statusName)),
+                  borderColor: "#f8fafc",
+                  borderWidth: 2
+                }
+              ]
+            },
+            options: {
+              ...common,
+              plugins: {
+                legend: donutLegendWithCount,
+                datalabels: hasDl ? { formatter: (v) => (Number(v) > 0 ? String(v) : ""), color: "#334155", font: { size: 10, weight: "600" } } : { display: false }
+              }
+            }
+          }
+        : chartType === "line" && dataMode === "by_status"
+          ? {
+              type: "line",
+              data: { labels, datasets: statusSeries.map((ds) => ({ ...ds, borderColor: ds.borderColor, backgroundColor: reportHexToRgba(ds.borderColor, 0.22) })) },
+              options: {
+                ...common,
+                plugins: { legend: datasetLegendWithCount, datalabels: hasDl ? { display: false } : { display: false } },
+                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+              }
+            }
+          : chartType === "line"
         ? {
             type: "line",
             data: {
@@ -7508,11 +7641,46 @@ function attachCustomReportCharts() {
             },
             options: {
               ...common,
-              plugins: { legend: { display: false }, datalabels: hasDl ? { display: false } : { display: false } },
+              plugins: { legend: datasetLegendWithCount, datalabels: hasDl ? { display: false } : { display: false } },
               scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
             }
           }
-        : chartType === "bar"
+        : item.type === "hbar" && dataMode === "by_status"
+          ? {
+              type: "bar",
+              data: { labels, datasets: statusSeries.map((ds) => ({ ...ds })) },
+              options: {
+                ...common,
+                indexAxis: "y",
+                scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { ticks: { autoSkip: false } } },
+                plugins: { legend: datasetLegendWithCount, datalabels: hasDl ? { display: false } : { display: false } }
+              }
+            }
+          : item.type === "hbar"
+            ? {
+                type: "bar",
+                data: {
+                  labels,
+                  datasets: [{ label: item.name, data: values, backgroundColor: colors.map((c) => reportHexToRgba(c, 0.82)), borderColor: colors, borderWidth: 1 }]
+                },
+                options: {
+                  ...common,
+                  indexAxis: "y",
+                  scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { ticks: { autoSkip: false } } },
+                  plugins: { legend: datasetLegendWithCount, datalabels: hasDl ? { display: false } : { display: false } }
+                }
+              }
+            : chartType === "bar" && dataMode === "by_status"
+              ? {
+                  type: "bar",
+                  data: { labels, datasets: statusSeries.map((ds) => ({ ...ds })) },
+                  options: {
+                    ...common,
+                    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+                    plugins: { legend: datasetLegendWithCount, datalabels: hasDl ? { display: false } : { display: false } }
+                  }
+                }
+          : chartType === "bar"
           ? {
               type: "bar",
               data: {
@@ -7527,7 +7695,7 @@ function attachCustomReportCharts() {
               },
               options: {
                 ...common,
-                plugins: { legend: { display: false }, datalabels: hasDl ? { color: "#334155", anchor: "end", align: "top" } : { display: false } },
+                plugins: { legend: datasetLegendWithCount, datalabels: hasDl ? { color: "#334155", anchor: "end", align: "top" } : { display: false } },
                 scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
               }
             }
@@ -7540,7 +7708,7 @@ function attachCustomReportCharts() {
               options: {
                 ...common,
                 plugins: {
-                  legend: { display: true, position: "right", labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true } },
+                  legend: donutLegendWithCount,
                   datalabels: hasDl ? { formatter: (v) => (Number(v) > 0 ? String(v) : ""), color: "#334155", font: { size: 10, weight: "600" } } : { display: false }
                 }
               }

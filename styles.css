@@ -1150,8 +1150,8 @@ select.date-time-settings-select {
 }
 
 .table-card.report-dashboard-card {
-  height: auto;
-  min-height: 0;
+  height: calc(100vh - 24px);
+  min-height: calc(100vh - 24px);
   max-width: 100%;
 }
 
@@ -3412,12 +3412,23 @@ body.login-mode #appSection {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.report-tab-btn:hover {
+  color: #3e4095;
+  background: rgba(62, 64, 149, 0.08);
 }
 
 .report-tab-btn.active {
   background: #fff;
-  color: #1e293b;
+  color: #3e4095;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+
+.report-tab-btn.active:hover {
+  background: #fff;
+  color: #3e4095;
 }
 
 .report-empty-hint {
@@ -3685,7 +3696,7 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 
 .report-custom-builder {
   display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) minmax(160px, 1fr) 140px auto;
+  grid-template-columns: minmax(180px, 1.2fr) 160px minmax(160px, 1fr) 150px auto;
   gap: 8px;
   align-items: center;
 }
@@ -3733,6 +3744,9 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   background: transparent;
   color: #94a3b8;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .report-custom-remove-btn:hover {
@@ -3753,7 +3767,7 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 
 @media (max-width: 1100px) {
   .report-custom-builder {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
   }
   .report-custom-builder .report-custom-add-btn {
     grid-column: 1 / -1;
