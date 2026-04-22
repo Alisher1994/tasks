@@ -40,6 +40,9 @@ const TASK_MEDIA_AFTER_COL = 17;
 const TASK_READ_STATE_COL = 18;
 const TASK_LAST_SENT_AT_COL = 19;
 const TASK_DELAY_REASON_COL = 20;
+const CHAT_CLEAR_CODE_TTL_MS = 10 * 60 * 1000;
+const CHAT_CLEAR_DELETE_SCAN_BEFORE = 260;
+const CHAT_CLEAR_DELETE_SCAN_AFTER = 20;
 
 function normalizePhone(raw) {
   const src = String(raw || "").trim();
@@ -62,6 +65,14 @@ function getEmployeesSection(payload) {
   return sections.find((s) => s && s.id === "employees");
 }
 
+function findEmployeeByIdInPayload(payload, employeeId) {
+  const employees = getEmployeesSection(payload);
+  const rows = Array.isArray(employees?.rows) ? employees.rows : [];
+  const want = String(employeeId || "").trim();
+  if (!want) return null;
+  return rows.find((row) => String(row?.[0] || "").trim() === want) || null;
+}
+
 function findEmployeeByPhoneInPayload(payload, phone) {
   const employees = getEmployeesSection(payload);
   const rows = Array.isArray(employees?.rows) ? employees.rows : [];
@@ -70,6 +81,139 @@ function findEmployeeByPhoneInPayload(payload, phone) {
     if (rowPhone === phone) return row;
   }
   return null;
+}
+
+function findEmployeeByDisplayNameInPayload(payload, displayName) {
+  const employees = getEmployeesSection(payload);
+  const rows = Array.isArray(employees?.rows) ? employees.rows : [];
+  const want = String(displayName || "").trim().replace(/\s+/g, " ").toLowerCase();
+  if (!want) return null;
+  for (const row of rows) {
+    const name = String(row?.[1] || "").trim().replace(/\s+/g, " ").toLowerCase();
+    if (name === want) return row;
+  }
+  return null;
+}
+
+function ensureObjectStore(payload, key) {
+  if (!payload[key] || typeof payload[key] !== "object" || Array.isArray(payload[key])) {
+    payload[key] = {};
+  }
+  return payload[key];
+}
+
+async function loadAppPayload() {
+  const { rows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
+  return rows[0]?.payload && typeof rows[0].payload === "object"
+    ? JSON.parse(JSON.stringify(rows[0].payload))
+    : {};
+}
+
+async function saveAppPayload(payload) {
+  await pool.query(
+    `INSERT INTO app_state (id, payload, updated_at)
+     VALUES (1, $1::jsonb, NOW())
+     ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+    [JSON.stringify(payload)]
+  );
+}
+
+function buildBotApiUrl(token, method) {
+  return `https://api.telegram.org/bot${token}/${method}`;
+}
+
+async function tgSendMessage(token, chatId, text) {
+  const r = await fetch(buildBotApiUrl(token, "sendMessage"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: String(chatId || "").trim(), text: String(text || "") })
+  });
+  const j = await r.json().catch(() => ({}));
+  return { ok: r.ok && j?.ok === true, description: String(j?.description || "") };
+}
+
+async function tgDeleteMessage(token, chatId, messageId) {
+  const r = await fetch(buildBotApiUrl(token, "deleteMessage"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: String(chatId || "").trim(), message_id: Number(messageId) || 0 })
+  });
+  const j = await r.json().catch(() => ({}));
+  return { ok: r.ok && j?.ok === true, description: String(j?.description || "") };
+}
+
+async function resolveInitiatorEmployeeRow(payload, reqUser) {
+  const sub = String(reqUser?.sub || "").trim();
+  if (!sub) return null;
+  if (sub.startsWith("emp:")) {
+    const phone = normalizePhone(sub.slice(4));
+    return phone ? findEmployeeByPhoneInPayload(payload, phone) : null;
+  }
+  if (/^\d+$/.test(sub)) {
+    const { rows } = await pool.query("SELECT phone, display_name FROM users WHERE id = $1", [Number(sub)]);
+    if (rows.length) {
+      const phone = normalizePhone(rows[0]?.phone || "");
+      if (phone) {
+        const byPhone = findEmployeeByPhoneInPayload(payload, phone);
+        if (byPhone) return byPhone;
+      }
+      const byName = findEmployeeByDisplayNameInPayload(payload, rows[0]?.display_name || "");
+      if (byName) return byName;
+    }
+  }
+  return findEmployeeByDisplayNameInPayload(payload, reqUser?.name || "");
+}
+
+function getChatClearMessageAnchors(payload, targetChatId) {
+  const chat = String(targetChatId || "").trim();
+  const out = new Set();
+  const lastCtx = payload?.telegramLastTaskByChat?.[chat];
+  const prompt = Number(lastCtx?.promptMessageId) || 0;
+  if (prompt > 0) out.add(prompt);
+  const lastSeen = Number(payload?.telegramLastSeenMessageByChat?.[chat]) || 0;
+  if (lastSeen > 0) out.add(lastSeen);
+  return Array.from(out).sort((a, b) => b - a);
+}
+
+async function clearTelegramChatMessagesBestEffort(payload, token, targetChatId) {
+  const chat = String(targetChatId || "").trim();
+  const anchors = getChatClearMessageAnchors(payload, chat);
+  const tested = new Set();
+  const ids = [];
+  anchors.forEach((anchor) => {
+    for (let mid = anchor + CHAT_CLEAR_DELETE_SCAN_AFTER; mid >= Math.max(1, anchor - CHAT_CLEAR_DELETE_SCAN_BEFORE); mid -= 1) {
+      if (tested.has(mid)) continue;
+      tested.add(mid);
+      ids.push(mid);
+    }
+  });
+  if (!ids.length) {
+    for (let mid = 400; mid >= 1; mid -= 1) ids.push(mid);
+  }
+  let deleted = 0;
+  let failed = 0;
+  for (const mid of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    const r = await tgDeleteMessage(token, chat, mid);
+    if (r.ok) deleted += 1;
+    else failed += 1;
+  }
+  if (payload?.telegramSessions && typeof payload.telegramSessions === "object") {
+    delete payload.telegramSessions[chat];
+  }
+  if (payload?.telegramLastTaskByChat && typeof payload.telegramLastTaskByChat === "object") {
+    delete payload.telegramLastTaskByChat[chat];
+  }
+  if (payload?.telegramLastSeenMessageByChat && typeof payload.telegramLastSeenMessageByChat === "object") {
+    delete payload.telegramLastSeenMessageByChat[chat];
+  }
+  if (payload?.telegramCloseRequests && typeof payload.telegramCloseRequests === "object") {
+    Object.keys(payload.telegramCloseRequests).forEach((taskId) => {
+      const req = payload.telegramCloseRequests[taskId];
+      if (String(req?.chatId || "").trim() === chat) delete payload.telegramCloseRequests[taskId];
+    });
+  }
+  return { deleted, failed, scanned: ids.length, usedAnchors: anchors.length };
 }
 
 function refreshEmployeeChatIdsByPhoneBindings(payload) {
@@ -618,6 +762,116 @@ app.post("/api/telegram/send-media-group-proxy", authMiddleware, async (req, res
   }
 });
 
+app.post("/api/telegram/chat-clear/request", authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const employeeId = String(req.body?.employeeId || "").trim();
+    const payload = await loadAppPayload();
+    const token = String(payload?.displaySettings?.telegramBotToken || "").trim();
+    if (!token) return res.status(400).json({ ok: false, error: "Не задан токен Telegram-бота." });
+
+    const targetEmployee = employeeId ? findEmployeeByIdInPayload(payload, employeeId) : null;
+    if (!targetEmployee) {
+      return res.status(404).json({ ok: false, error: "Сотрудник не найден." });
+    }
+    const targetChatId = String(targetEmployee?.[6] || "").trim();
+    const targetTg = String(targetEmployee?.[5] || "").trim();
+    if (!targetChatId || targetTg !== "Подключен") {
+      return res.status(400).json({ ok: false, error: "У сотрудника нет активного Telegram Chat ID." });
+    }
+
+    const initiator = await resolveInitiatorEmployeeRow(payload, req.user);
+    const initiatorChatId = String(initiator?.[6] || "").trim();
+    const initiatorTg = String(initiator?.[5] || "").trim();
+    if (!initiatorChatId || initiatorTg !== "Подключен") {
+      return res.status(400).json({
+        ok: false,
+        error: "Ваш Telegram не подключен в справочнике сотрудников. Подключите его и повторите."
+      });
+    }
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const requestId = randomBytes(12).toString("hex");
+    const expiresAt = Date.now() + CHAT_CLEAR_CODE_TTL_MS;
+    const targetName = String(targetEmployee?.[1] || "").trim() || "—";
+    const initiatorName = String(initiator?.[1] || req.user?.name || "").trim() || "Администратор";
+    const msg = [
+      "🔐 Подтверждение очистки чата",
+      "",
+      `Инициатор: ${initiatorName}`,
+      `Сотрудник: ${targetName}`,
+      `Chat ID: ${targetChatId}`,
+      `Код: ${code}`,
+      "Срок действия: 10 минут"
+    ].join("\n");
+    const sendResult = await tgSendMessage(token, initiatorChatId, msg);
+    if (!sendResult.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: `Не удалось отправить код в Telegram: ${sendResult.description || "ошибка API"}`
+      });
+    }
+
+    const reqStore = ensureObjectStore(payload, "telegramChatClearRequests");
+    reqStore[requestId] = {
+      code,
+      createdAt: Date.now(),
+      expiresAt,
+      createdBySub: String(req.user?.sub || ""),
+      createdByChatId: initiatorChatId,
+      targetEmployeeId: String(targetEmployee?.[0] || ""),
+      targetEmployeeName: targetName,
+      targetChatId
+    };
+    await saveAppPayload(payload);
+    return res.json({ ok: true, requestId, expiresAt });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Ошибка создания запроса на очистку чата." });
+  }
+});
+
+app.post("/api/telegram/chat-clear/confirm", authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const requestId = String(req.body?.requestId || "").trim();
+    const code = String(req.body?.code || "").trim();
+    if (!requestId || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ ok: false, error: "Укажите корректный код подтверждения." });
+    }
+    const payload = await loadAppPayload();
+    const token = String(payload?.displaySettings?.telegramBotToken || "").trim();
+    if (!token) return res.status(400).json({ ok: false, error: "Не задан токен Telegram-бота." });
+    const reqStore = ensureObjectStore(payload, "telegramChatClearRequests");
+    const pending = reqStore[requestId];
+    if (!pending) return res.status(404).json({ ok: false, error: "Запрос подтверждения не найден." });
+    const ownerSub = String(pending?.createdBySub || "").trim();
+    if (ownerSub !== String(req.user?.sub || "").trim()) {
+      return res.status(403).json({ ok: false, error: "Этот код выдан другому администратору." });
+    }
+    if (Date.now() > Number(pending?.expiresAt || 0)) {
+      delete reqStore[requestId];
+      await saveAppPayload(payload);
+      return res.status(400).json({ ok: false, error: "Срок действия кода истек. Запросите новый код." });
+    }
+    if (String(pending?.code || "") !== code) {
+      return res.status(400).json({ ok: false, error: "Неверный код подтверждения." });
+    }
+    const targetChatId = String(pending?.targetChatId || "").trim();
+    if (!targetChatId) {
+      delete reqStore[requestId];
+      await saveAppPayload(payload);
+      return res.status(400).json({ ok: false, error: "У сотрудника отсутствует Chat ID для очистки." });
+    }
+
+    const result = await clearTelegramChatMessagesBestEffort(payload, token, targetChatId);
+    delete reqStore[requestId];
+    await saveAppPayload(payload);
+    return res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Ошибка очистки чата." });
+  }
+});
+
 app.post("/api/google-sheets/sync", authMiddleware, async (_req, res) => {
   try {
     const result = await runGoogleSheetsSync(pool, { mode: "manual" });
@@ -702,11 +956,19 @@ app.put("/api/data", authMiddleware, async (req, res) => {
                true
              ),
              '{telegramCloseRequests}',
-             COALESCE(app_state.payload->'telegramCloseRequests', '{}'::jsonb),
+                 COALESCE(app_state.payload->'telegramCloseRequests', '{}'::jsonb),
+                 true
+               ),
+               '{telegramLastTaskByChat}',
+               COALESCE(app_state.payload->'telegramLastTaskByChat', '{}'::jsonb),
+               true
+             ),
+             '{telegramChatClearRequests}',
+             COALESCE(app_state.payload->'telegramChatClearRequests', '{}'::jsonb),
              true
            ),
-           '{telegramLastTaskByChat}',
-           COALESCE(app_state.payload->'telegramLastTaskByChat', '{}'::jsonb),
+           '{telegramLastSeenMessageByChat}',
+           COALESCE(app_state.payload->'telegramLastSeenMessageByChat', '{}'::jsonb),
            true
          ),
          updated_at = NOW()`,

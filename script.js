@@ -4716,10 +4716,22 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
     `;
   }
   if (sectionId === "employees") {
+    const tgConnected = String(row?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен";
+    const hasChatId = Boolean(String(row?.[EMPLOYEE_COLUMNS.chatId] || "").trim());
+    const canClearChat = tgConnected && hasChatId && currentAuthRole === "admin";
+    const clearDisabledAttr = canClearChat ? "" : "disabled";
+    const clearTitle = currentAuthRole !== "admin"
+      ? "Доступно только администратору"
+      : !tgConnected || !hasChatId
+        ? "У сотрудника нет активного Telegram Chat ID"
+        : "Очистить чат с ботом";
     return `
       <div class="action-buttons">
         <button type="button" class="icon-action-btn copy-employee-msg-btn" title="Скопировать сообщение сотруднику" data-row-index="${rowIndex}">
           <i data-lucide="copy" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+        <button type="button" class="icon-action-btn clear-employee-chat-btn" title="${escapeHtmlAttr(clearTitle)}" data-row-index="${rowIndex}" ${clearDisabledAttr}>
+          <i data-lucide="eraser" class="lucide-icon" aria-hidden="true"></i>
         </button>
         <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
           <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
@@ -9445,6 +9457,7 @@ function attachTableActionHandlers(section, filteredEntries) {
   const restoreButtons = Array.from(document.querySelectorAll(".restore-row-btn"));
   const sendButtons = Array.from(document.querySelectorAll(".send-row-btn"));
   const copyEmployeeMsgButtons = Array.from(document.querySelectorAll(".copy-employee-msg-btn"));
+  const clearEmployeeChatButtons = Array.from(document.querySelectorAll(".clear-employee-chat-btn"));
   const deleteButtons = Array.from(document.querySelectorAll(".delete-row-btn"));
   const bulkSendBtn = document.getElementById("bulkSendBtn");
   const bulkDeleteBtn = document.getElementById("bulkDeleteBtn");
@@ -10456,6 +10469,16 @@ function ensureSystemDepartments() {
   const existing = new Set(departmentsSection.rows.map((row) => String(row[1] || "").trim()).filter(Boolean));
   departmentsSection.rows.forEach((row) => {
     row[3] = getDepartmentTypeLabel(row[1]);
+  });
+
+  clearEmployeeChatButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      if (section.id !== "employees") return;
+      const rowIndex = Number(button.dataset.rowIndex);
+      const row = section.rows[rowIndex];
+      if (!row) return;
+      openEmployeeChatClearModal(row);
+    });
   });
   SYSTEM_DEPARTMENTS.forEach((department) => {
     if (!existing.has(department)) {
@@ -14908,6 +14931,167 @@ function confirmAction({ message, confirmLabel = "Да", onConfirm }) {
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) overlay.remove();
   });
+}
+
+async function requestEmployeeChatClearCode(employeeRow) {
+  const employeeId = String(employeeRow?.[EMPLOYEE_COLUMNS.id] || "").trim();
+  if (!employeeId) {
+    return { ok: false, error: "Не найден ID сотрудника." };
+  }
+  if (!isHostedRuntime() || !getAuthToken()) {
+    return { ok: false, error: "Доступно только в серверном режиме после входа." };
+  }
+  try {
+    const r = await fetch("/api/telegram/chat-clear/request", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({ employeeId })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j?.ok !== true) {
+      return { ok: false, error: String(j?.error || "Не удалось запросить код подтверждения.") };
+    }
+    return { ok: true, requestId: String(j.requestId || "").trim(), expiresAt: Number(j.expiresAt) || 0 };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || "Ошибка запроса к серверу.") };
+  }
+}
+
+async function confirmEmployeeChatClear(requestId, code) {
+  if (!requestId) return { ok: false, error: "Сначала запросите код подтверждения." };
+  if (!/^\d{6}$/.test(String(code || "").trim())) {
+    return { ok: false, error: "Введите 6-значный код из Telegram." };
+  }
+  try {
+    const r = await fetch("/api/telegram/chat-clear/confirm", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({ requestId, code: String(code || "").trim() })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j?.ok !== true) {
+      return { ok: false, error: String(j?.error || "Не удалось очистить чат.") };
+    }
+    return {
+      ok: true,
+      deleted: Number(j.deleted) || 0,
+      failed: Number(j.failed) || 0,
+      scanned: Number(j.scanned) || 0
+    };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || "Ошибка запроса к серверу.") };
+  }
+}
+
+function openEmployeeChatClearModal(employeeRow) {
+  const fullName = String(employeeRow?.[EMPLOYEE_COLUMNS.fullName] || "").trim() || "—";
+  const chatId = String(employeeRow?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
+  const tgState = String(employeeRow?.[EMPLOYEE_COLUMNS.telegram] || "").trim();
+  if (!chatId || tgState !== "Подключен") {
+    showStatusDialog({
+      title: "Очистка чата",
+      message: "У сотрудника нет активного Telegram Chat ID.",
+      type: "error"
+    });
+    return;
+  }
+  if (currentAuthRole !== "admin") {
+    showStatusDialog({
+      title: "Очистка чата",
+      message: "Действие доступно только администратору.",
+      type: "error"
+    });
+    return;
+  }
+
+  const overlay = document.createElement("div");
+  overlay.className = "unsaved-confirm";
+  overlay.innerHTML = `
+    <div class="unsaved-confirm-box">
+      <h4>Очистка чата сотрудника</h4>
+      <p>Сотрудник: <b>${escapeHtmlText(fullName)}</b><br />Chat ID: <b>${escapeHtmlText(chatId)}</b></p>
+      <p>Одноразовый код будет отправлен только вам в Telegram. Код действует 10 минут.</p>
+      <input type="text" class="cell-editor employee-chat-clear-code" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Введите код (6 цифр)" />
+      <div class="unsaved-confirm-actions">
+        <button type="button" class="confirm-btn confirm-cancel-btn">Отмена</button>
+        <button type="button" class="confirm-btn employee-chat-clear-send-code-btn">Запросить код</button>
+        <button type="button" class="confirm-btn employee-chat-clear-apply-btn" disabled>Очистить чат</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  const codeInput = overlay.querySelector(".employee-chat-clear-code");
+  const sendCodeBtn = overlay.querySelector(".employee-chat-clear-send-code-btn");
+  const applyBtn = overlay.querySelector(".employee-chat-clear-apply-btn");
+  let requestId = "";
+
+  codeInput?.addEventListener("input", () => {
+    const digits = String(codeInput.value || "").replace(/\D/g, "").slice(0, 6);
+    codeInput.value = digits;
+    if (applyBtn instanceof HTMLButtonElement) {
+      applyBtn.disabled = !requestId || digits.length !== 6;
+    }
+  });
+
+  sendCodeBtn?.addEventListener("click", async () => {
+    if (!(sendCodeBtn instanceof HTMLButtonElement)) return;
+    sendCodeBtn.disabled = true;
+    const prev = sendCodeBtn.textContent;
+    sendCodeBtn.textContent = "Отправка...";
+    const r = await requestEmployeeChatClearCode(employeeRow);
+    sendCodeBtn.disabled = false;
+    sendCodeBtn.textContent = prev || "Запросить код";
+    if (!r.ok) {
+      showStatusDialog({
+        title: "Очистка чата",
+        message: String(r.error || "Не удалось запросить код."),
+        type: "error"
+      });
+      return;
+    }
+    requestId = String(r.requestId || "").trim();
+    if (applyBtn instanceof HTMLButtonElement) {
+      applyBtn.disabled = String(codeInput?.value || "").trim().length !== 6;
+    }
+    showStatusDialog({
+      title: "Код подтверждения отправлен",
+      message: "Проверьте ваш Telegram и введите 6-значный код в это окно.",
+      type: "success"
+    });
+    codeInput?.focus();
+  });
+
+  applyBtn?.addEventListener("click", async () => {
+    const code = String(codeInput?.value || "").trim();
+    const r = await confirmEmployeeChatClear(requestId, code);
+    if (!r.ok) {
+      showStatusDialog({
+        title: "Очистка чата",
+        message: String(r.error || "Не удалось очистить чат."),
+        type: "error"
+      });
+      return;
+    }
+    close();
+    showStatusDialog({
+      title: "Чат очищен",
+      message: `Удалено сообщений: ${r.deleted}\nНе удалено: ${r.failed}\nПроверено: ${r.scanned}`,
+      type: "success"
+    });
+  });
+
+  overlay.querySelector(".confirm-cancel-btn")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  codeInput?.focus();
 }
 
 function restoreSectionsData() {
