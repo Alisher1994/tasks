@@ -4501,17 +4501,14 @@ function renderTable() {
         });
       });
       const ganttZoomRange = document.getElementById("tasksGanttZoomRange");
-      const ganttZoomValue = document.getElementById("tasksGanttZoomValue");
       const ganttZoomStage = document.getElementById("tasksGanttZoomStage");
       ganttZoomRange?.addEventListener("input", () => {
         const zoom = normalizeTasksGanttZoomPercent(ganttZoomRange.value);
-        if (ganttZoomValue) ganttZoomValue.textContent = `${zoom}%`;
         if (ganttZoomStage) ganttZoomStage.textContent = getTasksGanttScaleStageLabel(zoom);
       });
       ganttZoomRange?.addEventListener("change", () => {
         const zoom = normalizeTasksGanttZoomPercent(ganttZoomRange.value);
         displaySettings.tasksGanttZoomPercent = zoom;
-        if (ganttZoomValue) ganttZoomValue.textContent = `${zoom}%`;
         if (ganttZoomStage) ganttZoomStage.textContent = getTasksGanttScaleStageLabel(zoom);
         saveDisplaySettings();
         renderTablePreserveScroll();
@@ -9079,7 +9076,6 @@ function renderTasksScreenModeSwitch(section) {
           <span class="tasks-gantt-zoom-label">Масштаб</span>
           <input id="tasksGanttZoomRange" type="range" min="60" max="180" step="5" value="${zoom}" />
           <span class="tasks-gantt-zoom-stage" id="tasksGanttZoomStage">${zoomStage}</span>
-          <span class="tasks-gantt-zoom-value" id="tasksGanttZoomValue">${zoom}%</span>
         </label>
       </div>`
     : `<div class="tasks-screen-switch-left"></div>`;
