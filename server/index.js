@@ -34,6 +34,15 @@ const MEDIA_STORAGE_PATH = String(process.env.MEDIA_STORAGE_PATH || "").trim()
   || path.join(rootDir, "storage", "media");
 const TASK_NUMBER_COL = 0;
 const TASK_STATUS_COL = 2;
+const TASK_PRIORITY_COL = 3;
+const TASK_ADDED_DATE_COL = 4;
+const TASK_PHASE_COL = 5;
+const TASK_SECTION_COL = 6;
+const TASK_SUBSECTION_COL = 7;
+const TASK_TITLE_COL = 8;
+const TASK_RESPONSIBLE_COL = 9;
+const TASK_ASSIGNED_COL = 10;
+const TASK_NOTE_COL = 11;
 const TASK_PLAN_COL = 12;
 const TASK_CLOSED_DATE_COL = 15;
 const TASK_MEDIA_AFTER_COL = 17;
@@ -276,6 +285,22 @@ function getTaskRows(payload) {
   return Array.isArray(tasks?.rows) ? tasks.rows : [];
 }
 
+function getTaskTrashRows(payload) {
+  const trashBySection = payload && typeof payload === "object" ? payload.trashBySection : null;
+  const rows = trashBySection && typeof trashBySection === "object" ? trashBySection.tasks : null;
+  return Array.isArray(rows) ? rows : [];
+}
+
+function collectTaskIdsFromRows(rows) {
+  const ids = new Set();
+  if (!Array.isArray(rows)) return ids;
+  for (const row of rows) {
+    const taskId = String(row?.[TASK_NUMBER_COL] || "").trim();
+    if (taskId) ids.add(taskId);
+  }
+  return ids;
+}
+
 function isReadStateValue(value) {
   const firstLine = String(value || "").split(/\r?\n/)[0].trim().toLowerCase();
   return firstLine.startsWith("прочитано");
@@ -284,6 +309,11 @@ function isReadStateValue(value) {
 function hasLastSentValue(value) {
   const s = String(value || "").trim();
   return Boolean(s && s !== "—");
+}
+
+function isBlankTaskCell(value) {
+  const s = String(value ?? "").trim();
+  return s === "" || s === "-" || s === "—" || s.toLowerCase() === "null" || s.toLowerCase() === "undefined";
 }
 
 function latestTelegramHistoryTs(store, taskId) {
@@ -304,7 +334,7 @@ function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
     : incomingPayload;
   const incomingRows = getTaskRows(next);
   const currentRows = getTaskRows(currentPayload);
-  if (!incomingRows.length || !currentRows.length) return next;
+  if (!currentRows.length) return next;
   const currentById = new Map();
   for (const row of currentRows) {
     const taskId = String(row?.[TASK_NUMBER_COL] || "").trim();
@@ -336,7 +366,44 @@ function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
       row[TASK_LAST_SENT_AT_COL] = currentRow[TASK_LAST_SENT_AT_COL];
       row[TASK_DELAY_REASON_COL] = currentRow[TASK_DELAY_REASON_COL];
     }
+
+    // Защита от "обнуления" при частичном импорте/синхронизации:
+    // если входящее значение пустое, а текущее заполнено — сохраняем текущее.
+    [
+      TASK_STATUS_COL,
+      TASK_PRIORITY_COL,
+      TASK_ADDED_DATE_COL,
+      TASK_PHASE_COL,
+      TASK_SECTION_COL,
+      TASK_SUBSECTION_COL,
+      TASK_TITLE_COL,
+      TASK_RESPONSIBLE_COL,
+      TASK_ASSIGNED_COL,
+      TASK_NOTE_COL,
+      TASK_PLAN_COL,
+      TASK_CLOSED_DATE_COL,
+      TASK_READ_STATE_COL,
+      TASK_LAST_SENT_AT_COL,
+      TASK_DELAY_REASON_COL
+    ].forEach((col) => {
+      if (isBlankTaskCell(row[col]) && !isBlankTaskCell(currentRow[col])) {
+        row[col] = currentRow[col];
+      }
+    });
   }
+
+  // Защита от случайного удаления задач при гонках/устаревшем клиентском snapshot:
+  // сохраняем отсутствующие ID, если они не были удалены явно (через корзину).
+  const incomingIds = collectTaskIdsFromRows(incomingRows);
+  const deletedTaskIds = collectTaskIdsFromRows(getTaskTrashRows(next));
+  for (const currentRow of currentRows) {
+    const taskId = String(currentRow?.[TASK_NUMBER_COL] || "").trim();
+    if (!taskId) continue;
+    if (incomingIds.has(taskId)) continue;
+    if (deletedTaskIds.has(taskId)) continue;
+    incomingRows.push(Array.isArray(currentRow) ? [...currentRow] : currentRow);
+  }
+
   return next;
 }
 
