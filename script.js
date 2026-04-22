@@ -10998,6 +10998,17 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
             </div>
           </div>
           <input type="text" class="task-hierarchy-search" data-task-hierarchy-search="responsible" placeholder="Поиск..." />
+          <div class="task-hierarchy-pin-toolbar">
+            <button type="button" class="task-hierarchy-pin-btn" data-task-hierarchy-action="responsible-pin-selected">
+              <i data-lucide="lock" class="lucide-icon" aria-hidden="true"></i>
+              <span>Закрепить выбранных</span>
+            </button>
+            <button type="button" class="task-hierarchy-pin-btn task-hierarchy-pin-btn--muted" data-task-hierarchy-action="responsible-unpin-selected">
+              <i data-lucide="lock-open" class="lucide-icon" aria-hidden="true"></i>
+              <span>Открепить выбранных</span>
+            </button>
+          </div>
+          <div class="task-hierarchy-pin-note" data-task-hierarchy-pin-note>Выберите фазу, раздел и подраздел.</div>
           <div class="task-hierarchy-list" data-task-hierarchy-list="responsible"></div>
         </div>
       </div>
@@ -11014,9 +11025,47 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
   const sectionList = overlay.querySelector('[data-task-hierarchy-list="section"]');
   const subsectionList = overlay.querySelector('[data-task-hierarchy-list="subsection"]');
   const respList = overlay.querySelector('[data-task-hierarchy-list="responsible"]');
+  const pinNote = overlay.querySelector('[data-task-hierarchy-pin-note]');
+  const pinSelectedBtn = overlay.querySelector('[data-task-hierarchy-action="responsible-pin-selected"]');
+  const unpinSelectedBtn = overlay.querySelector('[data-task-hierarchy-action="responsible-unpin-selected"]');
   const resetBtn = overlay.querySelector(".task-hierarchy-reset-btn");
   const cancelBtn = overlay.querySelector(".responsible-cancel-btn");
   const applyBtn = overlay.querySelector(".responsible-apply-btn");
+  const employeeNameByNormalized = new Map(
+    (getSectionById("employees")?.rows || []).map((row) => {
+      const fullName = String(row[EMPLOYEE_COLUMNS.fullName] || "").trim();
+      const normalized = normalizePersonName(fullName);
+      return [normalized, fullName];
+    }).filter(([normalized, fullName]) => normalized && fullName)
+  );
+
+  const hasFullHierarchy = () => Boolean(state.phase && state.section && state.subsection);
+  const normalizeNamesUnique = (names) => {
+    const out = [];
+    const seen = new Set();
+    (names || []).forEach((nameRaw) => {
+      const name = normalizePersonName(nameRaw);
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(name);
+    });
+    return out;
+  };
+  const formatResponsibleNames = (names) =>
+    normalizeNamesUnique(names).map((name) => employeeNameByNormalized.get(name) || name).join(", ");
+  const getOrCreateHierarchyDataRow = () => {
+    let row = getDataRowByHierarchy(state.phase, state.section, state.subsection);
+    if (row) return row;
+    const dataSection = getSectionById("data");
+    if (!dataSection) return null;
+    const numericIds = dataSection.rows.map((item) => Number(item?.[0])).filter((num) => Number.isFinite(num));
+    const nextId = numericIds.length ? Math.max(...numericIds) + 1 : dataSection.rows.length + 1;
+    row = [String(nextId), state.phase, state.section, state.subsection, "", "Добавлено из окна задач"];
+    dataSection.rows.push(row);
+    return row;
+  };
 
   const fillList = (el, options, selectedValue, levelKey) => {
     if (!(el instanceof HTMLElement)) return;
@@ -11075,6 +11124,20 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
     const responsibleList = responsibleOptions.length ? responsibleOptions : employees;
     state.responsibleList = state.responsibleList.filter((name) => responsibleList.includes(name));
     fillList(respList, responsibleList, state.responsibleList, "responsible");
+    const selectedCount = normalizeNamesUnique(state.responsibleList).length;
+    const hierarchySelected = hasFullHierarchy();
+    const currentRow = hierarchySelected
+      ? getDataRowByHierarchy(state.phase, state.section, state.subsection)
+      : null;
+    const pinnedCount = normalizeNamesUnique(parseEmployeesCell(currentRow?.[4])).length;
+    if (pinNote instanceof HTMLElement) {
+      pinNote.textContent = hierarchySelected
+        ? `Закреплено в связке: ${pinnedCount}. Выбрано: ${selectedCount}.`
+        : "Выберите фазу, раздел и подраздел для закрепления.";
+    }
+    const disablePinActions = !hierarchySelected || selectedCount === 0;
+    if (pinSelectedBtn instanceof HTMLButtonElement) pinSelectedBtn.disabled = disablePinActions;
+    if (unpinSelectedBtn instanceof HTMLButtonElement) unpinSelectedBtn.disabled = disablePinActions;
   };
 
   overlay.querySelectorAll(".task-hierarchy-search").forEach((input) => {
@@ -11094,7 +11157,8 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
       renderTablePreserveScroll();
       return;
     }
-    const action = String(target.getAttribute("data-task-hierarchy-action") || "").trim();
+    const actionEl = target.closest("[data-task-hierarchy-action]");
+    const action = String(actionEl?.getAttribute("data-task-hierarchy-action") || "").trim();
     if (action === "responsible-select-all" || action === "responsible-clear") {
       event.preventDefault();
       event.stopPropagation();
@@ -11104,9 +11168,77 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
       refreshCascade();
       return;
     }
-    if (!target.classList.contains("task-hierarchy-item")) return;
-    const level = String(target.getAttribute("data-task-hierarchy-item") || "").trim();
-    const value = String(target.getAttribute("data-value") || "").trim();
+    if (action === "responsible-pin-selected" || action === "responsible-unpin-selected") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!hasFullHierarchy()) {
+        showStatusDialog({
+          title: "Закрепление ответственных",
+          message: "Сначала выберите фазу, раздел и подраздел.",
+          type: "error"
+        });
+        return;
+      }
+      const selectedNames = normalizeNamesUnique(state.responsibleList);
+      if (!selectedNames.length) {
+        showStatusDialog({
+          title: "Закрепление ответственных",
+          message: "Отметьте хотя бы одного сотрудника в списке.",
+          type: "info"
+        });
+        return;
+      }
+      const shouldPin = action === "responsible-pin-selected";
+      const row = shouldPin ? getOrCreateHierarchyDataRow() : getDataRowByHierarchy(state.phase, state.section, state.subsection);
+      if (!row) {
+        showStatusDialog({
+          title: "Закрепление ответственных",
+          message: "Не удалось найти или создать запись связки в справочнике.",
+          type: "error"
+        });
+        return;
+      }
+      const before = normalizeNamesUnique(parseEmployeesCell(row[4]));
+      const beforeSet = new Set(before.map((name) => name.toLowerCase()));
+      let after = before.slice();
+      if (shouldPin) {
+        selectedNames.forEach((name) => {
+          const key = name.toLowerCase();
+          if (beforeSet.has(key)) return;
+          beforeSet.add(key);
+          after.push(name);
+        });
+      } else {
+        const toRemove = new Set(selectedNames.map((name) => name.toLowerCase()));
+        after = before.filter((name) => !toRemove.has(name.toLowerCase()));
+      }
+      const changed = after.length !== before.length;
+      if (!changed) {
+        showStatusDialog({
+          title: shouldPin ? "Закрепление ответственных" : "Открепление ответственных",
+          message: shouldPin
+            ? "Выбранные сотрудники уже закреплены для этой связки."
+            : "Среди выбранных нет закрепленных сотрудников для этой связки.",
+          type: "info"
+        });
+        return;
+      }
+      row[4] = formatResponsibleNames(after);
+      saveSectionsData();
+      refreshCascade();
+      showStatusDialog({
+        title: shouldPin ? "Закрепление ответственных" : "Открепление ответственных",
+        message: shouldPin
+          ? `Закреплено: ${after.length}.`
+          : `Осталось закрепленных: ${after.length}.`,
+        type: "success"
+      });
+      return;
+    }
+    const itemEl = target.closest(".task-hierarchy-item");
+    if (!(itemEl instanceof HTMLElement)) return;
+    const level = String(itemEl.getAttribute("data-task-hierarchy-item") || "").trim();
+    const value = String(itemEl.getAttribute("data-value") || "").trim();
     if (!level) return;
     if (level === "phase") {
       state.phase = value;
@@ -11152,6 +11284,7 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
     renderTablePreserveScroll();
   });
 
+  initLucideIcons();
   refreshCascade();
 }
 

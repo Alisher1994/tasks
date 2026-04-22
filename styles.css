@@ -5512,6 +5512,55 @@ td.object-photo-col {
   box-shadow: 0 0 0 2px rgba(100, 117, 214, 0.12);
 }
 
+.task-hierarchy-pin-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 6px;
+}
+
+.task-hierarchy-pin-btn {
+  border: 1px solid #d7e0ec;
+  background: #f7f9fd;
+  color: #4b5f7b;
+  border-radius: 8px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.task-hierarchy-pin-btn .lucide-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.task-hierarchy-pin-btn:hover {
+  border-color: #9aabca;
+  color: #3f4e96;
+}
+
+.task-hierarchy-pin-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.task-hierarchy-pin-btn--muted {
+  color: #6f7f96;
+}
+
+.task-hierarchy-pin-note {
+  padding: 0 8px 6px;
+  font-size: 10px;
+  color: #8190a5;
+  line-height: 1.25;
+}
+
 .task-hierarchy-list {
   height: 320px;
   overflow: auto;
