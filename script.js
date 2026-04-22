@@ -14982,7 +14982,9 @@ async function confirmEmployeeChatClear(requestId, code) {
       ok: true,
       deleted: Number(j.deleted) || 0,
       failed: Number(j.failed) || 0,
-      scanned: Number(j.scanned) || 0
+      scanned: Number(j.scanned) || 0,
+      tooOld: Number(j.tooOld) || 0,
+      notFound: Number(j.notFound) || 0
     };
   } catch (e) {
     return { ok: false, error: String(e?.message || "Ошибка запроса к серверу.") };
@@ -15080,9 +15082,20 @@ function openEmployeeChatClearModal(employeeRow) {
       return;
     }
     close();
+    const infoLines = [
+      `Удалено сообщений: ${r.deleted}`,
+      `Не удалено: ${r.failed}`,
+      `Проверено: ${r.scanned}`
+    ];
+    if (r.tooOld > 0) {
+      infoLines.push(`Ограничение Telegram (обычно старше 48ч): ${r.tooOld}`);
+    }
+    if (r.notFound > 0) {
+      infoLines.push(`Не найдено по ID: ${r.notFound}`);
+    }
     showStatusDialog({
       title: "Чат очищен",
-      message: `Удалено сообщений: ${r.deleted}\nНе удалено: ${r.failed}\nПроверено: ${r.scanned}`,
+      message: infoLines.join("\n"),
       type: "success"
     });
   });

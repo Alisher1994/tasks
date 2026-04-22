@@ -41,8 +41,8 @@ const TASK_READ_STATE_COL = 18;
 const TASK_LAST_SENT_AT_COL = 19;
 const TASK_DELAY_REASON_COL = 20;
 const CHAT_CLEAR_CODE_TTL_MS = 10 * 60 * 1000;
-const CHAT_CLEAR_DELETE_SCAN_BEFORE = 260;
-const CHAT_CLEAR_DELETE_SCAN_AFTER = 20;
+const CHAT_CLEAR_DELETE_SCAN_BEFORE = 3000;
+const CHAT_CLEAR_DELETE_SCAN_AFTER = 40;
 
 function normalizePhone(raw) {
   const src = String(raw || "").trim();
@@ -129,7 +129,11 @@ async function tgSendMessage(token, chatId, text) {
     body: JSON.stringify({ chat_id: String(chatId || "").trim(), text: String(text || "") })
   });
   const j = await r.json().catch(() => ({}));
-  return { ok: r.ok && j?.ok === true, description: String(j?.description || "") };
+  return {
+    ok: r.ok && j?.ok === true,
+    description: String(j?.description || ""),
+    messageId: Number(j?.result?.message_id) || 0
+  };
 }
 
 async function tgDeleteMessage(token, chatId, messageId) {
@@ -178,9 +182,15 @@ function getChatClearMessageAnchors(payload, targetChatId) {
 async function clearTelegramChatMessagesBestEffort(payload, token, targetChatId) {
   const chat = String(targetChatId || "").trim();
   const anchors = getChatClearMessageAnchors(payload, chat);
+  // Пробный message_id из текущего состояния чата: помогает чистить даже если
+  // задачи уже удалены из таблицы и нет внутренних привязок.
+  const probe = await tgSendMessage(token, chat, "🧹 Выполняется очистка чата...");
+  if (probe.ok && probe.messageId > 0) {
+    anchors.push(probe.messageId);
+  }
   const tested = new Set();
   const ids = [];
-  anchors.forEach((anchor) => {
+  Array.from(new Set(anchors.filter((x) => Number.isFinite(x) && x > 0))).forEach((anchor) => {
     for (let mid = anchor + CHAT_CLEAR_DELETE_SCAN_AFTER; mid >= Math.max(1, anchor - CHAT_CLEAR_DELETE_SCAN_BEFORE); mid -= 1) {
       if (tested.has(mid)) continue;
       tested.add(mid);
@@ -188,15 +198,26 @@ async function clearTelegramChatMessagesBestEffort(payload, token, targetChatId)
     }
   });
   if (!ids.length) {
-    for (let mid = 400; mid >= 1; mid -= 1) ids.push(mid);
+    for (let mid = 3500; mid >= 1; mid -= 1) ids.push(mid);
   }
   let deleted = 0;
   let failed = 0;
+  let tooOld = 0;
+  let notFound = 0;
   for (const mid of ids) {
     // eslint-disable-next-line no-await-in-loop
     const r = await tgDeleteMessage(token, chat, mid);
-    if (r.ok) deleted += 1;
-    else failed += 1;
+    if (r.ok) {
+      deleted += 1;
+    } else {
+      failed += 1;
+      const d = String(r.description || "").toLowerCase();
+      if (d.includes("can't be deleted") || d.includes("message can") || d.includes("delete for everyone")) {
+        tooOld += 1;
+      } else if (d.includes("not found") || d.includes("message to delete")) {
+        notFound += 1;
+      }
+    }
   }
   if (payload?.telegramSessions && typeof payload.telegramSessions === "object") {
     delete payload.telegramSessions[chat];
@@ -213,7 +234,14 @@ async function clearTelegramChatMessagesBestEffort(payload, token, targetChatId)
       if (String(req?.chatId || "").trim() === chat) delete payload.telegramCloseRequests[taskId];
     });
   }
-  return { deleted, failed, scanned: ids.length, usedAnchors: anchors.length };
+  return {
+    deleted,
+    failed,
+    scanned: ids.length,
+    usedAnchors: anchors.length,
+    tooOld,
+    notFound
+  };
 }
 
 function refreshEmployeeChatIdsByPhoneBindings(payload) {

@@ -3233,6 +3233,15 @@ button.task-card-tab.is-active {
   gap: 8px;
 }
 
+.employee-chat-clear-code {
+  width: 100%;
+  margin: 6px 0 12px;
+}
+
+.employee-chat-clear-code + .unsaved-confirm-actions {
+  margin-top: 2px;
+}
+
 .confirm-btn {
   border: 1px solid #c7d3e1;
   background: #ffffff;
