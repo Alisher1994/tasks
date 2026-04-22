@@ -3386,6 +3386,8 @@ body.login-mode #appSection {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
+  overflow: auto;
 }
 
 .report-dashboard-header {

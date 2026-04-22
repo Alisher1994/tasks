@@ -5304,7 +5304,7 @@ function renderReportChartTileFragment(id, opts = {}) {
   const wide = opts.inPhaseRow ? "" : meta.wide ? " report-tile-wide" : "";
   const handle = sharedReportMode
     ? ""
-    : `<button type="button" class="report-chart-drag-handle" draggable="true" data-drag-chart-id="${escapeHtmlAttr(id)}" title="Переместить график" aria-label="Перетащите, чтобы изменить порядок графиков"><i data-lucide="move" class="lucide-icon" aria-hidden="true"></i></button>`;
+    : `<button type="button" class="report-chart-drag-handle" data-drag-chart-id="${escapeHtmlAttr(id)}" title="Переместить график" aria-label="Перетащите, чтобы изменить порядок графиков"><i data-lucide="move" class="lucide-icon" aria-hidden="true"></i></button>`;
   const hideBtn = sharedReportMode
     ? ""
     : `<button type="button" class="report-chart-hide-btn" data-hide-report-chart="${escapeHtmlAttr(id)}" title="Скрыть диаграмму" aria-label="Скрыть диаграмму"><i data-lucide="eye-off" class="lucide-icon" aria-hidden="true"></i></button>`;
@@ -5520,16 +5520,26 @@ function attachReportChartTileDragHandlers() {
     }
   };
 
-  grid.querySelectorAll(".report-chart-drag-handle").forEach((btn) => {
-    btn.addEventListener("dragstart", (e) => {
-      const id = String(btn.getAttribute("data-drag-chart-id") || "");
+  grid.querySelectorAll(".report-tile[data-report-chart]").forEach((tile) => {
+    tile.setAttribute("draggable", "true");
+    tile.addEventListener("dragstart", (e) => {
+      const fromHandle = e.target?.closest?.(".report-chart-drag-handle");
+      if (!fromHandle) {
+        e.preventDefault();
+        return;
+      }
+      const id = String(tile.getAttribute("data-report-chart") || "");
+      if (!id) {
+        e.preventDefault();
+        return;
+      }
       reportChartDragId = id;
       e.dataTransfer.setData("application/x-mbc-chart", id);
       e.dataTransfer.setData("text/plain", id);
       e.dataTransfer.effectAllowed = "move";
-      btn.closest(".report-tile")?.classList.add("report-tile--dragging");
+      tile.classList.add("report-tile--dragging");
     });
-    btn.addEventListener("dragend", () => {
+    tile.addEventListener("dragend", () => {
       reportChartDragId = null;
       grid.querySelectorAll(".report-tile").forEach((t) => {
         t.classList.remove("report-tile--dragging", "report-tile--drop-target");
