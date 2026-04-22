@@ -285,22 +285,6 @@ function getTaskRows(payload) {
   return Array.isArray(tasks?.rows) ? tasks.rows : [];
 }
 
-function getTaskTrashRows(payload) {
-  const trashBySection = payload && typeof payload === "object" ? payload.trashBySection : null;
-  const rows = trashBySection && typeof trashBySection === "object" ? trashBySection.tasks : null;
-  return Array.isArray(rows) ? rows : [];
-}
-
-function collectTaskIdsFromRows(rows) {
-  const ids = new Set();
-  if (!Array.isArray(rows)) return ids;
-  for (const row of rows) {
-    const taskId = String(row?.[TASK_NUMBER_COL] || "").trim();
-    if (taskId) ids.add(taskId);
-  }
-  return ids;
-}
-
 function isReadStateValue(value) {
   const firstLine = String(value || "").split(/\r?\n/)[0].trim().toLowerCase();
   return firstLine.startsWith("прочитано");
@@ -390,18 +374,6 @@ function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
         row[col] = currentRow[col];
       }
     });
-  }
-
-  // Защита от случайного удаления задач при гонках/устаревшем клиентском snapshot:
-  // сохраняем отсутствующие ID, если они не были удалены явно (через корзину).
-  const incomingIds = collectTaskIdsFromRows(incomingRows);
-  const deletedTaskIds = collectTaskIdsFromRows(getTaskTrashRows(next));
-  for (const currentRow of currentRows) {
-    const taskId = String(currentRow?.[TASK_NUMBER_COL] || "").trim();
-    if (!taskId) continue;
-    if (incomingIds.has(taskId)) continue;
-    if (deletedTaskIds.has(taskId)) continue;
-    incomingRows.push(Array.isArray(currentRow) ? [...currentRow] : currentRow);
   }
 
   return next;

@@ -1005,11 +1005,79 @@ async function loadPayload(pool) {
   return payload;
 }
 
+function isBlankTaskCell(value) {
+  const s = String(value ?? "").trim();
+  return s === "" || s === "-" || s === "—" || s.toLowerCase() === "null" || s.toLowerCase() === "undefined";
+}
+
+function getTaskTrashIds(payload) {
+  const out = new Set();
+  const rows = Array.isArray(payload?.trashBySection?.tasks) ? payload.trashBySection.tasks : [];
+  for (const row of rows) {
+    const id = String(row?.[TASK_COLUMNS.number] || "").trim();
+    if (id) out.add(id);
+  }
+  return out;
+}
+
+function mergeTaskRowsWithCurrent(currentPayload, nextPayload) {
+  const currentTasks = getTasksSection(currentPayload);
+  const nextTasks = getTasksSection(nextPayload);
+  if (!Array.isArray(currentTasks?.rows) || !Array.isArray(nextTasks?.rows)) return;
+
+  const deletedIds = new Set([
+    ...getTaskTrashIds(currentPayload),
+    ...getTaskTrashIds(nextPayload)
+  ]);
+  const currentById = new Map();
+  for (const row of currentTasks.rows) {
+    const id = String(row?.[TASK_COLUMNS.number] || "").trim();
+    if (!id) continue;
+    currentById.set(id, row);
+  }
+
+  const seen = new Set();
+  const mergedRows = [];
+  for (const row of nextTasks.rows) {
+    const id = String(row?.[TASK_COLUMNS.number] || "").trim();
+    if (id && deletedIds.has(id)) continue;
+    if (id) seen.add(id);
+    const currentRow = id ? currentById.get(id) : null;
+    if (!currentRow || !Array.isArray(row)) {
+      mergedRows.push(row);
+      continue;
+    }
+    const merged = [...row];
+    for (let col = 0; col < TASK_ROW_LENGTH; col += 1) {
+      if (isBlankTaskCell(merged[col]) && !isBlankTaskCell(currentRow[col])) {
+        merged[col] = currentRow[col];
+      }
+    }
+    mergedRows.push(merged);
+  }
+
+  for (const row of currentTasks.rows) {
+    const id = String(row?.[TASK_COLUMNS.number] || "").trim();
+    if (!id || seen.has(id) || deletedIds.has(id)) continue;
+    mergedRows.push(Array.isArray(row) ? [...row] : row);
+  }
+
+  nextTasks.rows = mergedRows;
+}
+
 async function savePayload(pool, payload) {
+  const currentPayload = await loadPayload(pool);
+  const nextPayload = payload && typeof payload === "object"
+    ? JSON.parse(JSON.stringify(payload))
+    : payload;
+  if (nextPayload && typeof nextPayload === "object") {
+    normalizeTasksSectionByColumns(nextPayload);
+    mergeTaskRowsWithCurrent(currentPayload, nextPayload);
+  }
   await pool.query(
     `INSERT INTO app_state (id, payload, updated_at) VALUES (1, $1::jsonb, NOW())
      ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
-    [JSON.stringify(payload)]
+    [JSON.stringify(nextPayload)]
   );
 }
 
