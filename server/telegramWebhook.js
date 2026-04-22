@@ -571,9 +571,10 @@ function buildOverdueSummaryText(overdueCount) {
   ].join("\n");
 }
 
-function overdueSummaryKeyboard() {
+function overdueSummaryKeyboard(overdueCount = 0) {
+  const count = Math.max(0, Number(overdueCount) || 0);
   return {
-    inline_keyboard: [[{ text: "📋 Посмотреть", callback_data: "ov|ls" }]]
+    inline_keyboard: [[{ text: `📋 Посмотреть - ${count} шт`, callback_data: "ov|ls" }]]
   };
 }
 
@@ -659,17 +660,27 @@ function myTaskStatusLabel(code) {
   return "Все статусы";
 }
 
-function getStatusPickKeyboardForObject(objectIndex) {
+function getMyTaskStatusCounts(rows, objectName, appTz) {
+  const all = filterMyTasksBySelection(rows, objectName, "all", appTz).length;
+  const next = filterMyTasksBySelection(rows, objectName, "new", appTz).length;
+  const progress = filterMyTasksBySelection(rows, objectName, "prog", appTz).length;
+  const closed = filterMyTasksBySelection(rows, objectName, "closed", appTz).length;
+  const overdue = filterMyTasksBySelection(rows, objectName, "overdue", appTz).length;
+  return { all, next, progress, closed, overdue };
+}
+
+function getStatusPickKeyboardForObject(objectIndex, taskRows, objectName, appTz) {
   const oi = String(objectIndex || "0").trim();
-  const rows = [
-    [{ text: "🧾 Все статусы", callback_data: myTasksCb("st", oi, "all") }],
-    [{ text: "🟣 Новый", callback_data: myTasksCb("st", oi, "new") }],
-    [{ text: "🟡 В процессе", callback_data: myTasksCb("st", oi, "prog") }],
-    [{ text: "🟢 Закрыт", callback_data: myTasksCb("st", oi, "closed") }],
-    [{ text: "⚠️ Просроченные", callback_data: myTasksCb("st", oi, "overdue") }],
+  const counts = getMyTaskStatusCounts(Array.isArray(taskRows) ? taskRows : [], objectName, appTz);
+  const keyboardRows = [
+    [{ text: `🧾 Все статусы - ${counts.all} шт`, callback_data: myTasksCb("st", oi, "all") }],
+    [{ text: `🟣 Новый - ${counts.next} шт`, callback_data: myTasksCb("st", oi, "new") }],
+    [{ text: `🟡 В процессе - ${counts.progress} шт`, callback_data: myTasksCb("st", oi, "prog") }],
+    [{ text: `🟢 Закрыт - ${counts.closed} шт`, callback_data: myTasksCb("st", oi, "closed") }],
+    [{ text: `⚠️ Просроченные - ${counts.overdue} шт`, callback_data: myTasksCb("st", oi, "overdue") }],
     [{ text: "⬅️ Назад", callback_data: myTasksCb("bo", "0") }]
   ];
-  return { inline_keyboard: rows };
+  return { inline_keyboard: keyboardRows };
 }
 
 function filterMyTasksBySelection(rows, objectName, statusCode, appTz) {
@@ -1394,7 +1405,7 @@ async function handleCallback(q, pool, token) {
         chat_id: chatId,
         message_id: messageId,
         text: `Объект: ${objectName}\n\nВыберите статус:`,
-        reply_markup: getStatusPickKeyboardForObject(String(idx))
+        reply_markup: getStatusPickKeyboardForObject(String(idx), myRows, objectName, appTz)
       });
       await tg(token, "answerCallbackQuery", { callback_query_id: q.id });
       return;
@@ -1446,7 +1457,7 @@ async function handleCallback(q, pool, token) {
         chat_id: chatId,
         message_id: messageId,
         text: buildOverdueSummaryText(overdueRows.length),
-        reply_markup: overdueSummaryKeyboard()
+        reply_markup: overdueSummaryKeyboard(overdueRows.length)
       });
       await tg(token, "answerCallbackQuery", { callback_query_id: q.id });
       return;
@@ -2040,7 +2051,7 @@ async function handleMessage(msg, pool, token) {
     await tg(token, "sendMessage", {
       chat_id: chatId,
       text: buildOverdueSummaryText(overdueRows.length),
-      reply_markup: overdueSummaryKeyboard()
+      reply_markup: overdueSummaryKeyboard(overdueRows.length)
     });
     return;
   }
