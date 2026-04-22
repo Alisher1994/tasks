@@ -5437,7 +5437,7 @@ function renderReportCustomChartsHtml() {
   if (!list.length) {
     return `
       <div class="report-custom-empty">
-        <dotlottie-player src="Chart%20Diagram.lottie" background="transparent" speed="1" style="width:220px;height:220px" loop autoplay></dotlottie-player>
+        <dotlottie-player src="Chart%20Diagram1.lottie" background="transparent" speed="1" style="width:220px;height:220px" loop autoplay></dotlottie-player>
         <p>Тут пока пусто</p>
       </div>
     `;
