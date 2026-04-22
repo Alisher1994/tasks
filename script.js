@@ -862,6 +862,7 @@ let statusReminderTimer = null;
 let statusReminderInFlight = false;
 let hasUnsyncedLocalChanges = false;
 let serverPushInFlight = false;
+let pendingRemoteTasksRerender = false;
 let authExpiredNoticeShown = false;
 let bootLoaderCloseTimer = null;
 let sessionIdleCheckTimer = null;
@@ -1127,7 +1128,13 @@ async function pullTaskReadStateFromServerIntoLocal({ rerender = true } = {}) {
         /* noop */
       }
     }
-    if ((changed || multiChanged) && rerender) renderTablePreserveScroll();
+    if ((changed || multiChanged) && rerender) {
+      if (shouldDeferTasksRerender()) {
+        pendingRemoteTasksRerender = true;
+      } else {
+        renderTablePreserveScroll();
+      }
+    }
     return changed;
   } catch (_) {
     return false;
@@ -1396,6 +1403,22 @@ function isUserEditingNow() {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
+function hasInlineTableEditorActive() {
+  return Boolean(document.querySelector(".editable-cell.editing, .cell-editor, .multi-select-editor"));
+}
+
+function shouldDeferTasksRerender() {
+  if (activeSectionId !== "tasks") return false;
+  return isUserEditingNow() || hasInlineTableEditorActive();
+}
+
+function flushPendingRemoteTasksRerenderIfIdle() {
+  if (!pendingRemoteTasksRerender) return;
+  if (shouldDeferTasksRerender()) return;
+  pendingRemoteTasksRerender = false;
+  renderTablePreserveScroll();
+}
+
 function isTasksGraphModeActive() {
   if (activeSectionId !== "tasks") return false;
   const mode = String(displaySettings.tasksListBrowseMode || "").trim();
@@ -1417,6 +1440,7 @@ function startRemoteAutoPull() {
   remotePullTimer = setInterval(() => {
     if (document.hidden) return;
     if (hasActiveTaskUiOverlay()) return;
+    flushPendingRemoteTasksRerenderIfIdle();
     const graphMode = isTasksGraphModeActive();
     // Bot-managed поля задач (прочитано/статус/комментарий и т.п.) подтягиваем всегда,
     // даже если пользователь сейчас в настройках или есть локальные несинхр. правки.
@@ -1426,7 +1450,7 @@ function startRemoteAutoPull() {
     // чтобы не мешать вводу в формах.
     if (activeSectionId !== "tasks") return;
     if (graphMode) return;
-    if (isUserEditingNow()) return;
+    if (shouldDeferTasksRerender()) return;
     if (serverPushInFlight || hasUnsyncedLocalChanges) return;
     pullRemoteAppState({ rerender: true }).catch(() => {});
   }, 8000);
