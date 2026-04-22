@@ -46,6 +46,27 @@ const TASK_HISTORY_MAX_PER_TASK = 300;
 const REPORT_CHART_ORDER_STORAGE_KEY = "mbc_report_chart_tile_order";
 /** «row» — Топ фаз / Разделы / Подразделы в одной строке; «separate» — каждый график на всю ширину */
 const REPORT_PHASE_GROUP_LAYOUT_KEY = "mbc_report_phase_group_layout";
+const REPORT_VIEW_TAB_STORAGE_KEY = "mbc_report_view_tab";
+const REPORT_SYSTEM_CHART_VISIBILITY_STORAGE_KEY = "mbc_report_system_chart_visibility";
+const REPORT_CUSTOM_CHARTS_STORAGE_KEY = "mbc_report_custom_charts";
+const REPORT_CUSTOM_MAX_CHARTS = 12;
+const REPORT_CUSTOM_GROUP_BY_OPTIONS = [
+  { id: "status", label: "По статусу" },
+  { id: "priority", label: "По приоритету" },
+  { id: "object", label: "По объекту" },
+  { id: "phase", label: "По фазе" },
+  { id: "section", label: "По разделу" },
+  { id: "subsection", label: "По подразделу" },
+  { id: "responsible", label: "По исполнителю" },
+  { id: "department", label: "По отделу" },
+  { id: "overdue", label: "По просроченности" }
+];
+const REPORT_CUSTOM_CHART_TYPES = [
+  { id: "donut", label: "Donut" },
+  { id: "bar", label: "Bar" },
+  { id: "line", label: "Line" },
+  { id: "pie", label: "Pie" }
+];
 const REPORT_TOP_TRIO_IDS = ["status", "priority", "priorityDonut"];
 const REPORT_PHASE_GROUP_IDS = ["phase", "phaseSection", "phaseSubsection"];
 const REPORT_PHASE_GROUP_SET = new Set(REPORT_PHASE_GROUP_IDS);
@@ -3390,6 +3411,10 @@ let tasksBrowseObjectKey = null;
 let reportFiltersPanelOpen = false;
 /** Во время drag-and-drop плиток отчёта */
 let reportChartDragId = null;
+/** Вкладка аналитики: system | custom */
+let reportViewTab = "system";
+let reportSystemChartVisibilityCache = null;
+let reportCustomChartsCache = null;
 /** Просмотр отчёта по временной ссылке (?share=…) */
 let sharedReportMode = false;
 let reportShareRowsOverride = null;
@@ -4422,9 +4447,12 @@ function renderTable() {
   if (activeSectionId === "report") {
     tableContainer.innerHTML = renderReportsPanel();
     requestAnimationFrame(() => {
+      attachReportTabSwitchHandlers();
       attachReportCharts();
       attachReportFilterHandlers();
       attachReportPhaseGroupLayoutHandlers();
+      attachReportSystemChartVisibilityHandlers();
+      attachReportCustomBuilderHandlers();
       attachReportChartTileDragHandlers();
       attachReportExportAndShareHandlers();
       initLucideIcons();
@@ -5074,13 +5102,129 @@ function reportBarGradientHorizontal(chart, baseColor) {
   return g;
 }
 
+function buildUserScopedStorageKey(baseKey) {
+  const rawUser = getSessionUserDisplayName();
+  const userKey = String(rawUser || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zа-я0-9_]+/giu, "");
+  return `${baseKey}:${userKey || "guest"}`;
+}
+
+function getDefaultReportSystemChartVisibility() {
+  return Object.fromEntries(Object.keys(REPORT_CHART_TILE_META).map((id) => [id, true]));
+}
+
+function loadReportViewTab() {
+  try {
+    const key = buildUserScopedStorageKey(REPORT_VIEW_TAB_STORAGE_KEY);
+    const value = String(localStorage.getItem(key) || "").trim();
+    return value === "custom" ? "custom" : "system";
+  } catch (_) {
+    return "system";
+  }
+}
+
+function saveReportViewTab(tabId) {
+  const tab = tabId === "custom" ? "custom" : "system";
+  reportViewTab = tab;
+  try {
+    const key = buildUserScopedStorageKey(REPORT_VIEW_TAB_STORAGE_KEY);
+    localStorage.setItem(key, tab);
+    scheduleServerSync();
+  } catch (_) {
+    /* noop */
+  }
+}
+
+function loadReportSystemChartVisibility() {
+  if (reportSystemChartVisibilityCache) return reportSystemChartVisibilityCache;
+  const defaults = getDefaultReportSystemChartVisibility();
+  try {
+    const key = buildUserScopedStorageKey(REPORT_SYSTEM_CHART_VISIBILITY_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const out = { ...defaults };
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      Object.keys(defaults).forEach((id) => {
+        if (id in parsed) out[id] = parsed[id] !== false;
+      });
+    }
+    reportSystemChartVisibilityCache = out;
+    return out;
+  } catch (_) {
+    reportSystemChartVisibilityCache = { ...defaults };
+    return reportSystemChartVisibilityCache;
+  }
+}
+
+function saveReportSystemChartVisibility(nextMap) {
+  const defaults = getDefaultReportSystemChartVisibility();
+  const normalized = { ...defaults };
+  if (nextMap && typeof nextMap === "object") {
+    Object.keys(defaults).forEach((id) => {
+      if (id in nextMap) normalized[id] = nextMap[id] !== false;
+    });
+  }
+  reportSystemChartVisibilityCache = normalized;
+  try {
+    const key = buildUserScopedStorageKey(REPORT_SYSTEM_CHART_VISIBILITY_STORAGE_KEY);
+    localStorage.setItem(key, JSON.stringify(normalized));
+    scheduleServerSync();
+  } catch (_) {
+    /* noop */
+  }
+}
+
+function loadReportCustomCharts() {
+  if (Array.isArray(reportCustomChartsCache)) return reportCustomChartsCache;
+  try {
+    const key = buildUserScopedStorageKey(REPORT_CUSTOM_CHARTS_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) {
+      reportCustomChartsCache = [];
+      return reportCustomChartsCache;
+    }
+    const validTypes = new Set(REPORT_CUSTOM_CHART_TYPES.map((x) => x.id));
+    const validGroups = new Set(REPORT_CUSTOM_GROUP_BY_OPTIONS.map((x) => x.id));
+    const out = parsed
+      .map((item, idx) => {
+        const id = String(item?.id || `custom_${Date.now()}_${idx}`).trim();
+        const type = validTypes.has(String(item?.type || "").trim()) ? String(item.type).trim() : "bar";
+        const groupBy = validGroups.has(String(item?.groupBy || "").trim()) ? String(item.groupBy).trim() : "status";
+        const name = String(item?.name || "").trim() || `Кастомный график ${idx + 1}`;
+        return { id, type, groupBy, name };
+      })
+      .slice(0, REPORT_CUSTOM_MAX_CHARTS);
+    reportCustomChartsCache = out;
+    return out;
+  } catch (_) {
+    reportCustomChartsCache = [];
+    return reportCustomChartsCache;
+  }
+}
+
+function saveReportCustomCharts(list) {
+  const arr = Array.isArray(list) ? list.slice(0, REPORT_CUSTOM_MAX_CHARTS) : [];
+  reportCustomChartsCache = arr;
+  try {
+    const key = buildUserScopedStorageKey(REPORT_CUSTOM_CHARTS_STORAGE_KEY);
+    localStorage.setItem(key, JSON.stringify(arr));
+    scheduleServerSync();
+  } catch (_) {
+    /* noop */
+  }
+}
+
 function getDefaultReportChartOrder() {
   return Object.keys(REPORT_CHART_TILE_META);
 }
 
 function loadReportChartOrder() {
   try {
-    const raw = localStorage.getItem(REPORT_CHART_ORDER_STORAGE_KEY);
+    const raw = localStorage.getItem(buildUserScopedStorageKey(REPORT_CHART_ORDER_STORAGE_KEY));
     if (!raw) return getDefaultReportChartOrder();
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return getDefaultReportChartOrder();
@@ -5104,7 +5248,7 @@ function loadReportChartOrder() {
 
 function saveReportChartOrder(order) {
   try {
-    localStorage.setItem(REPORT_CHART_ORDER_STORAGE_KEY, JSON.stringify(order));
+    localStorage.setItem(buildUserScopedStorageKey(REPORT_CHART_ORDER_STORAGE_KEY), JSON.stringify(order));
     scheduleServerSync();
   } catch (_) {
     /* noop */
@@ -5113,7 +5257,7 @@ function saveReportChartOrder(order) {
 
 function loadReportPhaseGroupLayout() {
   try {
-    const v = localStorage.getItem(REPORT_PHASE_GROUP_LAYOUT_KEY);
+    const v = localStorage.getItem(buildUserScopedStorageKey(REPORT_PHASE_GROUP_LAYOUT_KEY));
     if (v === "row" || v === "separate") return v;
   } catch (_) {
     /* noop */
@@ -5124,7 +5268,7 @@ function loadReportPhaseGroupLayout() {
 function saveReportPhaseGroupLayout(mode) {
   try {
     if (mode === "row" || mode === "separate") {
-      localStorage.setItem(REPORT_PHASE_GROUP_LAYOUT_KEY, mode);
+      localStorage.setItem(buildUserScopedStorageKey(REPORT_PHASE_GROUP_LAYOUT_KEY), mode);
       scheduleServerSync();
     }
   } catch (_) {
@@ -5147,10 +5291,15 @@ function reorderReportChartOrder(order, dragId, targetId) {
 function renderReportChartTileFragment(id, opts = {}) {
   const meta = REPORT_CHART_TILE_META[id];
   if (!meta) return "";
+  const visibility = loadReportSystemChartVisibility();
+  if (visibility[id] === false) return "";
   const wide = opts.inPhaseRow ? "" : meta.wide ? " report-tile-wide" : "";
   const handle = sharedReportMode
     ? ""
     : `<button type="button" class="report-chart-drag-handle" draggable="true" data-drag-chart-id="${escapeHtmlAttr(id)}" title="Переместить график" aria-label="Перетащите, чтобы изменить порядок графиков"><i data-lucide="move" class="lucide-icon" aria-hidden="true"></i></button>`;
+  const hideBtn = sharedReportMode
+    ? ""
+    : `<button type="button" class="report-chart-hide-btn" data-hide-report-chart="${escapeHtmlAttr(id)}" title="Скрыть диаграмму" aria-label="Скрыть диаграмму"><i data-lucide="eye-off" class="lucide-icon" aria-hidden="true"></i></button>`;
   const bodies = {
     status: `<h4>По статусам</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartStatus"></canvas></div>`,
     priority: `<h4>По приоритету</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartPriority"></canvas></div>`,
@@ -5171,7 +5320,7 @@ function renderReportChartTileFragment(id, opts = {}) {
   };
   const inner = bodies[id];
   if (!inner) return "";
-  return `<div class="report-tile${wide}" data-report-chart="${escapeHtmlAttr(id)}">${handle}${inner}</div>`;
+  return `<div class="report-tile${wide}" data-report-chart="${escapeHtmlAttr(id)}">${handle}${hideBtn}${inner}</div>`;
 }
 
 function renderReportChartsGridHtml() {
@@ -5207,11 +5356,130 @@ function renderReportChartsGridHtml() {
   }
 
   parts.push(...rest.map((id) => renderReportChartTileFragment(id)));
-  return parts.join("");
+  const html = parts.join("");
+  return html.trim() ? html : `<div class="report-empty-hint">Все системные диаграммы скрыты.</div>`;
+}
+
+function renderReportTabsSwitchHtml() {
+  const tab = reportViewTab === "custom" ? "custom" : "system";
+  return `
+    <div class="report-tabs-row" role="tablist" aria-label="Тип аналитики">
+      <button type="button" class="report-tab-btn ${tab === "system" ? "active" : ""}" data-report-tab="system" role="tab" aria-selected="${tab === "system" ? "true" : "false"}">Системные</button>
+      <button type="button" class="report-tab-btn ${tab === "custom" ? "active" : ""}" data-report-tab="custom" role="tab" aria-selected="${tab === "custom" ? "true" : "false"}">Кастомный отчет</button>
+    </div>
+  `;
+}
+
+function renderReportSystemHiddenControlsHtml() {
+  if (sharedReportMode) return "";
+  const visibility = loadReportSystemChartVisibility();
+  const hidden = Object.keys(REPORT_CHART_TILE_META).filter((id) => visibility[id] === false);
+  if (!hidden.length) return "";
+  const labels = {
+    status: "По статусам",
+    priority: "По приоритету",
+    priorityDonut: "Приоритеты",
+    delayReason: "Причины отставаний (stacked)",
+    delayReasonDonut: "Причины отставаний (donut)",
+    phase: "Топ фаз",
+    phaseSection: "Разделы",
+    phaseSubsection: "Подразделы",
+    phaseDonut: "Фазы (donut)",
+    phaseSectionDonut: "Разделы (donut)",
+    phaseSubsectionDonut: "Подразделы (donut)",
+    months: "Добавлено и закрыто по месяцам",
+    overdue: "Просроченные задачи",
+    object: "Объекты",
+    department: "По отделам",
+    responsible: "Исполнители"
+  };
+  const chips = hidden
+    .map((id) => {
+      const text = labels[id] || id;
+      return `<button type="button" class="report-hidden-chart-chip" data-show-report-chart="${escapeHtmlAttr(id)}" title="Показать диаграмму">${escapeHtmlText(text)}</button>`;
+    })
+    .join("");
+  return `<div class="report-hidden-charts-bar"><span>Скрытые:</span>${chips}</div>`;
+}
+
+function renderReportCustomBuilderHtml() {
+  if (sharedReportMode) return "";
+  const groupOptions = REPORT_CUSTOM_GROUP_BY_OPTIONS
+    .map((opt) => `<option value="${escapeHtmlAttr(opt.id)}">${escapeHtmlText(opt.label)}</option>`)
+    .join("");
+  const typeOptions = REPORT_CUSTOM_CHART_TYPES
+    .map((opt) => `<option value="${escapeHtmlAttr(opt.id)}">${escapeHtmlText(opt.label)}</option>`)
+    .join("");
+  return `
+    <div class="report-custom-builder">
+      <input type="text" id="reportCustomNameInput" class="report-custom-input" maxlength="70" placeholder="Название диаграммы" />
+      <select id="reportCustomGroupBySelect" class="report-custom-select">${groupOptions}</select>
+      <select id="reportCustomTypeSelect" class="report-custom-select">${typeOptions}</select>
+      <button type="button" class="report-custom-add-btn" id="reportCustomAddBtn">Добавить</button>
+    </div>
+  `;
+}
+
+function renderReportCustomChartsHtml() {
+  const list = loadReportCustomCharts();
+  if (!list.length) {
+    return `
+      <div class="report-custom-empty">
+        <dotlottie-player src="Chart%20Diagram.lottie" background="transparent" speed="1" style="width:220px;height:220px" loop autoplay></dotlottie-player>
+        <p>Тут пока пусто</p>
+      </div>
+    `;
+  }
+  return `
+    <div class="report-custom-grid">
+      ${list
+        .map(
+          (item) => `
+        <div class="report-tile report-custom-tile" data-custom-chart-id="${escapeHtmlAttr(item.id)}">
+          <button type="button" class="report-custom-remove-btn" data-remove-custom-chart="${escapeHtmlAttr(item.id)}" title="Удалить диаграмму" aria-label="Удалить диаграмму">
+            <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+          <h4>${escapeHtmlText(item.name)}</h4>
+          <div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportCustomChart_${escapeHtmlAttr(item.id)}"></canvas></div>
+        </div>
+      `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function buildCustomReportCounts(rows, groupBy) {
+  const counts = new Map();
+  const employees = getSectionById("employees")?.rows || [];
+  const getDepartmentByEmployee = (name) => {
+    const n = normalizePersonName(name);
+    if (!n) return "—";
+    const row = employees.find((er) => normalizePersonName(er[EMPLOYEE_COLUMNS.fullName]) === n);
+    return String(row?.[EMPLOYEE_COLUMNS.department] || "").trim() || "—";
+  };
+  const add = (label) => {
+    const key = String(label || "—").trim() || "—";
+    counts.set(key, (counts.get(key) || 0) + 1);
+  };
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const r = Array.isArray(row) ? row : [];
+    if (groupBy === "status") add(normalizeTaskStatusValue(String(r[TASK_COLUMNS.status] || "").trim()) || "—");
+    else if (groupBy === "priority") add(String(r[TASK_COLUMNS.priority] || "").trim() || "—");
+    else if (groupBy === "object") add(String(r[TASK_COLUMNS.object] || "").trim() || "—");
+    else if (groupBy === "phase") add(String(r[TASK_COLUMNS.phase] || "").trim() || "—");
+    else if (groupBy === "section") add(String(r[TASK_COLUMNS.phaseSection] || "").trim() || "—");
+    else if (groupBy === "subsection") add(String(r[TASK_COLUMNS.phaseSubsection] || "").trim() || "—");
+    else if (groupBy === "responsible") add(String(r[TASK_COLUMNS.assignedResponsible] || "").trim() || "—");
+    else if (groupBy === "department") add(getDepartmentByEmployee(String(r[TASK_COLUMNS.assignedResponsible] || "").trim()));
+    else if (groupBy === "overdue") add(isTaskOverdueForReport(r) ? "Просрочено" : "Не просрочено");
+    else add("—");
+  });
+  return Array.from(counts.entries()).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 24);
 }
 
 function attachReportChartTileDragHandlers() {
-  if (isSharedReportView()) return;
+  if (isSharedReportView() || reportViewTab !== "system") return;
   const grid = tableContainer?.querySelector(".report-grid");
   if (!grid) return;
 
@@ -5385,9 +5653,12 @@ function refreshReportView() {
   destroyReportCharts();
   tableContainer.innerHTML = renderReportsPanel();
   requestAnimationFrame(() => {
+    attachReportTabSwitchHandlers();
     attachReportCharts();
     attachReportFilterHandlers();
     attachReportPhaseGroupLayoutHandlers();
+    attachReportSystemChartVisibilityHandlers();
+    attachReportCustomBuilderHandlers();
     attachReportChartTileDragHandlers();
     attachReportExportAndShareHandlers();
     initLucideIcons();
@@ -5395,7 +5666,7 @@ function refreshReportView() {
 }
 
 function attachReportPhaseGroupLayoutHandlers() {
-  if (isSharedReportView()) return;
+  if (isSharedReportView() || reportViewTab !== "system") return;
   const root = tableContainer;
   if (!root) return;
   root.querySelectorAll("[data-report-phase-layout]").forEach((btn) => {
@@ -7029,6 +7300,7 @@ function getNowDateTimeString() {
 }
 
 function renderReportsPanel() {
+  reportViewTab = loadReportViewTab();
   const rows = getReportFilteredRows();
   const stats = buildTaskReportStats(rows);
   const rsRows = buildResponsibleStatusRows(rows);
@@ -7077,6 +7349,7 @@ function renderReportsPanel() {
           </button>
         </div>
       </div>
+      ${renderReportTabsSwitchHtml()}
       <div class="report-filters-outer${sharedReportMode ? " hidden" : ""}">
         <div id="reportFiltersPanel" class="report-filters-panel ${filtersPanelClass}">
           <div class="report-filters-one-row">
@@ -7099,25 +7372,189 @@ function renderReportsPanel() {
           </div>
         </div>
       </div>
-      ${renderReportWeekTasksTable()}
-      ${stats.total === 0 ? '<p class="hint report-empty-hint">Нет задач по текущему фильтру — измените условия или добавьте записи в «Задачи».</p>' : ""}
-      <div class="report-phase-layout-bar${sharedReportMode ? " hidden" : ""}">
-        <span class="report-phase-layout-label">Топ фаз · Разделы · Подразделы</span>
-        <div class="report-phase-layout-btns" role="group" aria-label="Расположение похожих графиков">
-          <button type="button" class="report-phase-layout-btn${phaseLayoutRowActive}" data-report-phase-layout="row" title="Три графика в одной строке">В одну строку</button>
-          <button type="button" class="report-phase-layout-btn${phaseLayoutSepActive}" data-report-phase-layout="separate" title="Каждый график на отдельной строке">По отдельности</button>
-        </div>
-      </div>
-      <div class="report-grid report-grid--phase-${escapeHtmlAttr(phaseLayout)}">
-        ${renderReportChartsGridHtml()}
-      </div>
-      ${stats.total > 0 ? renderResponsibleStatusTable(rsRows) : ""}
+      ${reportViewTab === "system"
+        ? `
+          ${renderReportWeekTasksTable()}
+          ${stats.total === 0 ? '<p class="hint report-empty-hint">Нет задач по текущему фильтру — измените условия или добавьте записи в «Задачи».</p>' : ""}
+          ${renderReportSystemHiddenControlsHtml()}
+          <div class="report-phase-layout-bar${sharedReportMode ? " hidden" : ""}">
+            <span class="report-phase-layout-label">Топ фаз · Разделы · Подразделы</span>
+            <div class="report-phase-layout-btns" role="group" aria-label="Расположение похожих графиков">
+              <button type="button" class="report-phase-layout-btn${phaseLayoutRowActive}" data-report-phase-layout="row" title="Три графика в одной строке">В одну строку</button>
+              <button type="button" class="report-phase-layout-btn${phaseLayoutSepActive}" data-report-phase-layout="separate" title="Каждый график на отдельной строке">По отдельности</button>
+            </div>
+          </div>
+          <div class="report-grid report-grid--phase-${escapeHtmlAttr(phaseLayout)}">
+            ${renderReportChartsGridHtml()}
+          </div>
+          ${stats.total > 0 ? renderResponsibleStatusTable(rsRows) : ""}
+        `
+        : `
+          ${renderReportCustomBuilderHtml()}
+          ${renderReportCustomChartsHtml()}
+        `}
     </section>
   `;
 }
 
+function attachReportTabSwitchHandlers() {
+  if (isSharedReportView()) return;
+  const root = tableContainer;
+  if (!root) return;
+  root.querySelectorAll("[data-report-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const next = String(btn.getAttribute("data-report-tab") || "").trim();
+      saveReportViewTab(next === "custom" ? "custom" : "system");
+      refreshReportView();
+    });
+  });
+}
+
+function attachReportSystemChartVisibilityHandlers() {
+  if (isSharedReportView() || reportViewTab !== "system") return;
+  const root = tableContainer;
+  if (!root) return;
+  root.querySelectorAll("[data-hide-report-chart]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = String(btn.getAttribute("data-hide-report-chart") || "").trim();
+      if (!id || !(id in REPORT_CHART_TILE_META)) return;
+      const vis = loadReportSystemChartVisibility();
+      vis[id] = false;
+      saveReportSystemChartVisibility(vis);
+      refreshReportView();
+    });
+  });
+  root.querySelectorAll("[data-show-report-chart]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = String(btn.getAttribute("data-show-report-chart") || "").trim();
+      if (!id || !(id in REPORT_CHART_TILE_META)) return;
+      const vis = loadReportSystemChartVisibility();
+      vis[id] = true;
+      saveReportSystemChartVisibility(vis);
+      refreshReportView();
+    });
+  });
+}
+
+function attachReportCustomBuilderHandlers() {
+  if (isSharedReportView() || reportViewTab !== "custom") return;
+  const root = tableContainer;
+  if (!root) return;
+  const addBtn = root.querySelector("#reportCustomAddBtn");
+  addBtn?.addEventListener("click", () => {
+    const nameInput = root.querySelector("#reportCustomNameInput");
+    const groupInput = root.querySelector("#reportCustomGroupBySelect");
+    const typeInput = root.querySelector("#reportCustomTypeSelect");
+    const name = String(nameInput?.value || "").trim() || "Кастомный график";
+    const groupBy = String(groupInput?.value || "status").trim();
+    const type = String(typeInput?.value || "bar").trim();
+    const validGroup = REPORT_CUSTOM_GROUP_BY_OPTIONS.some((x) => x.id === groupBy) ? groupBy : "status";
+    const validType = REPORT_CUSTOM_CHART_TYPES.some((x) => x.id === type) ? type : "bar";
+    const list = loadReportCustomCharts();
+    if (list.length >= REPORT_CUSTOM_MAX_CHARTS) {
+      showToast(`Можно добавить максимум ${REPORT_CUSTOM_MAX_CHARTS} графиков.`);
+      return;
+    }
+    const item = {
+      id: `custom_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      name,
+      groupBy: validGroup,
+      type: validType
+    };
+    saveReportCustomCharts([...list, item]);
+    refreshReportView();
+  });
+  root.querySelectorAll("[data-remove-custom-chart]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = String(btn.getAttribute("data-remove-custom-chart") || "").trim();
+      const next = loadReportCustomCharts().filter((item) => String(item?.id || "").trim() !== id);
+      saveReportCustomCharts(next);
+      refreshReportView();
+    });
+  });
+}
+
+function attachCustomReportCharts() {
+  const root = tableContainer;
+  if (!root || reportViewTab !== "custom" || typeof Chart === "undefined") return;
+  const hasDl = ensureReportChartPlugins();
+  const rows = getReportFilteredRows();
+  const list = loadReportCustomCharts();
+  list.forEach((item, index) => {
+    const canvas = document.getElementById(`reportCustomChart_${String(item.id || "")}`);
+    if (!canvas) return;
+    const entries = buildCustomReportCounts(rows, item.groupBy);
+    const labels = entries.length ? entries.map((x) => x[0]) : ["Нет данных"];
+    const values = entries.length ? entries.map((x) => x[1]) : [0];
+    const colors = labels.map((_, i) => REPORT_CHART_COLORS[(index + i) % REPORT_CHART_COLORS.length]);
+    const common = { responsive: true, maintainAspectRatio: false };
+    const chartType = item.type === "donut" ? "doughnut" : item.type === "pie" ? "pie" : item.type === "line" ? "line" : "bar";
+    const cfg =
+      chartType === "line"
+        ? {
+            type: "line",
+            data: {
+              labels,
+              datasets: [
+                {
+                  label: item.name,
+                  data: values,
+                  borderColor: colors[0] || "#3e4095",
+                  backgroundColor: reportHexToRgba(colors[0] || "#3e4095", 0.2),
+                  fill: true,
+                  tension: 0.25
+                }
+              ]
+            },
+            options: {
+              ...common,
+              plugins: { legend: { display: false }, datalabels: hasDl ? { display: false } : { display: false } },
+              scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            }
+          }
+        : chartType === "bar"
+          ? {
+              type: "bar",
+              data: {
+                labels,
+                datasets: [
+                  {
+                    label: item.name,
+                    data: values,
+                    backgroundColor: (ctx) => reportBarGradientVertical(ctx.chart, colors[ctx.dataIndex % colors.length] || "#3e4095")
+                  }
+                ]
+              },
+              options: {
+                ...common,
+                plugins: { legend: { display: false }, datalabels: hasDl ? { color: "#334155", anchor: "end", align: "top" } : { display: false } },
+                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+              }
+            }
+          : {
+              type: chartType,
+              data: {
+                labels,
+                datasets: [{ data: values, backgroundColor: colors, borderColor: "#f8fafc", borderWidth: 2 }]
+              },
+              options: {
+                ...common,
+                plugins: {
+                  legend: { display: true, position: "right", labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true } },
+                  datalabels: hasDl ? { formatter: (v) => (Number(v) > 0 ? String(v) : ""), color: "#334155", font: { size: 10, weight: "600" } } : { display: false }
+                }
+              }
+            };
+    reportChartInstances.push(new Chart(canvas, cfg));
+  });
+}
+
 function attachReportCharts() {
   if (typeof Chart === "undefined") {
+    return;
+  }
+  if (reportViewTab === "custom") {
+    attachCustomReportCharts();
     return;
   }
   const hasDl = ensureReportChartPlugins();
@@ -15200,6 +15637,9 @@ function showApp(userName) {
   if (currentUser) {
     currentUser.innerHTML = withIcon("user", `Пользователь: ${userName}`);
   }
+  reportSystemChartVisibilityCache = null;
+  reportCustomChartsCache = null;
+  reportViewTab = loadReportViewTab();
   loginSection.classList.add("hidden");
   appSection.classList.remove("hidden");
   renderSidebarMenu();
@@ -15241,6 +15681,9 @@ function showLogin() {
   stopStatusTaskRemindersScheduler();
   stopSessionIdleWatcher();
   currentAuthRole = "user";
+  reportSystemChartVisibilityCache = null;
+  reportCustomChartsCache = null;
+  reportViewTab = "system";
   hideBootLoaderAfterRender();
 }
 
