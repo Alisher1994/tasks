@@ -1037,6 +1037,64 @@ function mergeBotManagedTaskFieldsIntoLocalRow(localRow, remoteRow) {
   return changed;
 }
 
+function isPlainObjectRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function cloneJsonSafe(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+/**
+ * Сливает taskMultiState с приоритетом серверных (bot-managed) полей,
+ * но сохраняет локальные пользовательские поля, которых ещё нет на сервере
+ * (например персональный dueDate подзадачи до следующего push).
+ */
+function mergeTaskMultiStatePreferRemotePreserveLocal(remoteRaw, localRaw) {
+  const remote = isPlainObjectRecord(remoteRaw) ? remoteRaw : {};
+  const local = isPlainObjectRecord(localRaw) ? localRaw : {};
+  const out = cloneJsonSafe(remote);
+
+  const ensureTaskBucket = (taskId) => {
+    if (!isPlainObjectRecord(out[taskId])) out[taskId] = {};
+    return out[taskId];
+  };
+
+  for (const taskId of Object.keys(local)) {
+    const localTask = local[taskId];
+    if (!isPlainObjectRecord(localTask)) continue;
+    const outTask = ensureTaskBucket(taskId);
+
+    for (const key of Object.keys(localTask)) {
+      const localEntry = localTask[key];
+      const remoteEntry = outTask[key];
+
+      if (String(key).startsWith("__")) {
+        if (remoteEntry === undefined) outTask[key] = cloneJsonSafe(localEntry);
+        continue;
+      }
+
+      if (!isPlainObjectRecord(localEntry)) {
+        if (remoteEntry === undefined) outTask[key] = localEntry;
+        continue;
+      }
+
+      if (!isPlainObjectRecord(remoteEntry)) {
+        outTask[key] = cloneJsonSafe(localEntry);
+        continue;
+      }
+
+      for (const field of Object.keys(localEntry)) {
+        if (remoteEntry[field] === undefined) {
+          remoteEntry[field] = cloneJsonSafe(localEntry[field]);
+        }
+      }
+    }
+  }
+
+  return out;
+}
+
 async function mergeTaskReadStateFromServer(localPayload) {
   if (!isHostedRuntime() || !getAuthToken()) return;
   if (!localPayload || typeof localPayload !== "object") return;
@@ -1068,7 +1126,10 @@ async function mergeTaskReadStateFromServer(localPayload) {
       mergeBotManagedTaskFieldsIntoLocalRow(row, remoteRow);
     });
     if (remotePayload?.taskMultiState && typeof remotePayload.taskMultiState === "object" && !Array.isArray(remotePayload.taskMultiState)) {
-      localPayload.taskMultiState = JSON.parse(JSON.stringify(remotePayload.taskMultiState));
+      localPayload.taskMultiState = mergeTaskMultiStatePreferRemotePreserveLocal(
+        remotePayload.taskMultiState,
+        localPayload.taskMultiState
+      );
     }
   } catch (_) {
     /* noop */
@@ -1110,10 +1171,11 @@ async function pullTaskReadStateFromServerIntoLocal({ rerender = true } = {}) {
     let multiChanged = false;
     try {
       if (json?.data?.taskMultiState && typeof json.data.taskMultiState === "object" && !Array.isArray(json.data.taskMultiState)) {
-        const nextMulti = JSON.stringify(json.data.taskMultiState);
+        const mergedMulti = mergeTaskMultiStatePreferRemotePreserveLocal(json.data.taskMultiState, taskMultiState || {});
+        const nextMulti = JSON.stringify(mergedMulti);
         const prevMulti = JSON.stringify(taskMultiState || {});
         if (nextMulti !== prevMulti) {
-          taskMultiState = JSON.parse(nextMulti);
+          taskMultiState = mergedMulti;
           localStorage.setItem(TASK_MULTI_STATE_STORAGE_KEY, JSON.stringify(taskMultiState));
           multiChanged = true;
         }
