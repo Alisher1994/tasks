@@ -521,12 +521,72 @@ function parseCallbackData(data) {
   };
 }
 
+function parseOverdueCallbackData(data) {
+  const raw = String(data || "").trim();
+  const parts = raw.split("|");
+  if (parts[0] !== "ov" || parts.length < 2) return null;
+  return {
+    action: String(parts[1] || "").trim()
+  };
+}
+
 function statusLabelWithEmoji(status) {
   const s = String(status || "").trim();
   if (!s) return "";
   const emoji = STATUS_EMOJI[s] || "•";
   const text = s === "Закрыт" ? "Закрыто" : s;
   return `${emoji} ${text}`;
+}
+
+function buildOverdueSummaryText(overdueCount) {
+  const count = Number(overdueCount) || 0;
+  return [
+    "⚠️ Уведомление",
+    "",
+    `У вас есть ${count} просроченных задач.`,
+    "Для просмотра выберите из списка задачу."
+  ].join("\n");
+}
+
+function overdueSummaryKeyboard() {
+  return {
+    inline_keyboard: [[{ text: "📋 Посмотреть", callback_data: "ov|ls" }]]
+  };
+}
+
+function getOverdueRowsForChat(payload, chatId, appTimeZone = "UTC") {
+  const tasks = getTasksSection(payload);
+  const rows = Array.isArray(tasks?.rows) ? tasks.rows : [];
+  const today = getTodayYmdInTimeZone(appTimeZone);
+  if (!today) return [];
+  const chat = String(chatId || "").trim();
+  const out = [];
+  for (const row of rows) {
+    if (!Array.isArray(row)) continue;
+    const status = String(row[TASK_COLUMNS.status] || "").trim();
+    if (status === "Закрыт") continue;
+    const dueRaw = String(row[TASK_COLUMNS.dueDate] || "").trim();
+    const due = parseRuDateToYmd(dueRaw);
+    if (!due) continue;
+    const diff = compareYmd(today, due);
+    if (diff <= 0) continue;
+    const recipients = resolveTaskUpdateRecipientChatIds(payload, row);
+    if (!recipients.includes(chat)) continue;
+    out.push({ row, overdueDays: diff });
+  }
+  out.sort((a, b) => b.overdueDays - a.overdueDays);
+  return out;
+}
+
+function overdueListKeyboard(payload, overdueRows) {
+  const inline = overdueRows.map(({ row }) => {
+    const taskId = String(row?.[TASK_COLUMNS.number] || "").trim() || "—";
+    const status = normalizeTaskStatusValue(String(row?.[TASK_COLUMNS.status] || "").trim());
+    const emoji = STATUS_EMOJI[status] || "⚪";
+    return [{ text: `${emoji} Задача № ${taskId}`, callback_data: cb(taskId, "bk") }];
+  });
+  inline.push([{ text: "⬅️ Назад", callback_data: "ov|bk" }]);
+  return { inline_keyboard: inline };
 }
 
 async function tg(token, method, body) {
@@ -1116,6 +1176,45 @@ async function handleCallback(q, pool, token) {
     return;
   }
 
+  const overdueCb = parseOverdueCallbackData(cq);
+  if (overdueCb) {
+    const payload = await loadPayload(pool);
+    const appTz = resolveAppTimeZone(payload);
+    const overdueRows = getOverdueRowsForChat(payload, chatId, appTz);
+    if (overdueCb.action === "bk") {
+      await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: buildOverdueSummaryText(overdueRows.length),
+        reply_markup: overdueSummaryKeyboard()
+      });
+      await tg(token, "answerCallbackQuery", { callback_query_id: q.id });
+      return;
+    }
+    if (overdueCb.action === "ls") {
+      if (!overdueRows.length) {
+        await tg(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: "✅ Сейчас у вас нет просроченных задач.",
+          reply_markup: { inline_keyboard: [] }
+        });
+        await tg(token, "answerCallbackQuery", { callback_query_id: q.id });
+        return;
+      }
+      await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: buildOverdueSummaryText(overdueRows.length),
+        reply_markup: overdueListKeyboard(payload, overdueRows)
+      });
+      await tg(token, "answerCallbackQuery", { callback_query_id: q.id });
+      return;
+    }
+    await tg(token, "answerCallbackQuery", { callback_query_id: q.id, text: "Некорректное действие" });
+    return;
+  }
+
   const parsed = parseCallbackData(cq);
   if (!parsed) {
     await tg(token, "answerCallbackQuery", { callback_query_id: q.id, text: "Некорректные данные" });
@@ -1175,7 +1274,15 @@ async function handleCallback(q, pool, token) {
       return;
     }
     setLastTaskContext(payload, chatId, taskId, messageId);
-    const keyboard = EMPLOYEE_STATUS_OPTIONS.map((label, i) => [{ text: statusLabelWithEmoji(label), callback_data: cb(taskId, `ss|${i}`) }]);
+    const currentStatus = normalizeTaskStatusValue(String(viewerRow[TASK_COLUMNS.status] || "").trim());
+    const keyboard = EMPLOYEE_STATUS_OPTIONS
+      .map((label, i) => ({ label, i }))
+      .filter((item) => item.label !== currentStatus)
+      .map((item) => [{ text: statusLabelWithEmoji(item.label), callback_data: cb(taskId, `ss|${item.i}`) }]);
+    if (!keyboard.length) {
+      await answerOk("Статус уже установлен");
+      return;
+    }
     keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "bk") }]);
     await tg(token, "editMessageText", {
       chat_id: chatId,

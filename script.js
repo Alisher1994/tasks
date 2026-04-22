@@ -4007,21 +4007,67 @@ function buildOverdueTaskTelegramText(row, overdueDays) {
   return [`⚠️ Уведомление о просрочке задачи`, "", fullBody, "", `Просрочено: ${overdueDays} дн.`].join("\n");
 }
 
-async function sendOverdueTaskNotification(row, overdueDays, token) {
-  const recipientNames = collectTaskTelegramRecipientNames(row);
-  if (!recipientNames.length) return { ok: false, reason: "no_recipients" };
-  const targets = resolveEmployeeTelegramTargetsByFullNames(recipientNames);
-  if (!targets.length) return { ok: false, reason: "no_targets" };
-  const text = buildOverdueTaskTelegramText(row, overdueDays);
+function buildOverdueDigestTelegramText(totalCount) {
+  const count = Math.max(0, Number(totalCount) || 0);
+  return [
+    "⚠️ Уведомление",
+    "",
+    `У вас есть ${count} просроченных задач.`,
+    "Нажмите «Посмотреть», чтобы открыть список."
+  ].join("\n");
+}
+
+function buildOverdueDigestInlineKeyboard() {
+  return {
+    inline_keyboard: [[{ text: "📋 Посмотреть", callback_data: "ov|ls" }]]
+  };
+}
+
+async function sendOverdueDigestNotifications(overdueItems, token) {
+  const items = Array.isArray(overdueItems) ? overdueItems : [];
+  if (!items.length) return { ok: false, reason: "no_overdue" };
+  const byChat = new Map();
+  let noRecipients = 0;
+  let noTargets = 0;
+  items.forEach((item) => {
+    const row = item?.row;
+    if (!row) return;
+    const taskId = String(row[TASK_COLUMNS.number] || "").trim();
+    if (!taskId) return;
+    const recipientNames = collectTaskTelegramRecipientNames(row);
+    if (!recipientNames.length) {
+      noRecipients += 1;
+      return;
+    }
+    const targets = resolveEmployeeTelegramTargetsByFullNames(recipientNames);
+    if (!targets.length) {
+      noTargets += 1;
+      return;
+    }
+    targets.forEach((t) => {
+      const chatId = String(t.chatId || "").trim();
+      if (!chatId) return;
+      if (!byChat.has(chatId)) byChat.set(chatId, new Set());
+      byChat.get(chatId).add(taskId);
+    });
+  });
+
+  if (!byChat.size) {
+    return { ok: false, reason: "no_targets", noRecipients, noTargets, chatsTotal: 0, chatsSent: 0 };
+  }
+
   const results = await Promise.all(
-    targets.map(async (t) => {
+    Array.from(byChat.entries()).map(async ([chatId, taskIds]) => {
+      const count = taskIds.size;
+      const text = buildOverdueDigestTelegramText(count);
       try {
         const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            chat_id: t.chatId,
-            text
+            chat_id: chatId,
+            text,
+            reply_markup: buildOverdueDigestInlineKeyboard()
           })
         });
         const apiJson = await response.json().catch(() => ({}));
@@ -4031,7 +4077,13 @@ async function sendOverdueTaskNotification(row, overdueDays, token) {
       }
     })
   );
-  return { ok: results.some(Boolean), sentCount: results.filter(Boolean).length, total: results.length };
+  return {
+    ok: results.some(Boolean),
+    chatsSent: results.filter(Boolean).length,
+    chatsTotal: results.length,
+    noRecipients,
+    noTargets
+  };
 }
 
 function buildStatusReminderTelegramText(row, status, conf) {
@@ -4143,6 +4195,7 @@ async function runOverdueTaskNotificationTick() {
   try {
     const todayParts = parseRuDateStringToParts(today);
     const rows = getSectionById("tasks")?.rows || [];
+    const overdueItems = [];
     for (const row of rows) {
       const status = String(row[TASK_COLUMNS.status] || "").trim();
       if (status === "Закрыт") continue;
@@ -4150,8 +4203,9 @@ async function runOverdueTaskNotificationTick() {
       if (!due || !todayParts) continue;
       const diff = calendarDiffDays(due, todayParts);
       if (diff <= 0) continue;
-      await sendOverdueTaskNotification(row, diff, token);
+      overdueItems.push({ row, diff });
     }
+    await sendOverdueDigestNotifications(overdueItems, token);
     runtime.lastRunDate = today;
     saveOverdueNotifyRuntime(runtime);
   } finally {
@@ -4213,22 +4267,14 @@ async function triggerOverdueTaskManualNotifications() {
   let sentTasks = 0;
   let noRecipients = 0;
   let failed = 0;
-  for (const item of overdueRows) {
-    const result = await sendOverdueTaskNotification(item.row, item.diff, token);
-    if (result.ok) {
-      sentTasks += 1;
-      continue;
-    }
-    if (result.reason === "no_recipients" || result.reason === "no_targets") {
-      noRecipients += 1;
-    } else {
-      failed += 1;
-    }
-  }
+  const digestResult = await sendOverdueDigestNotifications(overdueRows, token);
+  if (digestResult.ok) sentTasks = Number(digestResult.chatsSent) || 0;
+  noRecipients = Number(digestResult.noRecipients || 0) + Number(digestResult.noTargets || 0);
+  failed = Math.max(0, Number(digestResult.chatsTotal || 0) - Number(digestResult.chatsSent || 0));
 
   const lines = [
     `Просроченных задач: ${overdueRows.length}.`,
-    `Уведомления отправлены по задачам: ${sentTasks}.`
+    `Уведомления отправлены сотрудникам: ${sentTasks}.`
   ];
   if (noRecipients) lines.push(`Без получателей (нет Telegram/Chat ID): ${noRecipients}.`);
   if (failed) lines.push(`Ошибки отправки: ${failed}.`);
