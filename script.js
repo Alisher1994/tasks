@@ -3061,7 +3061,15 @@ const TASK_GANTT_GRID_COLUMNS = [
   { id: "priority", label: "Приоритет", width: 95, align: "center", defaultVisible: true },
   { id: "start_date", label: "Начало", width: 120, align: "center", defaultVisible: true },
   { id: "end_date", label: "Конец", width: 120, align: "center", defaultVisible: true },
-  { id: "due_state", label: "Срок", width: 70, align: "center", defaultVisible: true }
+  { id: "due_state", label: "Срок", width: 70, align: "center", defaultVisible: true },
+  { id: "object", label: "Объект", width: 170, align: "left", defaultVisible: false },
+  { id: "status", label: "Статус", width: 110, align: "center", defaultVisible: false },
+  { id: "addedDate", label: "Дата постановки", width: 120, align: "center", defaultVisible: false },
+  { id: "phase", label: "Фаза", width: 120, align: "left", defaultVisible: false },
+  { id: "phaseSection", label: "Раздел", width: 150, align: "left", defaultVisible: false },
+  { id: "phaseSubsection", label: "Подраздел", width: 150, align: "left", defaultVisible: false },
+  { id: "author", label: "Постановщик", width: 150, align: "left", defaultVisible: false },
+  { id: "note", label: "Комментарий", width: 180, align: "left", defaultVisible: false }
 ];
 const TASKS_GANTT_DEFAULT_ZOOM_PERCENT = 100;
 const TASK_IMPORT_COLUMNS = [
@@ -6573,6 +6581,88 @@ function getTasksGanttScaleBounds(data, scaleMode) {
   return { start, end };
 }
 
+function mountTasksGanttGridHandle(gantt, root) {
+  if (!gantt || !root) return;
+  if (typeof window._mbcTasksGanttGridHandleCleanup === "function") {
+    try {
+      window._mbcTasksGanttGridHandleCleanup();
+    } catch (_) {
+      /* noop */
+    }
+    window._mbcTasksGanttGridHandleCleanup = null;
+  }
+  const handle = document.createElement("div");
+  handle.className = "tasks-gantt-grid-handle";
+  handle.setAttribute("role", "separator");
+  handle.setAttribute("aria-orientation", "vertical");
+  handle.title = "Потяните, чтобы изменить ширину таблицы";
+  handle.innerHTML = '<span class="tasks-gantt-grid-handle-grip" aria-hidden="true"></span>';
+  root.appendChild(handle);
+
+  const updateHandlePosition = () => {
+    const left = normalizeTasksGanttGridWidth(gantt.config.grid_width, 220);
+    handle.style.left = `${Math.max(0, left - 6)}px`;
+  };
+  updateHandlePosition();
+
+  let dragging = false;
+  const onMove = (ev) => {
+    if (!dragging) return;
+    const rect = root.getBoundingClientRect();
+    const max = Math.max(320, rect.width - 240);
+    const next = normalizeTasksGanttGridWidth(ev.clientX - rect.left, gantt.config.grid_width);
+    const bounded = Math.max(220, Math.min(max, next));
+    if (bounded !== gantt.config.grid_width) {
+      gantt.config.grid_width = bounded;
+      gantt.setSizes();
+      updateHandlePosition();
+    }
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove("is-gantt-grid-resizing");
+    const next = normalizeTasksGanttGridWidth(gantt.config.grid_width, 0);
+    if (next > 0 && next !== displaySettings.tasksGanttGridWidth) {
+      displaySettings.tasksGanttGridWidth = next;
+      saveDisplaySettings();
+    }
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+  const onDown = (ev) => {
+    ev.preventDefault();
+    dragging = true;
+    document.body.classList.add("is-gantt-grid-resizing");
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+  handle.addEventListener("mousedown", onDown);
+
+  let ro = null;
+  if (typeof ResizeObserver !== "undefined") {
+    ro = new ResizeObserver(() => updateHandlePosition());
+    ro.observe(root);
+  }
+  const onWindowResize = () => updateHandlePosition();
+  window.addEventListener("resize", onWindowResize);
+
+  window._mbcTasksGanttGridHandleCleanup = () => {
+    handle.removeEventListener("mousedown", onDown);
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+    window.removeEventListener("resize", onWindowResize);
+    if (ro) {
+      try {
+        ro.disconnect();
+      } catch (_) {
+        /* noop */
+      }
+    }
+    if (handle.parentNode === root) root.removeChild(handle);
+  };
+}
+
 function buildTasksGanttGridColumns() {
   const visibleColumns = getTasksGanttVisibleColumns();
   const byId = {
@@ -6631,6 +6721,62 @@ function buildTasksGanttGridColumns() {
         const css = kind === "late" ? "mb-gantt-due-late" : kind === "left" ? "mb-gantt-due-left" : "";
         return `<span class="mb-gantt-due ${css}">${escapeHtmlText(text)}</span>`;
       }
+    },
+    object: {
+      name: "object",
+      label: "Объект",
+      align: "left",
+      width: 170,
+      template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.object || "—")))
+    },
+    status: {
+      name: "status",
+      label: "Статус",
+      align: "center",
+      width: 110,
+      template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.status || "—")))
+    },
+    addedDate: {
+      name: "addedDate",
+      label: "Дата постановки",
+      align: "center",
+      width: 120,
+      template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.addedDate || "—")))
+    },
+    phase: {
+      name: "phase",
+      label: "Фаза",
+      align: "left",
+      width: 120,
+      template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.phase || "—")))
+    },
+    phaseSection: {
+      name: "phaseSection",
+      label: "Раздел",
+      align: "left",
+      width: 150,
+      template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.phaseSection || "—")))
+    },
+    phaseSubsection: {
+      name: "phaseSubsection",
+      label: "Подраздел",
+      align: "left",
+      width: 150,
+      template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.phaseSubsection || "—")))
+    },
+    author: {
+      name: "author",
+      label: "Постановщик",
+      align: "left",
+      width: 150,
+      template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.author || "—")))
+    },
+    note: {
+      name: "note",
+      label: "Комментарий",
+      align: "left",
+      width: 180,
+      template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.note || "—")))
     }
   };
   const columns = visibleColumns
@@ -6669,11 +6815,26 @@ function buildTasksGanttDataset(entries, groupBy) {
     const status = String(item.row[TASK_COLUMNS.status] || "").trim();
     const priority = String(item.row[TASK_COLUMNS.priority] || "").trim() || "—";
     const responsible = String(item.row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—";
+    const object = String(item.row[TASK_COLUMNS.object] || "").trim() || "—";
+    const phase = String(item.row[TASK_COLUMNS.phase] || "").trim() || "—";
+    const phaseSection = String(item.row[TASK_COLUMNS.phaseSection] || "").trim() || "—";
+    const phaseSubsection = String(item.row[TASK_COLUMNS.phaseSubsection] || "").trim() || "—";
+    const author = String(item.row[TASK_COLUMNS.responsible] || "").trim() || "—";
+    const note = String(item.row[TASK_COLUMNS.note] || "").trim() || "—";
+    const addedDate = formatStoredDateForDisplay(String(item.row[TASK_COLUMNS.addedDate] || "").trim()) || "—";
     const dueState = getTaskDueStateInfo(item.row);
     const dataTask = {
       id: item.id,
       sourceTaskId: item.taskId,
       text: taskName,
+      object,
+      status: status || "—",
+      addedDate,
+      phase,
+      phaseSection,
+      phaseSubsection,
+      author,
+      note,
       priority,
       responsible,
       dueStateText: dueState.text,
@@ -6720,6 +6881,14 @@ function buildTasksGanttDataset(entries, groupBy) {
         tasks.push({
           id: group.id,
           text: group.text,
+          object: "",
+          status: "",
+          addedDate: "",
+          phase: "",
+          phaseSection: "",
+          phaseSubsection: "",
+          author: "",
+          note: "",
           priority: "",
           responsible: "",
           dueStateText: "",
@@ -6835,6 +7004,7 @@ function mountTasksGanttChart(entries) {
       saveDisplaySettings();
       return true;
     });
+    mountTasksGanttGridHandle(gantt, root);
     const today = new Date();
     if (window._mbcTasksGanttTodayMarkerId != null) {
       try {

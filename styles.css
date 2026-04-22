@@ -4830,6 +4830,7 @@ body.shared-report-mode .sidebar {
 }
 
 .tasks-gantt-modern-chart {
+  position: relative;
   height: calc(100vh - 200px);
   min-height: 520px;
   max-height: 860px;
@@ -4873,6 +4874,40 @@ body.shared-report-mode .sidebar {
 .tasks-gantt-modern-chart .gantt_hor_scroll::-webkit-scrollbar-thumb:hover,
 .tasks-gantt-modern-chart .gantt_ver_scroll::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, #a9b9d1 0%, #8ea4c3 100%);
+}
+
+.tasks-gantt-grid-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  z-index: 15;
+  cursor: col-resize;
+  background: rgba(62, 64, 149, 0.08);
+  border-left: 1px solid rgba(62, 64, 149, 0.24);
+  border-right: 1px solid rgba(62, 64, 149, 0.24);
+}
+
+.tasks-gantt-grid-handle:hover {
+  background: rgba(62, 64, 149, 0.14);
+}
+
+.tasks-gantt-grid-handle-grip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 34px;
+  transform: translate(-50%, -50%);
+  border-left: 1px solid rgba(62, 64, 149, 0.65);
+  border-right: 1px solid rgba(62, 64, 149, 0.65);
+  border-radius: 3px;
+}
+
+body.is-gantt-grid-resizing,
+body.is-gantt-grid-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .tasks-gantt-modern-chart .gantt_grid_resize_wrap,
