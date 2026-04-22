@@ -5538,9 +5538,11 @@ function attachReportChartTileDragHandlers() {
       e.dataTransfer.setData("text/plain", id);
       e.dataTransfer.effectAllowed = "move";
       tile.classList.add("report-tile--dragging");
+      grid.classList.add("report-grid--dragging");
     });
     tile.addEventListener("dragend", () => {
       reportChartDragId = null;
+      grid.classList.remove("report-grid--dragging");
       grid.querySelectorAll(".report-tile").forEach((t) => {
         t.classList.remove("report-tile--dragging", "report-tile--drop-target");
       });
@@ -5557,6 +5559,7 @@ function attachReportChartTileDragHandlers() {
   grid.addEventListener("drop", (e) => {
     e.preventDefault();
     const tile = e.target.closest?.(".report-tile[data-report-chart]");
+    grid.classList.remove("report-grid--dragging");
     grid.querySelectorAll(".report-tile--drop-target").forEach((el) => el.classList.remove("report-tile--drop-target"));
     const fromId = String(e.dataTransfer.getData("application/x-mbc-chart") || reportChartDragId || "");
     const toId = tile ? String(tile.getAttribute("data-report-chart") || "") : "";

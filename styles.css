@@ -3637,10 +3637,20 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   outline-offset: -1px;
 }
 
+.report-grid--dragging .report-tile {
+  transition: box-shadow 0.15s ease, background 0.15s ease, transform 0.15s ease, outline-color 0.15s ease;
+}
+
+.report-grid--dragging .report-tile:not(.report-tile--dragging):not(.report-tile--drop-target) {
+  box-shadow: inset 0 0 0 1px rgba(62, 64, 149, 0.12);
+}
+
 .report-tile--drop-target {
-  outline: 2px solid var(--brand, #3b82f6);
+  outline: 3px solid #3e4095;
   outline-offset: -1px;
-  background: rgba(59, 130, 246, 0.06);
+  background: rgba(62, 64, 149, 0.08);
+  box-shadow: 0 0 0 3px rgba(62, 64, 149, 0.16), 0 12px 22px -18px rgba(30, 41, 59, 0.45);
+  transform: translateY(-1px);
 }
 
 .report-tile h4 {
