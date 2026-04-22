@@ -4761,10 +4761,10 @@ body.shared-report-mode .sidebar {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid #d4deea;
-  border-radius: 10px;
-  background: #f8fbff;
-  padding: 6px 10px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
   min-height: 36px;
 }
 
@@ -4785,6 +4785,13 @@ body.shared-report-mode .sidebar {
   font-size: 12px;
   color: #334155;
   font-weight: 700;
+}
+
+.tasks-gantt-zoom-stage {
+  min-width: 62px;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
 }
 
 .tasks-gantt-modern-chart {

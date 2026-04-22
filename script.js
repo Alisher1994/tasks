@@ -4498,24 +4498,19 @@ function renderTable() {
           renderTablePreserveScroll();
         });
       });
-      Array.from(document.querySelectorAll('input[name="tasksGanttScaleMode"]')).forEach((input) => {
-        input.addEventListener("change", () => {
-          const val = input.value === "day" || input.value === "month" || input.value === "year" ? input.value : "month";
-          displaySettings.tasksGanttScale = normalizeTasksGanttScale(val);
-          saveDisplaySettings();
-          renderTablePreserveScroll();
-        });
-      });
       const ganttZoomRange = document.getElementById("tasksGanttZoomRange");
       const ganttZoomValue = document.getElementById("tasksGanttZoomValue");
+      const ganttZoomStage = document.getElementById("tasksGanttZoomStage");
       ganttZoomRange?.addEventListener("input", () => {
         const zoom = normalizeTasksGanttZoomPercent(ganttZoomRange.value);
         if (ganttZoomValue) ganttZoomValue.textContent = `${zoom}%`;
+        if (ganttZoomStage) ganttZoomStage.textContent = getTasksGanttScaleStageLabel(zoom);
       });
       ganttZoomRange?.addEventListener("change", () => {
         const zoom = normalizeTasksGanttZoomPercent(ganttZoomRange.value);
         displaySettings.tasksGanttZoomPercent = zoom;
         if (ganttZoomValue) ganttZoomValue.textContent = `${zoom}%`;
+        if (ganttZoomStage) ganttZoomStage.textContent = getTasksGanttScaleStageLabel(zoom);
         saveDisplaySettings();
         renderTablePreserveScroll();
       });
@@ -6382,6 +6377,20 @@ function normalizeTasksGanttZoomPercent(value) {
   return Math.min(180, Math.max(60, Math.round(n)));
 }
 
+function getTasksGanttScaleModeByZoom(zoomPercent) {
+  const zoom = normalizeTasksGanttZoomPercent(zoomPercent);
+  if (zoom >= 150) return "year";
+  if (zoom >= 120) return "month";
+  return "day";
+}
+
+function getTasksGanttScaleStageLabel(zoomPercent) {
+  const mode = getTasksGanttScaleModeByZoom(zoomPercent);
+  if (mode === "year") return "Годы";
+  if (mode === "month") return "Месяцы";
+  return "Дни";
+}
+
 function ensureTasksGanttColumnsDisplaySettings() {
   const fixedId = String(TASK_GANTT_GRID_COLUMNS[0]?.id || "sourceTaskId");
   const defaultOrder = TASK_GANTT_GRID_COLUMNS.map((col) => col.id);
@@ -6499,6 +6508,17 @@ function formatGanttScaleDayShortRu(date) {
 function formatGanttScaleMonthShortRu(date) {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
   return GANTT_MONTHS_SHORT_RU[date.getMonth()] || "";
+}
+
+function formatGanttScaleMonthLongRu(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const mm = GANTT_MONTHS_SHORT_RU[date.getMonth()] || "";
+  return `${mm} ${date.getFullYear()}`;
+}
+
+function formatGanttScaleDayNumRu(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  return String(date.getDate()).padStart(2, "0");
 }
 
 function getTasksGanttMinColumnWidth(scaleMode, zoomPercent) {
@@ -6706,23 +6726,27 @@ function mountTasksGanttChart(entries) {
   const gridColumns = buildTasksGanttGridColumns();
   gantt.config.columns = gridColumns;
   gantt.config.grid_width = Math.max(220, gridColumns.reduce((sum, col) => sum + (Number(col.width) || 120), 0) + 24);
-  const scaleMode = normalizeTasksGanttScale(displaySettings.tasksGanttScale);
   const zoomPercent = normalizeTasksGanttZoomPercent(displaySettings.tasksGanttZoomPercent);
+  const scaleMode = getTasksGanttScaleModeByZoom(zoomPercent);
   gantt.config.min_column_width = getTasksGanttMinColumnWidth(scaleMode, zoomPercent);
   if (scaleMode === "day") {
+    gantt.config.scale_height = 44;
     gantt.config.scales = [
       { unit: "day", step: 1, format: (date) => formatGanttScaleDayLongRu(date) },
       { unit: "hour", step: 6, format: "%H:%i" }
     ];
   } else if (scaleMode === "month") {
+    gantt.config.scale_height = 52;
     gantt.config.scales = [
-      { unit: "week", step: 1, format: "Неделя %W" },
-      { unit: "day", step: 1, format: (date) => formatGanttScaleDayShortRu(date) }
+      { unit: "month", step: 1, format: (date) => formatGanttScaleMonthLongRu(date) },
+      { unit: "day", step: 1, format: (date) => formatGanttScaleDayNumRu(date) }
     ];
   } else if (scaleMode === "year") {
+    gantt.config.scale_height = 68;
     gantt.config.scales = [
       { unit: "year", step: 1, format: "%Y" },
-      { unit: "month", step: 1, format: (date) => formatGanttScaleMonthShortRu(date) }
+      { unit: "month", step: 1, format: (date) => formatGanttScaleMonthShortRu(date) },
+      { unit: "day", step: 1, format: (date) => formatGanttScaleDayNumRu(date) }
     ];
   }
   gantt.templates.task_class = (_start, _end, task) => String(task?.$css || "");
@@ -8969,29 +8993,16 @@ function renderTasksScreenModeSwitch(section) {
     ? displaySettings.tasksListBrowseMode
     : "flat";
   const groupBy = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
-  const scale = normalizeTasksGanttScale(displaySettings.tasksGanttScale);
   const zoom = normalizeTasksGanttZoomPercent(displaySettings.tasksGanttZoomPercent);
+  const zoomStage = getTasksGanttScaleStageLabel(zoom);
   const groupByLabel = TASK_GANTT_GROUP_BY_OPTIONS.find((opt) => opt.id === groupBy)?.label || "Без группировки";
   const leftControls = mode === "graph"
     ? `<div class="tasks-screen-switch-left">
-        <div class="tasks-segment-group tasks-gantt-scale-group" role="radiogroup" aria-label="Масштаб графика">
-          <label class="tasks-segment">
-            <input type="radio" name="tasksGanttScaleMode" value="day" ${scale === "day" ? "checked" : ""} />
-            <span>День</span>
-          </label>
-          <label class="tasks-segment">
-            <input type="radio" name="tasksGanttScaleMode" value="month" ${scale === "month" ? "checked" : ""} />
-            <span>Месяц</span>
-          </label>
-          <label class="tasks-segment">
-            <input type="radio" name="tasksGanttScaleMode" value="year" ${scale === "year" ? "checked" : ""} />
-            <span>Год</span>
-          </label>
-        </div>
         <button type="button" class="tasks-gantt-groupby-btn" id="tasksGanttGroupByBtn" title="Выбрать группировку">${escapeHtmlText(groupByLabel)}</button>
         <label class="tasks-gantt-zoom-box" for="tasksGanttZoomRange">
           <span class="tasks-gantt-zoom-label">Масштаб</span>
           <input id="tasksGanttZoomRange" type="range" min="60" max="180" step="5" value="${zoom}" />
+          <span class="tasks-gantt-zoom-stage" id="tasksGanttZoomStage">${zoomStage}</span>
           <span class="tasks-gantt-zoom-value" id="tasksGanttZoomValue">${zoom}%</span>
         </label>
       </div>`
