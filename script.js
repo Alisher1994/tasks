@@ -3443,6 +3443,8 @@ let displaySettings = {
   tasksGanttScale: "month",
   /** 60..180 — масштаб таймлайна в % */
   tasksGanttZoomPercent: TASKS_GANTT_DEFAULT_ZOOM_PERCENT,
+  /** ширина табличной части (слева) в Ганте, px */
+  tasksGanttGridWidth: 0,
   /** порядок колонок сетки слева в Ганте */
   tasksGanttColumnOrder: TASK_GANTT_GRID_COLUMNS.map((col) => col.id),
   /** видимость колонок сетки слева в Ганте */
@@ -6527,6 +6529,50 @@ function getTasksGanttMinColumnWidth(scaleMode, zoomPercent) {
   return Math.round(base * zoom);
 }
 
+function normalizeTasksGanttGridWidth(value, fallback = 0) {
+  const base = Number(value);
+  const fb = Number(fallback) || 0;
+  const raw = Number.isFinite(base) && base > 0 ? base : fb;
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.max(220, Math.min(1400, Math.round(raw)));
+}
+
+function getTasksGanttScaleBounds(data, scaleMode) {
+  const items = Array.isArray(data) ? data : [];
+  const taskItems = items.filter((item) => item && item.type !== "project" && item.start_date instanceof Date);
+  if (!taskItems.length) return null;
+  const minStart = taskItems.reduce((min, item) => (item.start_date < min ? item.start_date : min), taskItems[0].start_date);
+  const maxEnd = taskItems.reduce((max, item) => {
+    const endDate = item.end_date instanceof Date ? item.end_date : item.start_date;
+    return endDate > max ? endDate : max;
+  }, taskItems[0].end_date instanceof Date ? taskItems[0].end_date : taskItems[0].start_date);
+
+  if (!(minStart instanceof Date) || !(maxEnd instanceof Date) || Number.isNaN(minStart.getTime()) || Number.isNaN(maxEnd.getTime())) {
+    return null;
+  }
+
+  const start = new Date(minStart.getTime());
+  const end = new Date(maxEnd.getTime());
+  if (scaleMode === "year") {
+    start.setMonth(0, 1);
+    start.setHours(0, 0, 0, 0);
+    end.setFullYear(end.getFullYear() + 1, 0, 1);
+    end.setHours(0, 0, 0, 0);
+    return { start, end };
+  }
+  if (scaleMode === "month") {
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    end.setMonth(end.getMonth() + 1, 1);
+    end.setHours(0, 0, 0, 0);
+    return { start, end };
+  }
+  start.setHours(0, 0, 0, 0);
+  end.setDate(end.getDate() + 1);
+  end.setHours(0, 0, 0, 0);
+  return { start, end };
+}
+
 function buildTasksGanttGridColumns() {
   const visibleColumns = getTasksGanttVisibleColumns();
   const byId = {
@@ -6721,11 +6767,13 @@ function mountTasksGanttChart(entries) {
   gantt.config.details_on_dblclick = false;
   gantt.config.select_task = false;
   gantt.config.autosize = false;
+  gantt.config.grid_resize = true;
   gantt.config.row_height = 36;
   gantt.config.scale_height = 44;
   const gridColumns = buildTasksGanttGridColumns();
   gantt.config.columns = gridColumns;
-  gantt.config.grid_width = Math.max(220, gridColumns.reduce((sum, col) => sum + (Number(col.width) || 120), 0) + 24);
+  const defaultGridWidth = Math.max(220, gridColumns.reduce((sum, col) => sum + (Number(col.width) || 120), 0) + 24);
+  gantt.config.grid_width = normalizeTasksGanttGridWidth(displaySettings.tasksGanttGridWidth, defaultGridWidth);
   const zoomPercent = normalizeTasksGanttZoomPercent(displaySettings.tasksGanttZoomPercent);
   const scaleMode = getTasksGanttScaleModeByZoom(zoomPercent);
   gantt.config.min_column_width = getTasksGanttMinColumnWidth(scaleMode, zoomPercent);
@@ -6749,6 +6797,16 @@ function mountTasksGanttChart(entries) {
       { unit: "day", step: 1, format: (date) => formatGanttScaleDayNumRu(date) }
     ];
   }
+  const bounds = getTasksGanttScaleBounds(data, scaleMode);
+  if (bounds?.start && bounds?.end) {
+    gantt.config.fit_tasks = false;
+    gantt.config.start_date = bounds.start;
+    gantt.config.end_date = bounds.end;
+  } else {
+    gantt.config.fit_tasks = true;
+    gantt.config.start_date = null;
+    gantt.config.end_date = null;
+  }
   gantt.templates.task_class = (_start, _end, task) => String(task?.$css || "");
   gantt.templates.grid_row_class = (_start, _end, task) => (task?.type === "project" ? "mb-gantt-grid-group" : "");
   gantt.templates.task_row_class = (_start, _end, task) => (task?.type === "project" ? "mb-gantt-timeline-group" : "");
@@ -6762,6 +6820,21 @@ function mountTasksGanttChart(entries) {
     gantt.clearAll();
     gantt.init(root);
     gantt.parse({ data });
+    if (window._mbcTasksGanttGridResizeEvt) {
+      try {
+        gantt.detachEvent(window._mbcTasksGanttGridResizeEvt);
+      } catch (_) {
+        /* noop */
+      }
+      window._mbcTasksGanttGridResizeEvt = null;
+    }
+    window._mbcTasksGanttGridResizeEvt = gantt.attachEvent("onGridResizeEnd", (_oldWidth, newWidth) => {
+      const next = normalizeTasksGanttGridWidth(newWidth, gantt.config.grid_width);
+      if (next <= 0 || next === displaySettings.tasksGanttGridWidth) return true;
+      displaySettings.tasksGanttGridWidth = next;
+      saveDisplaySettings();
+      return true;
+    });
     const today = new Date();
     if (window._mbcTasksGanttTodayMarkerId != null) {
       try {
@@ -13195,6 +13268,7 @@ function restoreDisplaySettings() {
     displaySettings.tasksGanttGroupBy = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
     displaySettings.tasksGanttScale = normalizeTasksGanttScale(displaySettings.tasksGanttScale);
     displaySettings.tasksGanttZoomPercent = normalizeTasksGanttZoomPercent(displaySettings.tasksGanttZoomPercent);
+    displaySettings.tasksGanttGridWidth = normalizeTasksGanttGridWidth(displaySettings.tasksGanttGridWidth, 0);
     ensureTasksGanttColumnsDisplaySettings();
     let tps = Number(displaySettings.tasksListPageSize);
     if (!Number.isFinite(tps)) tps = 50;

@@ -4840,6 +4840,16 @@ body.shared-report-mode .sidebar {
   background: linear-gradient(180deg, #a9b9d1 0%, #8ea4c3 100%);
 }
 
+.tasks-gantt-modern-chart .gantt_grid_resize_wrap,
+.tasks-gantt-modern-chart .gantt_grid_resize_area {
+  cursor: col-resize !important;
+}
+
+.tasks-gantt-modern-chart .gantt_grid_resize_area {
+  width: 8px !important;
+  background: rgba(71, 85, 105, 0.1);
+}
+
 .gantt_grid_scale,
 .gantt_task_scale {
   background: #f5f8fc;
