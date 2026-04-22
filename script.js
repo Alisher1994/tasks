@@ -3020,8 +3020,7 @@ const EMPLOYEE_IMPORT_COLUMNS = [
   { key: "fullName", label: "ФИО", aliases: ["ФИО", "ФИО сотрудника", "Сотрудник"] },
   { key: "department", label: "Отдел", aliases: ["Отдел", "Департамент"] },
   { key: "position", label: "Должность", aliases: ["Должность", "Роль", "Позиция"] },
-  { key: "phone", label: "Телефон", aliases: ["Телефон", "Номер телефона", "Номер"] },
-  { key: "telegram", label: "Telegram", aliases: ["Telegram", "Статус Telegram", "Подключен к Telegram"] }
+  { key: "phone", label: "Телефон", aliases: ["Телефон", "Номер телефона", "Номер"] }
 ];
 const SECTION_GROUPS = {
   reference: {
@@ -14094,9 +14093,9 @@ function openEmployeeImportModal(section) {
   downloadTemplateBtn?.addEventListener("click", () => {
     const header = EMPLOYEE_IMPORT_COLUMNS.map((col) => col.label);
     const rows = [
-      ["Алишер Мусаев", "Плановый отдел", "Инженер планового отдела", "+998901112233", "Не подключен"],
-      ["Эльбек Ризаев", "Производство", "РП", "+998909998877", "Подключен"],
-      ["Сергей Орлов", "ПТО", "Инженер ПТО", "+998902223344", "Не подключен"]
+      ["Алишер Мусаев", "Плановый отдел", "Инженер планового отдела", "+998901112233"],
+      ["Эльбек Ризаев", "Производство", "РП", "+998909998877"],
+      ["Сергей Орлов", "ПТО", "Инженер ПТО", "+998902223344"]
     ];
     const lines = [header, ...rows]
       .map((cols) => cols.map((v) => String(v || "").replace(/\r\n?/g, " ").trim()).join("\t"))
