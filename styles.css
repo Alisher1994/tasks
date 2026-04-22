@@ -4777,6 +4777,41 @@ body.shared-report-mode .sidebar {
 
 #tasksGanttZoomRange {
   width: 150px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  accent-color: #3e4095;
+}
+
+#tasksGanttZoomRange::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: #3e4095;
+}
+
+#tasksGanttZoomRange::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -5px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #3e4095;
+  background: #3e4095;
+}
+
+#tasksGanttZoomRange::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: #3e4095;
+}
+
+#tasksGanttZoomRange::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #3e4095;
+  background: #3e4095;
 }
 
 .tasks-gantt-zoom-value {
