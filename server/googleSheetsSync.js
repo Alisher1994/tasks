@@ -213,11 +213,46 @@ async function loadPayload(pool) {
   return raw && typeof raw === "object" ? JSON.parse(JSON.stringify(raw)) : {};
 }
 
-async function savePayload(pool, payload) {
+async function saveSyncStateOnly(pool, patch = {}) {
+  const status = String(patch.status || "").trim();
+  const at = String(patch.at || "").trim();
+  const atMs = Number(patch.atMs) || 0;
+  const message = String(patch.message || "").trim();
+  const rows = Number(patch.rows) || 0;
+  const mode = String(patch.mode || "").trim();
   await pool.query(
-    `INSERT INTO app_state (id, payload, updated_at) VALUES (1, $1::jsonb, NOW())
-     ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
-    [JSON.stringify(payload)]
+    `INSERT INTO app_state (id, payload, updated_at)
+     VALUES (
+       1,
+       jsonb_build_object(
+         'displaySettings',
+         jsonb_build_object(
+           'googleSheetsLastSyncStatus', $1::text,
+           'googleSheetsLastSyncAt', $2::text,
+           'googleSheetsLastSyncAtMs', $3::bigint,
+           'googleSheetsLastSyncMessage', $4::text,
+           'googleSheetsLastSyncRows', $5::int,
+           'googleSheetsLastSyncMode', $6::text
+         )
+       ),
+       NOW()
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       payload = jsonb_set(
+         COALESCE(app_state.payload, '{}'::jsonb),
+         '{displaySettings}',
+         COALESCE(app_state.payload->'displaySettings', '{}'::jsonb) || jsonb_build_object(
+           'googleSheetsLastSyncStatus', $1::text,
+           'googleSheetsLastSyncAt', $2::text,
+           'googleSheetsLastSyncAtMs', $3::bigint,
+           'googleSheetsLastSyncMessage', $4::text,
+           'googleSheetsLastSyncRows', $5::int,
+           'googleSheetsLastSyncMode', $6::text
+         ),
+         true
+       ),
+       updated_at = NOW()`,
+    [status, at, atMs, message, rows, mode]
   );
 }
 
@@ -291,15 +326,16 @@ export async function runGoogleSheetsSync(pool, options = {}) {
 
     const rowsCount = Math.max(0, data.summary.values.length - 1);
     const at = new Date();
-    setSyncState(payload, {
+    const syncPatch = {
       status: "ok",
       at: at.toISOString(),
       atMs: at.getTime(),
       message: `Успешно: ${rowsCount} задач, листов по объектам: ${data.objectSheets.length}.`,
       rows: rowsCount,
       mode
-    });
-    await savePayload(pool, payload);
+    };
+    setSyncState(payload, syncPatch);
+    await saveSyncStateOnly(pool, syncPatch);
     return {
       ok: true,
       rows: rowsCount,
@@ -311,16 +347,17 @@ export async function runGoogleSheetsSync(pool, options = {}) {
     const at = new Date();
     const msg = String(e?.message || e || "google_sync_failed");
     if (payload) {
-      setSyncState(payload, {
+      const syncPatch = {
         status: "error",
         at: at.toISOString(),
         atMs: at.getTime(),
         message: msg,
         rows: 0,
         mode
-      });
+      };
+      setSyncState(payload, syncPatch);
       try {
-        await savePayload(pool, payload);
+        await saveSyncStateOnly(pool, syncPatch);
       } catch (_) {
         /* noop */
       }
@@ -345,4 +382,3 @@ export function startGoogleSheetsAutoSync(pool) {
     }
   }, 30000);
 }
-

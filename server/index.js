@@ -119,11 +119,26 @@ async function loadAppPayload() {
 }
 
 async function saveAppPayload(payload) {
+  const nextPayload = payload && typeof payload === "object"
+    ? JSON.parse(JSON.stringify(payload))
+    : {};
+  try {
+    const currentPayload = await loadAppPayload();
+    const currentSections = Array.isArray(currentPayload?.sections) ? currentPayload.sections : [];
+    const nextSections = Array.isArray(nextPayload?.sections) ? nextPayload.sections : [];
+    const currentTasks = currentSections.find((s) => s && s.id === "tasks");
+    const nextTasksIndex = nextSections.findIndex((s) => s && s.id === "tasks");
+    if (currentTasks && nextTasksIndex >= 0) {
+      nextSections[nextTasksIndex] = JSON.parse(JSON.stringify(currentTasks));
+    }
+  } catch (_) {
+    /* noop */
+  }
   await pool.query(
     `INSERT INTO app_state (id, payload, updated_at)
      VALUES (1, $1::jsonb, NOW())
      ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
-    [JSON.stringify(payload)]
+    [JSON.stringify(nextPayload)]
   );
 }
 
@@ -698,12 +713,7 @@ app.post("/api/employees/refresh-chat-ids", authMiddleware, async (_req, res) =>
       ? JSON.parse(JSON.stringify(rows[0].payload))
       : {};
     const stats = refreshEmployeeChatIdsByPhoneBindings(payload);
-    await pool.query(
-      `INSERT INTO app_state (id, payload, updated_at)
-       VALUES (1, $1::jsonb, NOW())
-       ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
-      [JSON.stringify(payload)]
-    );
+    await saveAppPayload(payload);
     return res.json({ ok: true, ...stats });
   } catch (e) {
     console.error(e);
