@@ -270,6 +270,8 @@ function isDelayReasonAllowedNow(row, appTimeZone = "UTC") {
 }
 
 function mainKeyboard(taskNumber, row, appTimeZone = "UTC") {
+  const status = normalizeTaskStatusValue(String(row?.[TASK_COLUMNS.status] || "").trim());
+  if (status === "Закрыт") return [];
   const n = encodeTaskNum(taskNumber);
   const keyboard = [
     [
@@ -282,6 +284,27 @@ function mainKeyboard(taskNumber, row, appTimeZone = "UTC") {
     keyboard.push([{ text: "🚧 Причина отставания", callback_data: cb(n, "dr") }]);
   }
   return keyboard;
+}
+
+function quickUserKeyboard() {
+  return {
+    keyboard: [[{ text: "Мои задачи" }, { text: "Просроченные задачи" }]],
+    resize_keyboard: true
+  };
+}
+
+function parseMyTasksCallbackData(data) {
+  const raw = String(data || "").trim();
+  const parts = raw.split("|");
+  if (parts[0] !== "mt" || parts.length < 3) return null;
+  return {
+    action: String(parts[1] || "").trim(),
+    args: parts.slice(2).map((x) => String(x || "").trim())
+  };
+}
+
+function myTasksCb(action, ...args) {
+  return `mt|${String(action || "").trim()}|${args.map((x) => String(x || "").trim()).join("|")}`.slice(0, 64);
 }
 
 function findEmployeeByFullName(empSection, fullName) {
@@ -587,6 +610,96 @@ function overdueListKeyboard(payload, overdueRows) {
   });
   inline.push([{ text: "⬅️ Назад", callback_data: "ov|bk" }]);
   return { inline_keyboard: inline };
+}
+
+function isTaskActionAllowedForChat(payload, row, chatId) {
+  const actionChats = getTaskActionChatIds(payload, row);
+  const chat = String(chatId || "").trim();
+  if (!chat) return false;
+  if (!actionChats.size) return false;
+  return actionChats.has(chat);
+}
+
+function getMyTasksForChat(payload, chatId) {
+  const tasks = getTasksSection(payload);
+  const rows = Array.isArray(tasks?.rows) ? tasks.rows : [];
+  return rows.filter((row) => Array.isArray(row) && isTaskActionAllowedForChat(payload, row, chatId));
+}
+
+function getMyTaskObjects(rows) {
+  const seen = new Set();
+  const out = [];
+  for (const row of rows) {
+    const objectName = String(row?.[TASK_COLUMNS.object] || "").trim() || "—";
+    const key = objectName.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(objectName);
+  }
+  return out.sort((a, b) => a.localeCompare(b, "ru"));
+}
+
+function myTaskStatusByCode(code) {
+  const c = String(code || "").trim();
+  if (c === "all") return "";
+  if (c === "new") return "Новый";
+  if (c === "prog") return "В процессе";
+  if (c === "closed") return "Закрыт";
+  if (c === "overdue") return "__overdue__";
+  return "";
+}
+
+function myTaskStatusLabel(code) {
+  const c = String(code || "").trim();
+  if (c === "all") return "Все статусы";
+  if (c === "new") return "Новый";
+  if (c === "prog") return "В процессе";
+  if (c === "closed") return "Закрыт";
+  if (c === "overdue") return "Просроченные";
+  return "Все статусы";
+}
+
+function getStatusPickKeyboardForObject(objectIndex) {
+  const oi = String(objectIndex || "0").trim();
+  const rows = [
+    [{ text: "🧾 Все статусы", callback_data: myTasksCb("st", oi, "all") }],
+    [{ text: "🟣 Новый", callback_data: myTasksCb("st", oi, "new") }],
+    [{ text: "🟡 В процессе", callback_data: myTasksCb("st", oi, "prog") }],
+    [{ text: "🟢 Закрыт", callback_data: myTasksCb("st", oi, "closed") }],
+    [{ text: "⚠️ Просроченные", callback_data: myTasksCb("st", oi, "overdue") }],
+    [{ text: "⬅️ Назад", callback_data: myTasksCb("bo", "0") }]
+  ];
+  return { inline_keyboard: rows };
+}
+
+function filterMyTasksBySelection(rows, objectName, statusCode, appTz) {
+  const wantObject = String(objectName || "").trim();
+  const statusNeed = myTaskStatusByCode(statusCode);
+  const today = getTodayYmdInTimeZone(appTz || "UTC");
+  return rows.filter((row) => {
+    const objectOk = !wantObject || String(row?.[TASK_COLUMNS.object] || "").trim() === wantObject;
+    if (!objectOk) return false;
+    const st = normalizeTaskStatusValue(String(row?.[TASK_COLUMNS.status] || "").trim());
+    if (statusNeed === "__overdue__") {
+      if (st === "Закрыт") return false;
+      const due = parseRuDateToYmd(String(row?.[TASK_COLUMNS.dueDate] || "").trim());
+      if (!due || !today) return false;
+      return compareYmd(today, due) > 0;
+    }
+    if (!statusNeed) return true;
+    return st === statusNeed;
+  });
+}
+
+function myTasksListKeyboard(rows) {
+  const inline = rows.map((row) => {
+    const taskId = String(row?.[TASK_COLUMNS.number] || "").trim() || "—";
+    const status = normalizeTaskStatusValue(String(row?.[TASK_COLUMNS.status] || "").trim());
+    const emoji = STATUS_EMOJI[status] || "⚪";
+    return [{ text: `${emoji} Задача № ${taskId}`, callback_data: cb(taskId, "bk") }];
+  });
+  inline.push([{ text: "⬅️ К объектам", callback_data: myTasksCb("bo", "0") }]);
+  return { inline_keyboard: inline.slice(0, 70) };
 }
 
 async function tg(token, method, body) {
@@ -1103,6 +1216,11 @@ async function bindEmployeeToChat({ employees, employee, chatId, from, pool, pay
     text: `Здравствуйте${first ? `, ${first}` : ""}!\n\nВы подключены к боту как «${name}». Ваш Telegram ID сохранён в системе — уведомления по задачам будут приходить сюда.`,
     reply_markup: { remove_keyboard: true }
   });
+  await tg(token, "sendMessage", {
+    chat_id: chatId,
+    text: "Доступны быстрые кнопки: «Мои задачи» и «Просроченные задачи».",
+    reply_markup: quickUserKeyboard()
+  });
 }
 
 function contactShareKeyboard() {
@@ -1173,6 +1291,90 @@ async function handleCallback(q, pool, token) {
   const messageId = q.message?.message_id;
   if (!cq || chatId == null || messageId == null) {
     await tg(token, "answerCallbackQuery", { callback_query_id: q.id });
+    return;
+  }
+
+  const myCb = parseMyTasksCallbackData(cq);
+  if (myCb) {
+    const payload = await loadPayload(pool);
+    const appTz = resolveAppTimeZone(payload);
+    const myRows = getMyTasksForChat(payload, chatId);
+    const objects = getMyTaskObjects(myRows);
+    if (myCb.action === "bo") {
+      if (!objects.length) {
+        await tg(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: "У вас пока нет доступных задач.",
+          reply_markup: { inline_keyboard: [] }
+        });
+        await tg(token, "answerCallbackQuery", { callback_query_id: q.id });
+        return;
+      }
+      const objKeyboard = {
+        inline_keyboard: objects.slice(0, 50).map((name, idx) => [
+          { text: name, callback_data: myTasksCb("ob", String(idx)) }
+        ])
+      };
+      await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: "Мои задачи\n\nВыберите объект:",
+        reply_markup: objKeyboard
+      });
+      await tg(token, "answerCallbackQuery", { callback_query_id: q.id });
+      return;
+    }
+    if (myCb.action === "ob") {
+      const idx = Number(myCb.args?.[0]);
+      if (!Number.isFinite(idx) || idx < 0 || idx >= objects.length) {
+        await tg(token, "answerCallbackQuery", { callback_query_id: q.id, text: "Объект не найден" });
+        return;
+      }
+      const objectName = objects[idx];
+      await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: `Объект: ${objectName}\n\nВыберите статус:`,
+        reply_markup: getStatusPickKeyboardForObject(String(idx))
+      });
+      await tg(token, "answerCallbackQuery", { callback_query_id: q.id });
+      return;
+    }
+    if (myCb.action === "st") {
+      const objIdx = Number(myCb.args?.[0]);
+      const statusCode = String(myCb.args?.[1] || "all").trim();
+      if (!Number.isFinite(objIdx) || objIdx < 0 || objIdx >= objects.length) {
+        await tg(token, "answerCallbackQuery", { callback_query_id: q.id, text: "Объект не найден" });
+        return;
+      }
+      const objectName = objects[objIdx];
+      const filtered = filterMyTasksBySelection(myRows, objectName, statusCode, appTz);
+      if (!filtered.length) {
+        await tg(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: `Объект: ${objectName}\nСтатус: ${myTaskStatusLabel(statusCode)}\n\nЗадач не найдено.`,
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "⬅️ К статусам", callback_data: myTasksCb("ob", String(objIdx)) }],
+              [{ text: "⬅️ К объектам", callback_data: myTasksCb("bo", "0") }]
+            ]
+          }
+        });
+        await tg(token, "answerCallbackQuery", { callback_query_id: q.id });
+        return;
+      }
+      await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: `Объект: ${objectName}\nСтатус: ${myTaskStatusLabel(statusCode)}\n\nВыберите задачу из списка:`,
+        reply_markup: myTasksListKeyboard(filtered)
+      });
+      await tg(token, "answerCallbackQuery", { callback_query_id: q.id });
+      return;
+    }
+    await tg(token, "answerCallbackQuery", { callback_query_id: q.id, text: "Некорректное действие" });
     return;
   }
 
@@ -1740,6 +1942,43 @@ async function handleMessage(msg, pool, token) {
 
   if (/^\/start(?:@\w+)?(?:\s|$)/i.test(text)) {
     await handleTelegramStart(msg, pool, token);
+    return;
+  }
+
+  if (text === "Мои задачи") {
+    const payload = await loadPayload(pool);
+    const myRows = getMyTasksForChat(payload, chatId);
+    const objects = getMyTaskObjects(myRows);
+    if (!objects.length) {
+      await tg(token, "sendMessage", {
+        chat_id: chatId,
+        text: "У вас пока нет доступных задач.",
+        reply_markup: quickUserKeyboard()
+      });
+      return;
+    }
+    const kb = {
+      inline_keyboard: objects.slice(0, 50).map((name, idx) => [
+        { text: name, callback_data: myTasksCb("ob", String(idx)) }
+      ])
+    };
+    await tg(token, "sendMessage", {
+      chat_id: chatId,
+      text: "Мои задачи\n\nВыберите объект:",
+      reply_markup: kb
+    });
+    return;
+  }
+
+  if (text === "Просроченные задачи") {
+    const payload = await loadPayload(pool);
+    const appTz = resolveAppTimeZone(payload);
+    const overdueRows = getOverdueRowsForChat(payload, chatId, appTz);
+    await tg(token, "sendMessage", {
+      chat_id: chatId,
+      text: buildOverdueSummaryText(overdueRows.length),
+      reply_markup: overdueSummaryKeyboard()
+    });
     return;
   }
 
