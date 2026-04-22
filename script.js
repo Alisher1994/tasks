@@ -8392,8 +8392,32 @@ function inspectImportedEmployeeRows(rows, employeesSection) {
 }
 
 function getCatalogValueSet(sectionId) {
-  const rows = getSectionById(sectionId)?.rows || [];
+  const rows = resolveCatalogSection(sectionId)?.rows || [];
   return new Set(rows.map((row) => String(row?.[1] || "").trim()).filter(Boolean));
+}
+
+function resolveCatalogSection(sectionId) {
+  const id = String(sectionId || "").trim();
+  const direct = getSectionById(id);
+  if (direct) return direct;
+  const byIdAliases = {
+    phases: ["phase", "taskPhases"],
+    phaseSections: ["phaseSection", "sections", "taskSections"],
+    phaseSubsections: ["phaseSubsection", "subsections", "taskSubsections"]
+  };
+  const aliases = byIdAliases[id] || [];
+  for (const alias of aliases) {
+    const sec = getSectionById(alias);
+    if (sec) return sec;
+  }
+  const titleAliases = {
+    phases: ["Фаза"],
+    phaseSections: ["Раздел"],
+    phaseSubsections: ["Подраздел"]
+  };
+  const titles = new Set((titleAliases[id] || []).map((x) => String(x).trim().toLowerCase()));
+  if (!titles.size) return null;
+  return sections.find((sec) => titles.has(String(sec?.title || "").trim().toLowerCase())) || null;
 }
 
 function inspectImportedHierarchyValue(values, catalogs = null) {
@@ -8480,7 +8504,7 @@ function getPhaseSubsections(phase, phaseSection) {
 }
 
 function upsertCatalogValue(sectionId, valueIndex, value) {
-  const section = getSectionById(sectionId);
+  const section = resolveCatalogSection(sectionId);
   const normalized = String(value || "").trim();
   if (!section || !normalized) return;
   const exists = section.rows.some((row) => String(row[valueIndex] || "").trim() === normalized);
@@ -13859,7 +13883,7 @@ function openTaskImportModal(section) {
     const rows = [];
     inspectedRows.forEach((item) => {
       if (item.hasMissing && !allowCatalogSync) return;
-      if (item.hasMissing && allowCatalogSync) {
+      if (allowCatalogSync) {
         ensureHierarchyValuesInCatalogs(item.row);
         ensureResponsibleHierarchyLink(item.phase, item.phaseSection, item.phaseSubsection);
       }
