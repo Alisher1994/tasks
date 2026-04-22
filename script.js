@@ -9774,6 +9774,9 @@ function attachTableActionHandlers(section, filteredEntries) {
           saveSectionsData();
           if (section.id === "tasks") saveDisplaySettings();
           saveTrashData();
+          if (section.id === "tasks" && isHostedRuntime() && getAuthToken()) {
+            void pushAppToServerImmediate();
+          }
           renderTable();
         }
       });
@@ -9823,6 +9826,9 @@ function attachTableActionHandlers(section, filteredEntries) {
           saveSectionsData();
           if (section.id === "tasks") saveDisplaySettings();
           saveTrashData();
+          if (section.id === "tasks" && isHostedRuntime() && getAuthToken()) {
+            void pushAppToServerImmediate();
+          }
           renderTable();
         }
       });
@@ -9895,6 +9901,9 @@ function attachTableActionHandlers(section, filteredEntries) {
       normalizeSelectedRowsAfterDelete(getSelectionKey(section.id), rowIndex);
       saveSectionsData();
       saveTrashData();
+      if (section.id === "tasks" && isHostedRuntime() && getAuthToken()) {
+        void pushAppToServerImmediate();
+      }
       renderTable();
     });
   });
@@ -9908,6 +9917,9 @@ function attachTableActionHandlers(section, filteredEntries) {
       selectedRows.clear();
       saveSectionsData();
       saveTrashData();
+      if (section.id === "tasks" && isHostedRuntime() && getAuthToken()) {
+        void pushAppToServerImmediate();
+      }
       renderTable();
     });
   }
