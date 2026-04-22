@@ -3016,6 +3016,13 @@ const TASK_IMPORT_COLUMNS = [
   { key: "note", label: "Коментарии к задаче", aliases: ["Коментарии к задаче", "Комментарии к задаче", "Примичание", "Примечание"] },
   { key: "dueDate", label: "Плановый срок устранения", aliases: ["Плановый срок устранения", "Срок устранения", "Срок"] }
 ];
+const EMPLOYEE_IMPORT_COLUMNS = [
+  { key: "fullName", label: "ФИО", aliases: ["ФИО", "ФИО сотрудника", "Сотрудник"] },
+  { key: "department", label: "Отдел", aliases: ["Отдел", "Департамент"] },
+  { key: "position", label: "Должность", aliases: ["Должность", "Роль", "Позиция"] },
+  { key: "phone", label: "Телефон", aliases: ["Телефон", "Номер телефона", "Номер"] },
+  { key: "telegram", label: "Telegram", aliases: ["Telegram", "Статус Telegram", "Подключен к Telegram"] }
+];
 const SECTION_GROUPS = {
   reference: {
     id: "reference",
@@ -3833,6 +3840,10 @@ function renderSectionHeaderIconButtons(section) {
           ${section.id === "tasks" ? `
           <button type="button" class="icon-action-btn" id="sendOverdueTasksBtn" title="Отправить просроченные">
             <i data-lucide="bell-ring" class="lucide-icon" aria-hidden="true"></i>
+          </button>` : ""}
+          ${section.id === "employees" ? `
+          <button type="button" class="icon-action-btn import-employees-btn" id="openEmployeeImportModalBtn" title="Импорт сотрудников">
+            <i data-lucide="file-up" class="lucide-icon" aria-hidden="true"></i>
           </button>` : ""}
           ${section.id === "employees" ? `
           <button type="button" class="icon-action-btn" id="refreshEmployeeChatIdsBtn" title="Обновить Chat ID сотрудников">
@@ -8257,6 +8268,130 @@ function createTaskRowFromImport(values, taskId) {
   return row;
 }
 
+function mapEmployeeImportColumnsFromHeader(headerRow, { allowIndexFallback = false } = {}) {
+  const out = {};
+  const byNorm = new Map();
+  (headerRow || []).forEach((label, index) => {
+    const key = normalizeTaskColumnLabel(label);
+    if (!key || byNorm.has(key)) return;
+    byNorm.set(key, index);
+  });
+  let matched = 0;
+  EMPLOYEE_IMPORT_COLUMNS.forEach((col, fallbackIndex) => {
+    let idx = -1;
+    for (const alias of col.aliases) {
+      const probe = byNorm.get(normalizeTaskColumnLabel(alias));
+      if (Number.isInteger(probe)) {
+        idx = probe;
+        break;
+      }
+    }
+    if (allowIndexFallback && idx < 0 && fallbackIndex < (headerRow || []).length) idx = fallbackIndex;
+    if (idx >= 0) matched += 1;
+    out[col.key] = idx;
+  });
+  return { map: out, matched };
+}
+
+function parseEmployeeImportPayload(rawText) {
+  const matrix = parseTabularText(rawText);
+  if (!matrix.length) return { ok: false, message: "Вставьте данные из Excel (Ctrl+V)." };
+
+  const firstRow = matrix[0];
+  const mapped = mapEmployeeImportColumnsFromHeader(firstRow, { allowIndexFallback: false });
+  const hasHeader = mapped.matched >= Math.ceil(EMPLOYEE_IMPORT_COLUMNS.length * 0.6);
+  const dataRows = hasHeader ? matrix.slice(1) : matrix;
+  const colMap = hasHeader ? mapped.map : mapEmployeeImportColumnsFromHeader([], { allowIndexFallback: true }).map;
+  const parsedRows = dataRows
+    .map((row) => {
+      const item = {};
+      EMPLOYEE_IMPORT_COLUMNS.forEach((col, index) => {
+        const sourceIndex = hasHeader ? colMap[col.key] : index;
+        item[col.key] = Number.isInteger(sourceIndex) && sourceIndex >= 0 && sourceIndex < row.length ? row[sourceIndex] : "";
+      });
+      return item;
+    })
+    .filter((item) => Object.values(item).some((v) => String(v || "").trim() !== ""));
+
+  if (!parsedRows.length) return { ok: false, message: "Не удалось найти строки сотрудников в вставленных данных." };
+  return { ok: true, rows: parsedRows, hasHeader };
+}
+
+function normalizeEmployeeImportTelegram(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "Не подключен";
+  if (value === "Подключен") return "Подключен";
+  if (value === "Не подключен") return "Не подключен";
+  const v = value.toLowerCase();
+  if (["да", "yes", "true", "1", "on", "connected", "активен", "подключено", "подключен"].includes(v)) {
+    return "Подключен";
+  }
+  return "Не подключен";
+}
+
+function createEmployeeRowFromImport(values, employeeId) {
+  const row = new Array(EMPLOYEE_COLUMNS.activity + 1).fill("");
+  const fullName = normalizePersonName(values.fullName);
+  const department = String(values.department || "").trim();
+  const position = String(values.position || "").trim();
+  const phone = formatUzPhoneDisplay(normalizeUzPhone(values.phone || DEFAULT_PHONE_PREFIX));
+  row[EMPLOYEE_COLUMNS.id] = String(employeeId || "");
+  row[EMPLOYEE_COLUMNS.fullName] = fullName;
+  row[EMPLOYEE_COLUMNS.department] = department || String(getSectionById("departments")?.rows?.[0]?.[1] || "");
+  row[EMPLOYEE_COLUMNS.position] = position;
+  row[EMPLOYEE_COLUMNS.phone] = phone;
+  row[EMPLOYEE_COLUMNS.telegram] = normalizeEmployeeImportTelegram(values.telegram);
+  row[EMPLOYEE_COLUMNS.chatId] = "";
+  row[EMPLOYEE_COLUMNS.activity] = row[EMPLOYEE_COLUMNS.telegram] === "Подключен" ? "Активен" : "Не активен";
+  return row;
+}
+
+function inspectImportedEmployeeRows(rows, employeesSection) {
+  const existingNameSet = new Set(
+    (employeesSection?.rows || [])
+      .map((row) => normalizePersonName(row?.[EMPLOYEE_COLUMNS.fullName] || "").toLowerCase())
+      .filter(Boolean)
+  );
+  const existingPhoneSet = new Set(
+    (employeesSection?.rows || [])
+      .map((row) => normalizeUzPhone(row?.[EMPLOYEE_COLUMNS.phone] || ""))
+      .filter((phone) => employeePhoneLocalCompleteNormalized(phone))
+  );
+  const seenNameSet = new Set();
+  const seenPhoneSet = new Set();
+  return rows.map((raw) => {
+    const normalized = {
+      fullName: normalizePersonName(raw.fullName),
+      department: String(raw.department || "").trim(),
+      position: String(raw.position || "").trim(),
+      phone: formatUzPhoneDisplay(normalizeUzPhone(raw.phone || DEFAULT_PHONE_PREFIX)),
+      telegram: normalizeEmployeeImportTelegram(raw.telegram)
+    };
+    const issues = [];
+    if (!normalized.fullName) {
+      issues.push("Не заполнено ФИО");
+    }
+    const nameKey = normalized.fullName.toLowerCase();
+    if (nameKey) {
+      if (existingNameSet.has(nameKey)) issues.push("ФИО уже есть в таблице");
+      if (seenNameSet.has(nameKey)) issues.push("Дубликат ФИО в импорте");
+      seenNameSet.add(nameKey);
+    }
+    const phoneNorm = normalizeUzPhone(normalized.phone || "");
+    if (employeePhoneLocalCompleteNormalized(phoneNorm)) {
+      if (existingPhoneSet.has(phoneNorm)) issues.push("Телефон уже есть в таблице");
+      if (seenPhoneSet.has(phoneNorm)) issues.push("Дубликат телефона в импорте");
+      seenPhoneSet.add(phoneNorm);
+    }
+    return {
+      raw,
+      normalized,
+      issues,
+      canImport: issues.length === 0
+    };
+  });
+}
+
 function getCatalogValueSet(sectionId) {
   const rows = getSectionById(sectionId)?.rows || [];
   return new Set(rows.map((row) => String(row?.[1] || "").trim()).filter(Boolean));
@@ -11548,6 +11683,7 @@ function fromInputDate(value) {
 function attachHeaderActionHandlers(section, filteredEntries) {
   const refreshSectionBtn = document.getElementById("refreshSectionBtn");
   const refreshEmployeeChatIdsBtn = document.getElementById("refreshEmployeeChatIdsBtn");
+  const openEmployeeImportModalBtn = document.getElementById("openEmployeeImportModalBtn");
   const googleSheetsSyncTasksBtn = document.getElementById("googleSheetsSyncTasksBtn");
   const sendOverdueTasksBtn = document.getElementById("sendOverdueTasksBtn");
   const openTaskImportModalBtn = document.getElementById("openTaskImportModalBtn");
@@ -11597,6 +11733,11 @@ function attachHeaderActionHandlers(section, filteredEntries) {
   if (openTaskImportModalBtn && section.id === "tasks") {
     openTaskImportModalBtn.addEventListener("click", () => {
       openTaskImportModal(section);
+    });
+  }
+  if (openEmployeeImportModalBtn && section.id === "employees") {
+    openEmployeeImportModalBtn.addEventListener("click", () => {
+      openEmployeeImportModal(section);
     });
   }
 
@@ -13820,6 +13961,156 @@ function openTaskImportModal(section) {
 
   input?.addEventListener("input", parseFromInput);
   syncCatalogsCheckbox?.addEventListener("change", renderPreview);
+  cancelBtn?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  renderPreview();
+  input?.focus();
+}
+
+function openEmployeeImportModal(section) {
+  if (section.id !== "employees") return;
+  const templateHeadHtml = EMPLOYEE_IMPORT_COLUMNS.map((col) => `<th>${escapeHtmlText(col.label)}</th>`).join("");
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal table-import-modal">
+      <h3>${withIcon("file-up", "Импорт сотрудников")}</h3>
+      <p class="hint">Скопируйте строки из Excel по шаблону ниже и вставьте сюда через Ctrl+V.</p>
+      <div class="task-import-template-wrap">
+        <div class="task-import-template-head">
+          <span>Шаблон колонок для импорта</span>
+          <button type="button" class="secondary task-import-download-template-btn" id="employeeImportDownloadTemplateBtn">Скачать шаблон</button>
+        </div>
+        <div class="task-import-template-table-wrap">
+          <table class="task-import-template-table">
+            <thead><tr>${templateHeadHtml}</tr></thead>
+          </table>
+        </div>
+      </div>
+      <textarea id="employeeImportPasteInput" class="task-import-paste-input" rows="7" placeholder="Вставьте таблицу из Excel..."></textarea>
+      <div class="task-import-preview-head">
+        <strong>Превью</strong>
+        <span id="employeeImportPreviewMeta" class="hint">Строк: 0</span>
+      </div>
+      <div id="employeeImportPreviewWrap" class="task-import-preview-wrap">
+        <p class="hint">Данные ещё не вставлены.</p>
+      </div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary employee-import-cancel-btn">Отмена</button>
+        <button type="button" class="responsible-apply-btn employee-import-save-btn" disabled>Сохранить</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  initLucideIcons();
+
+  const input = overlay.querySelector("#employeeImportPasteInput");
+  const previewWrap = overlay.querySelector("#employeeImportPreviewWrap");
+  const previewMeta = overlay.querySelector("#employeeImportPreviewMeta");
+  const saveBtn = overlay.querySelector(".employee-import-save-btn");
+  const cancelBtn = overlay.querySelector(".employee-import-cancel-btn");
+  const downloadTemplateBtn = overlay.querySelector("#employeeImportDownloadTemplateBtn");
+  const close = () => overlay.remove();
+
+  let inspectedRows = [];
+
+  const renderPreview = () => {
+    if (!previewWrap || !previewMeta || !saveBtn) return;
+    const canImportRows = inspectedRows.filter((x) => x.canImport);
+    const blockedRows = inspectedRows.length - canImportRows.length;
+    previewMeta.textContent = `Строк: ${inspectedRows.length} · к импорту: ${canImportRows.length}`;
+    if (!inspectedRows.length) {
+      previewWrap.innerHTML = '<p class="hint">Данные ещё не вставлены.</p>';
+      saveBtn.disabled = true;
+      return;
+    }
+    const head = EMPLOYEE_IMPORT_COLUMNS.map((col) => `<th>${escapeHtmlText(col.label)}</th>`).join("");
+    const body = inspectedRows
+      .map((item, index) => {
+        const row = item.normalized;
+        const cells = EMPLOYEE_IMPORT_COLUMNS.map((col) => {
+          const raw = String(row[col.key] || "—");
+          const safe = escapeHtmlText(raw);
+          return `<td title="${escapeHtmlAttr(raw)}">${safe}</td>`;
+        }).join("");
+        const badge = item.issues.length
+          ? `<div class="task-import-missing-badge">${escapeHtmlText(item.issues.join("; "))}</div>`
+          : "";
+        const rowClass = item.issues.length ? "task-import-preview-row--missing" : "";
+        return `<tr class="${rowClass}"><td><div>${index + 1}</div>${badge}</td>${cells}</tr>`;
+      })
+      .join("");
+    previewWrap.innerHTML = `
+      <table class="task-import-preview-table">
+        <thead><tr><th>#</th>${head}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+      ${blockedRows > 0 ? `<p class="task-import-preview-note">Не будут импортированы: ${blockedRows} строк(и). Исправьте значения в Excel и вставьте повторно.</p>` : ""}
+    `;
+    saveBtn.disabled = canImportRows.length === 0;
+  };
+
+  const parseFromInput = () => {
+    const res = parseEmployeeImportPayload(input?.value || "");
+    if (!res.ok) {
+      inspectedRows = [];
+      renderPreview();
+      return;
+    }
+    inspectedRows = inspectImportedEmployeeRows(res.rows, section);
+    renderPreview();
+  };
+
+  const buildRows = () => {
+    const rows = [];
+    const numericIds = section.rows.map((item) => Number(item[0])).filter((value) => Number.isFinite(value));
+    let nextId = (numericIds.length ? Math.max(...numericIds) : section.rows.length) + 1;
+    inspectedRows.forEach((item) => {
+      if (!item.canImport) return;
+      rows.push(createEmployeeRowFromImport(item.normalized, String(nextId)));
+      nextId += 1;
+    });
+    return rows;
+  };
+
+  saveBtn?.addEventListener("click", () => {
+    const rows = buildRows();
+    if (!rows.length) return;
+    rows.forEach((row) => section.rows.push(row));
+    syncEmployeesDerivedFields();
+    saveSectionsData();
+    scheduleEmployeeChatIdAutoRefresh();
+    close();
+    renderTablePreserveScroll();
+    showStatusDialog({
+      title: "Импорт сотрудников",
+      message: `Сохранено сотрудников: ${rows.length}.`,
+      type: "success"
+    });
+  });
+
+  downloadTemplateBtn?.addEventListener("click", () => {
+    const header = EMPLOYEE_IMPORT_COLUMNS.map((col) => col.label);
+    const rows = [
+      ["Алишер Мусаев", "Плановый отдел", "Инженер планового отдела", "+998901112233", "Не подключен"],
+      ["Эльбек Ризаев", "Производство", "РП", "+998909998877", "Подключен"],
+      ["Сергей Орлов", "ПТО", "Инженер ПТО", "+998902223344", "Не подключен"]
+    ];
+    const lines = [header, ...rows]
+      .map((cols) => cols.map((v) => String(v || "").replace(/\r\n?/g, " ").trim()).join("\t"))
+      .join("\n");
+    const blob = new Blob([`\uFEFF${lines}`], { type: "text/tab-separated-values;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "template_employee_import.xls";
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  input?.addEventListener("input", parseFromInput);
   cancelBtn?.addEventListener("click", close);
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
