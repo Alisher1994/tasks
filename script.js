@@ -9563,6 +9563,16 @@ function attachTableActionHandlers(section, filteredEntries) {
     });
   });
 
+  clearEmployeeChatButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      if (section.id !== "employees") return;
+      const rowIndex = Number(button.dataset.rowIndex);
+      const row = section.rows[rowIndex];
+      if (!row) return;
+      openEmployeeChatClearModal(row);
+    });
+  });
+
   deleteButtons.forEach((button) => {
     button.addEventListener("click", () => {
       const rowIndex = Number(button.dataset.rowIndex);
@@ -10469,16 +10479,6 @@ function ensureSystemDepartments() {
   const existing = new Set(departmentsSection.rows.map((row) => String(row[1] || "").trim()).filter(Boolean));
   departmentsSection.rows.forEach((row) => {
     row[3] = getDepartmentTypeLabel(row[1]);
-  });
-
-  clearEmployeeChatButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      if (section.id !== "employees") return;
-      const rowIndex = Number(button.dataset.rowIndex);
-      const row = section.rows[rowIndex];
-      if (!row) return;
-      openEmployeeChatClearModal(row);
-    });
   });
   SYSTEM_DEPARTMENTS.forEach((department) => {
     if (!existing.has(department)) {
