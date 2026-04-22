@@ -12622,12 +12622,6 @@ function renderOtherSettingsPanel() {
             }).join("")}
                 </div>
               </div>
-              <div class="other-settings-block task-format-close-confirm-block">
-                <label class="settings-field-label" for="telegramCloseAcceptedInput">Текст после подтверждения закрытия в Telegram</label>
-                <textarea id="telegramCloseAcceptedInput" class="telegram-close-accepted-input" rows="3" placeholder="Задача [ид_задачи]: …">${escapeHtmlText(
-                  String(displaySettings.telegramCloseAcceptedTemplate || "")
-                )}</textarea>
-              </div>
             </div>
             <aside class="telegram-emulator" id="taskMsgTelegramEmulator" aria-label="Предпросмотр Telegram">
               <div class="telegram-emulator-heading">Предпросмотр</div>
@@ -12863,31 +12857,6 @@ function attachOtherSettingsHandlers() {
   };
   adminChatInput?.addEventListener("change", commitAdminChatId);
   adminChatInput?.addEventListener("blur", commitAdminChatId);
-
-  const closeAcceptedInput = document.getElementById("telegramCloseAcceptedInput");
-  const commitCloseAccepted = () => {
-    if (!closeAcceptedInput) return;
-    displaySettings.telegramCloseAcceptedTemplate = String(closeAcceptedInput.value || "").trim();
-    saveDisplaySettings();
-  };
-  closeAcceptedInput?.addEventListener("input", () => {
-    commitCloseAccepted();
-    if (typeof window._mbcRefreshTaskFormatPreview === "function") {
-      window._mbcRefreshTaskFormatPreview();
-    }
-  });
-  closeAcceptedInput?.addEventListener("blur", () => {
-    commitCloseAccepted();
-    if (typeof window._mbcRefreshTaskFormatPreview === "function") {
-      window._mbcRefreshTaskFormatPreview();
-    }
-  });
-  closeAcceptedInput?.addEventListener("change", () => {
-    commitCloseAccepted();
-    if (typeof window._mbcRefreshTaskFormatPreview === "function") {
-      window._mbcRefreshTaskFormatPreview();
-    }
-  });
 
   const gsEnabledEl = document.getElementById("googleSheetsEnabledCheckbox");
   const gsAutoEl = document.getElementById("googleSheetsAutoSyncEnabledCheckbox");

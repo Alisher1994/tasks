@@ -975,10 +975,6 @@ async function broadcastTaskCardUpdate(payload, token, row, reasonText, excludeC
   }
 }
 
-function defaultAcceptTemplate() {
-  return "Задача закрыта и подтверждена.";
-}
-
 export async function handleTelegramWebhook(req, res, pool) {
   const secret = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
   if (secret) {
@@ -1845,16 +1841,12 @@ async function handleCallback(q, pool, token) {
         ? `Закрытие подтверждено: ${requesterAssignee} (${empName || "—"}), ${confirmedAt}`
         : `Закрытие подтверждено: ${empName || "—"}, ${confirmedAt}`;
       delete payload.telegramCloseRequests[taskId];
-      const ds = payload.displaySettings || {};
-      const tpl = String(ds.telegramCloseAcceptedTemplate || "").trim() || defaultAcceptTemplate();
       appendTaskHistory(payload, taskId, empName, `Telegram: закрытие задачи подтверждено (${confirmedAt})`);
       await savePayload(pool, payload);
 
       const sourceMid = Number(req.sourceMessageId) || 0;
       const requesterRow = buildTaskRowForChat(payload, row, req.chatId);
-      const tplText = String(applySimpleTemplate(tpl, requesterRow) || "").trim();
-      const confirmBlock = [`✅ ${confirmInfo}`, tplText].filter(Boolean).join("\n");
-      const requesterText = `${buildFullTaskMessage(requesterRow)}\n\n${confirmBlock}`;
+      const requesterText = `${buildFullTaskMessage(requesterRow)}\n\n✅ ${confirmInfo}`;
       if (sourceMid) {
         await tg(token, "editMessageText", {
           chat_id: req.chatId,

@@ -729,6 +729,7 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   box-sizing: border-box;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-x: hidden;
   overflow-y: auto;
   cursor: text;
 }
@@ -743,6 +744,7 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
   padding: 3px 8px;
   margin: 1px 2px;
   border-radius: 6px;
@@ -773,7 +775,9 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
 }
 
 .template-token-chip__label {
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .template-token-chip__remove {
