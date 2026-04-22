@@ -1010,57 +1010,35 @@ function isBlankTaskCell(value) {
   return s === "" || s === "-" || s === "—" || s.toLowerCase() === "null" || s.toLowerCase() === "undefined";
 }
 
-function getTaskTrashIds(payload) {
-  const out = new Set();
-  const rows = Array.isArray(payload?.trashBySection?.tasks) ? payload.trashBySection.tasks : [];
-  for (const row of rows) {
-    const id = String(row?.[TASK_COLUMNS.number] || "").trim();
-    if (id) out.add(id);
-  }
-  return out;
-}
-
 function mergeTaskRowsWithCurrent(currentPayload, nextPayload) {
   const currentTasks = getTasksSection(currentPayload);
   const nextTasks = getTasksSection(nextPayload);
   if (!Array.isArray(currentTasks?.rows) || !Array.isArray(nextTasks?.rows)) return;
 
-  const deletedIds = new Set([
-    ...getTaskTrashIds(currentPayload),
-    ...getTaskTrashIds(nextPayload)
-  ]);
-  const currentById = new Map();
-  for (const row of currentTasks.rows) {
-    const id = String(row?.[TASK_COLUMNS.number] || "").trim();
-    if (!id) continue;
-    currentById.set(id, row);
-  }
-
-  const seen = new Set();
-  const mergedRows = [];
+  const nextById = new Map();
   for (const row of nextTasks.rows) {
     const id = String(row?.[TASK_COLUMNS.number] || "").trim();
-    if (id && deletedIds.has(id)) continue;
-    if (id) seen.add(id);
-    const currentRow = id ? currentById.get(id) : null;
-    if (!currentRow || !Array.isArray(row)) {
-      mergedRows.push(row);
-      continue;
+    if (!id) continue;
+    nextById.set(id, row);
+  }
+
+  // Важно: источник истины по составу задач — текущая БД.
+  // Webhook может только обновлять существующие задачи, но не "возрождать"
+  // удалённые/архивные записи из устаревшего снимка.
+  const mergedRows = currentTasks.rows.map((currentRow) => {
+    const id = String(currentRow?.[TASK_COLUMNS.number] || "").trim();
+    const nextRow = id ? nextById.get(id) : null;
+    if (!Array.isArray(nextRow)) {
+      return Array.isArray(currentRow) ? [...currentRow] : currentRow;
     }
-    const merged = [...row];
+    const merged = [...nextRow];
     for (let col = 0; col < TASK_ROW_LENGTH; col += 1) {
       if (isBlankTaskCell(merged[col]) && !isBlankTaskCell(currentRow[col])) {
         merged[col] = currentRow[col];
       }
     }
-    mergedRows.push(merged);
-  }
-
-  for (const row of currentTasks.rows) {
-    const id = String(row?.[TASK_COLUMNS.number] || "").trim();
-    if (!id || seen.has(id) || deletedIds.has(id)) continue;
-    mergedRows.push(Array.isArray(row) ? [...row] : row);
-  }
+    return merged;
+  });
 
   nextTasks.rows = mergedRows;
 }
