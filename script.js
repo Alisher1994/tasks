@@ -6793,8 +6793,7 @@ function mountTasksGanttChart(entries) {
     gantt.config.scale_height = 68;
     gantt.config.scales = [
       { unit: "year", step: 1, format: "%Y" },
-      { unit: "month", step: 1, format: (date) => formatGanttScaleMonthShortRu(date) },
-      { unit: "day", step: 1, format: (date) => formatGanttScaleDayNumRu(date) }
+      { unit: "month", step: 1, format: (date) => formatGanttScaleMonthShortRu(date) }
     ];
   }
   const bounds = getTasksGanttScaleBounds(data, scaleMode);
