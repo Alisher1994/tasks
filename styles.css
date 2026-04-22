@@ -5549,6 +5549,9 @@ td.object-photo-col {
   margin-bottom: 6px;
   text-align: left;
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .task-hierarchy-item:hover {
@@ -5561,6 +5564,48 @@ td.object-photo-col {
   background: #eef2ff;
   color: #364592;
   font-weight: 700;
+}
+
+.task-hierarchy-item.is-selected .task-hierarchy-item-meta {
+  color: #6e7ea0;
+  font-weight: 500;
+}
+
+.task-hierarchy-item-main {
+  display: block;
+}
+
+.task-hierarchy-item-meta {
+  display: block;
+  font-size: 11px;
+  color: #7a899f;
+  line-height: 1.25;
+  font-weight: 500;
+}
+
+.task-hierarchy-item-pin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  font-size: 10px;
+  line-height: 1.15;
+  font-weight: 600;
+  margin-top: 1px;
+}
+
+.task-hierarchy-item-pin .lucide-icon {
+  width: 11px;
+  height: 11px;
+  stroke-width: 2.2;
+}
+
+.task-hierarchy-item-pin.is-pinned {
+  color: #5162b5;
+}
+
+.task-hierarchy-item-pin.is-unpinned {
+  color: #8a97ab;
 }
 
 .task-hierarchy-empty {

@@ -10945,6 +10945,18 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
   overlay.className = "responsible-modal-overlay";
   const phases = getUniqueValues(getSectionById("phases")?.rows || [], 1);
   const employees = getEmployeesList();
+  const employeeMetaByName = new Map(
+    (getSectionById("employees")?.rows || []).map((row) => {
+      const fullName = normalizePersonName(row[EMPLOYEE_COLUMNS.fullName]);
+      return [
+        fullName,
+        {
+          department: String(row[EMPLOYEE_COLUMNS.department] || "").trim(),
+          position: String(row[EMPLOYEE_COLUMNS.position] || "").trim()
+        }
+      ];
+    }).filter(([name]) => name)
+  );
   const state = {
     phase: String(taskRow[TASK_COLUMNS.phase] || "").trim(),
     section: String(taskRow[TASK_COLUMNS.phaseSection] || "").trim(),
@@ -11009,6 +11021,12 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
   const fillList = (el, options, selectedValue, levelKey) => {
     if (!(el instanceof HTMLElement)) return;
     const query = String(state.search?.[levelKey] || "").trim().toLowerCase();
+    const currentRow = levelKey === "responsible"
+      ? getDataRowByHierarchy(state.phase, state.section, state.subsection)
+      : null;
+    const pinnedSet = levelKey === "responsible"
+      ? new Set(parseEmployeesCell(currentRow?.[4]).map((name) => normalizePersonName(name)).filter(Boolean))
+      : null;
     const list = Array.from(new Set((options || []).map((x) => String(x || "").trim()).filter(Boolean)))
       .filter((v) => !query || v.toLowerCase().includes(query));
     if (!list.length) {
@@ -11021,9 +11039,28 @@ function openTaskHierarchyQuickSelectModal(taskRow, onApply) {
           Array.isArray(selectedValue)
             ? selectedValue.includes(v) ? "is-selected" : ""
             : v === selectedValue ? "is-selected" : ""
-        }" data-task-hierarchy-item="${escapeHtmlAttr(levelKey)}" data-value="${escapeHtmlAttr(v)}">${escapeHtmlText(v)}</button>
+        }" data-task-hierarchy-item="${escapeHtmlAttr(levelKey)}" data-value="${escapeHtmlAttr(v)}">${
+          levelKey === "responsible"
+            ? (() => {
+              const normalized = normalizePersonName(v);
+              const isPinned = pinnedSet.has(normalized);
+              const meta = employeeMetaByName.get(normalized) || {};
+              const position = String(meta.position || "").trim() || "Без должности";
+              const department = String(meta.department || "").trim() || "Без отдела";
+              return `
+                <span class="task-hierarchy-item-main">${escapeHtmlText(v)}</span>
+                <span class="task-hierarchy-item-meta">${escapeHtmlText(`${position} • ${department}`)}</span>
+                <span class="task-hierarchy-item-pin ${isPinned ? "is-pinned" : "is-unpinned"}">
+                  <i data-lucide="${isPinned ? "lock" : "lock-open"}" class="lucide-icon" aria-hidden="true"></i>
+                  <span>${isPinned ? "Закреплен" : "Не закреплен"}</span>
+                </span>
+              `;
+            })()
+            : escapeHtmlText(v)
+        }</button>
       `)
       .join("");
+    if (levelKey === "responsible") initLucideIcons();
   };
 
   const refreshCascade = () => {
