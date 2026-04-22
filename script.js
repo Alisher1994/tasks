@@ -3003,6 +3003,16 @@ const TASK_GANTT_SCALE_OPTIONS = [
   { id: "month", label: "Месяц" },
   { id: "year", label: "Год" }
 ];
+const TASK_GANTT_GRID_COLUMNS = [
+  { id: "sourceTaskId", label: "ID", width: 60, align: "center", fixed: true, defaultVisible: true },
+  { id: "text", label: "Задача", width: 215, align: "left", tree: true, defaultVisible: true },
+  { id: "responsible", label: "Ответственный", width: 140, align: "left", defaultVisible: true },
+  { id: "priority", label: "Приоритет", width: 95, align: "center", defaultVisible: true },
+  { id: "start_date", label: "Начало", width: 120, align: "center", defaultVisible: true },
+  { id: "end_date", label: "Конец", width: 120, align: "center", defaultVisible: true },
+  { id: "due_state", label: "Срок", width: 70, align: "center", defaultVisible: true }
+];
+const TASKS_GANTT_DEFAULT_ZOOM_PERCENT = 100;
 const TASK_IMPORT_COLUMNS = [
   { key: "object", label: "Название объекта", aliases: ["Название объекта", "Объект"] },
   { key: "priority", label: "Приоритет", aliases: ["Приоритет"] },
@@ -3379,7 +3389,13 @@ let displaySettings = {
   /** status | none | object | assignee | phase | section | subsection | overdue | priority */
   tasksGanttGroupBy: "status",
   /** day | month | year */
-  tasksGanttScale: "month"
+  tasksGanttScale: "month",
+  /** 60..180 — масштаб таймлайна в % */
+  tasksGanttZoomPercent: TASKS_GANTT_DEFAULT_ZOOM_PERCENT,
+  /** порядок колонок сетки слева в Ганте */
+  tasksGanttColumnOrder: TASK_GANTT_GRID_COLUMNS.map((col) => col.id),
+  /** видимость колонок сетки слева в Ганте */
+  tasksGanttColumnVisibility: Object.fromEntries(TASK_GANTT_GRID_COLUMNS.map((col) => [col.id, col.defaultVisible !== false]))
 };
 let taskMultiState = {};
 let taskAttachmentsByTaskId = {};
@@ -3552,6 +3568,8 @@ function normalizeTasksListDisplaySettings() {
   let n = Number(displaySettings.tasksListPageSize);
   if (!Number.isFinite(n)) n = TASKS_DEFAULT_LIST_PAGE_SIZE;
   displaySettings.tasksListPageSize = Math.min(500, Math.max(5, Math.floor(n)));
+  displaySettings.tasksGanttZoomPercent = normalizeTasksGanttZoomPercent(displaySettings.tasksGanttZoomPercent);
+  ensureTasksGanttColumnsDisplaySettings();
 }
 
 function getTasksListPageSize() {
@@ -4436,6 +4454,19 @@ function renderTable() {
           saveDisplaySettings();
           renderTablePreserveScroll();
         });
+      });
+      const ganttZoomRange = document.getElementById("tasksGanttZoomRange");
+      const ganttZoomValue = document.getElementById("tasksGanttZoomValue");
+      ganttZoomRange?.addEventListener("input", () => {
+        const zoom = normalizeTasksGanttZoomPercent(ganttZoomRange.value);
+        if (ganttZoomValue) ganttZoomValue.textContent = `${zoom}%`;
+      });
+      ganttZoomRange?.addEventListener("change", () => {
+        const zoom = normalizeTasksGanttZoomPercent(ganttZoomRange.value);
+        displaySettings.tasksGanttZoomPercent = zoom;
+        if (ganttZoomValue) ganttZoomValue.textContent = `${zoom}%`;
+        saveDisplaySettings();
+        renderTablePreserveScroll();
       });
       requestAnimationFrame(() => mountTasksGanttChart(allFilteredEntries));
       initLucideIcons();
@@ -6294,6 +6325,62 @@ function normalizeTasksGanttScale(value) {
   return TASK_GANTT_SCALE_OPTIONS.some((x) => x.id === v) ? v : "month";
 }
 
+function normalizeTasksGanttZoomPercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return TASKS_GANTT_DEFAULT_ZOOM_PERCENT;
+  return Math.min(180, Math.max(60, Math.round(n)));
+}
+
+function ensureTasksGanttColumnsDisplaySettings() {
+  const fixedId = String(TASK_GANTT_GRID_COLUMNS[0]?.id || "sourceTaskId");
+  const defaultOrder = TASK_GANTT_GRID_COLUMNS.map((col) => col.id);
+  const defaultVisibility = Object.fromEntries(TASK_GANTT_GRID_COLUMNS.map((col) => [col.id, col.defaultVisible !== false]));
+  const rawOrder = Array.isArray(displaySettings.tasksGanttColumnOrder) ? displaySettings.tasksGanttColumnOrder : defaultOrder;
+  const seen = new Set();
+  const normalizedOrder = [];
+  rawOrder.forEach((id) => {
+    const key = String(id || "").trim();
+    if (!key || seen.has(key) || !defaultOrder.includes(key)) return;
+    seen.add(key);
+    normalizedOrder.push(key);
+  });
+  defaultOrder.forEach((id) => {
+    if (!seen.has(id)) normalizedOrder.push(id);
+  });
+  const fixedPos = normalizedOrder.indexOf(fixedId);
+  if (fixedPos > 0) {
+    normalizedOrder.splice(fixedPos, 1);
+    normalizedOrder.unshift(fixedId);
+  }
+
+  const rawVisibility = displaySettings.tasksGanttColumnVisibility && typeof displaySettings.tasksGanttColumnVisibility === "object"
+    ? displaySettings.tasksGanttColumnVisibility
+    : {};
+  const normalizedVisibility = { ...defaultVisibility };
+  defaultOrder.forEach((id) => {
+    if (id in rawVisibility) {
+      normalizedVisibility[id] = rawVisibility[id] !== false;
+    }
+  });
+  normalizedVisibility[fixedId] = true;
+  if (!normalizedOrder.some((id) => id !== fixedId && normalizedVisibility[id] !== false)) {
+    const firstNonFixed = normalizedOrder.find((id) => id !== fixedId);
+    if (firstNonFixed) normalizedVisibility[firstNonFixed] = true;
+  }
+
+  displaySettings.tasksGanttColumnOrder = normalizedOrder;
+  displaySettings.tasksGanttColumnVisibility = normalizedVisibility;
+}
+
+function getTasksGanttVisibleColumns() {
+  ensureTasksGanttColumnsDisplaySettings();
+  const defs = new Map(TASK_GANTT_GRID_COLUMNS.map((col) => [col.id, col]));
+  return displaySettings.tasksGanttColumnOrder
+    .map((id) => defs.get(id))
+    .filter(Boolean)
+    .filter((col) => displaySettings.tasksGanttColumnVisibility[col.id] !== false);
+}
+
 function getTasksGanttGroupLabel(row, groupBy) {
   if (groupBy === "status") return String(row?.[TASK_COLUMNS.status] || "").trim() || "— без статуса —";
   if (groupBy === "object") return String(row?.[TASK_COLUMNS.object] || "").trim() || "— без объекта —";
@@ -6361,6 +6448,78 @@ function formatGanttScaleDayShortRu(date) {
 function formatGanttScaleMonthShortRu(date) {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
   return GANTT_MONTHS_SHORT_RU[date.getMonth()] || "";
+}
+
+function getTasksGanttMinColumnWidth(scaleMode, zoomPercent) {
+  const zoom = normalizeTasksGanttZoomPercent(zoomPercent) / 100;
+  const base = scaleMode === "day" ? 70 : scaleMode === "year" ? 48 : 58;
+  return Math.round(base * zoom);
+}
+
+function buildTasksGanttGridColumns() {
+  const visibleColumns = getTasksGanttVisibleColumns();
+  const byId = {
+    sourceTaskId: {
+      name: "sourceTaskId",
+      label: "ID",
+      width: 60,
+      align: "center",
+      template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.sourceTaskId || "")))
+    },
+    text: {
+      name: "text",
+      label: "Задача",
+      tree: true,
+      width: 215,
+      align: "left",
+      template: (task) => escapeHtmlText(String(task.text || ""))
+    },
+    responsible: {
+      name: "responsible",
+      label: "Ответственный",
+      align: "left",
+      width: 140,
+      template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.responsible || "—")))
+    },
+    priority: {
+      name: "priority",
+      label: "Приоритет",
+      align: "center",
+      width: 95,
+      template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.priority || "—")))
+    },
+    start_date: {
+      name: "start_date",
+      label: "Начало",
+      align: "center",
+      width: 120,
+      template: (task) => formatGanttDateLabel(task.start_date)
+    },
+    end_date: {
+      name: "end_date",
+      label: "Конец",
+      align: "center",
+      width: 120,
+      template: (task) => formatGanttDateLabel(task.end_date)
+    },
+    due_state: {
+      name: "due_state",
+      label: "Срок",
+      align: "center",
+      width: 70,
+      template: (task) => {
+        if (task.type === "project") return "";
+        const text = String(task.dueStateText || "—");
+        const kind = String(task.dueStateKind || "none");
+        const css = kind === "late" ? "mb-gantt-due-late" : kind === "left" ? "mb-gantt-due-left" : "";
+        return `<span class="mb-gantt-due ${css}">${escapeHtmlText(text)}</span>`;
+      }
+    }
+  };
+  const columns = visibleColumns
+    .map((col) => byId[col.id])
+    .filter(Boolean);
+  return columns.length ? columns : [byId.sourceTaskId, byId.text];
 }
 
 function buildTasksGanttDataset(entries, groupBy) {
@@ -6492,30 +6651,13 @@ function mountTasksGanttChart(entries) {
   gantt.config.select_task = false;
   gantt.config.autosize = false;
   gantt.config.row_height = 36;
-  gantt.config.grid_width = 790;
   gantt.config.scale_height = 44;
-  gantt.config.columns = [
-    { name: "sourceTaskId", label: "ID", width: 60, align: "center", template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.sourceTaskId || ""))) },
-    { name: "text", label: "Задача", tree: true, width: 215, template: (task) => escapeHtmlText(String(task.text || "")) },
-    { name: "responsible", label: "Ответственный", align: "left", width: 140, template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.responsible || "—"))) },
-    { name: "priority", label: "Приоритет", align: "center", width: 95, template: (task) => (task.type === "project" ? "" : escapeHtmlText(String(task.priority || "—"))) },
-    { name: "start_date", label: "Начало", align: "center", width: 120, template: (task) => formatGanttDateLabel(task.start_date) },
-    { name: "end_date", label: "Конец", align: "center", width: 120, template: (task) => formatGanttDateLabel(task.end_date) },
-    {
-      name: "due_state",
-      label: "Срок",
-      align: "center",
-      width: 70,
-      template: (task) => {
-        if (task.type === "project") return "";
-        const text = String(task.dueStateText || "—");
-        const kind = String(task.dueStateKind || "none");
-        const css = kind === "late" ? "mb-gantt-due-late" : kind === "left" ? "mb-gantt-due-left" : "";
-        return `<span class="mb-gantt-due ${css}">${escapeHtmlText(text)}</span>`;
-      }
-    }
-  ];
+  const gridColumns = buildTasksGanttGridColumns();
+  gantt.config.columns = gridColumns;
+  gantt.config.grid_width = Math.max(220, gridColumns.reduce((sum, col) => sum + (Number(col.width) || 120), 0) + 24);
   const scaleMode = normalizeTasksGanttScale(displaySettings.tasksGanttScale);
+  const zoomPercent = normalizeTasksGanttZoomPercent(displaySettings.tasksGanttZoomPercent);
+  gantt.config.min_column_width = getTasksGanttMinColumnWidth(scaleMode, zoomPercent);
   if (scaleMode === "day") {
     gantt.config.scales = [
       { unit: "day", step: 1, format: (date) => formatGanttScaleDayLongRu(date) },
@@ -8777,6 +8919,7 @@ function renderTasksScreenModeSwitch(section) {
     : "flat";
   const groupBy = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
   const scale = normalizeTasksGanttScale(displaySettings.tasksGanttScale);
+  const zoom = normalizeTasksGanttZoomPercent(displaySettings.tasksGanttZoomPercent);
   const groupByLabel = TASK_GANTT_GROUP_BY_OPTIONS.find((opt) => opt.id === groupBy)?.label || "Без группировки";
   const leftControls = mode === "graph"
     ? `<div class="tasks-screen-switch-left">
@@ -8795,6 +8938,11 @@ function renderTasksScreenModeSwitch(section) {
           </label>
         </div>
         <button type="button" class="tasks-gantt-groupby-btn" id="tasksGanttGroupByBtn" title="Выбрать группировку">${escapeHtmlText(groupByLabel)}</button>
+        <label class="tasks-gantt-zoom-box" for="tasksGanttZoomRange">
+          <span class="tasks-gantt-zoom-label">Масштаб</span>
+          <input id="tasksGanttZoomRange" type="range" min="60" max="180" step="5" value="${zoom}" />
+          <span class="tasks-gantt-zoom-value" id="tasksGanttZoomValue">${zoom}%</span>
+        </label>
       </div>`
     : `<div class="tasks-screen-switch-left"></div>`;
   return `
@@ -12025,7 +12173,11 @@ function attachHeaderActionHandlers(section, filteredEntries) {
 
   if (toggleTableSettingsBtn) {
     toggleTableSettingsBtn.addEventListener("click", () => {
-      openTableSettingsModal(section);
+      if (section.id === "tasks" && displaySettings.tasksListBrowseMode === "graph") {
+        openTasksGanttTableSettingsModal();
+      } else {
+        openTableSettingsModal(section);
+      }
     });
   }
 
@@ -12999,6 +13151,8 @@ function restoreDisplaySettings() {
     }
     displaySettings.tasksGanttGroupBy = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
     displaySettings.tasksGanttScale = normalizeTasksGanttScale(displaySettings.tasksGanttScale);
+    displaySettings.tasksGanttZoomPercent = normalizeTasksGanttZoomPercent(displaySettings.tasksGanttZoomPercent);
+    ensureTasksGanttColumnsDisplaySettings();
     let tps = Number(displaySettings.tasksListPageSize);
     if (!Number.isFinite(tps)) tps = 50;
     displaySettings.tasksListPageSize = Math.min(500, Math.max(5, Math.floor(tps)));
@@ -14513,6 +14667,122 @@ function openTableSettingsModal(section) {
     if (event.target === overlay) overlay.remove();
   });
 
+  renderList();
+}
+
+function openTasksGanttTableSettingsModal() {
+  ensureTasksGanttColumnsDisplaySettings();
+  const fixedId = String(TASK_GANTT_GRID_COLUMNS[0]?.id || "sourceTaskId");
+  const titleById = new Map(TASK_GANTT_GRID_COLUMNS.map((col) => [col.id, col.label]));
+  const initialOrder = [...displaySettings.tasksGanttColumnOrder];
+  const initialVisibility = { ...displaySettings.tasksGanttColumnVisibility };
+  const draftOrder = [...initialOrder];
+  const draftVisibility = { ...initialVisibility };
+  let dragId = "";
+
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal table-settings-modal">
+      <h3>${withIcon("settings", "Настройки таблицы Ганта")}</h3>
+      <div class="table-settings-dnd-list" id="tasksGanttSettingsDndList"></div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary tasks-gantt-settings-cancel-btn">Отмена</button>
+        <button type="button" class="responsible-apply-btn tasks-gantt-settings-apply-btn">Сохранить</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  initLucideIcons();
+
+  const listEl = overlay.querySelector("#tasksGanttSettingsDndList");
+  const cancelBtn = overlay.querySelector(".tasks-gantt-settings-cancel-btn");
+  const applyBtn = overlay.querySelector(".tasks-gantt-settings-apply-btn");
+
+  const renderList = () => {
+    if (!(listEl instanceof HTMLElement)) return;
+    listEl.innerHTML = draftOrder.map((colId, position) => {
+      const isFixed = colId === fixedId;
+      const checked = draftVisibility[colId] !== false;
+      const cbId = `tasksGanttColVisible_${colId}`;
+      return `
+        <div class="table-settings-dnd-item${isFixed ? " is-fixed" : ""}" data-gantt-col-id="${escapeHtmlAttr(colId)}" draggable="${isFixed ? "false" : "true"}">
+          <span class="table-settings-dnd-pos">${position + 1}</span>
+          <input id="${escapeHtmlAttr(cbId)}" type="checkbox" class="table-settings-col-visible" data-gantt-col-id="${escapeHtmlAttr(colId)}" ${checked ? "checked" : ""} ${isFixed ? "disabled" : ""} />
+          <label for="${escapeHtmlAttr(cbId)}" class="table-settings-dnd-title">${escapeHtmlText(String(titleById.get(colId) || colId))}</label>
+          <span class="table-settings-dnd-handle" title="${isFixed ? "Фиксированный столбец" : "Перетащите мышью"}">
+            <i data-lucide="${isFixed ? "lock" : "grip-vertical"}" class="lucide-icon" aria-hidden="true"></i>
+          </span>
+        </div>
+      `;
+    }).join("");
+    initLucideIcons();
+
+    Array.from(listEl.querySelectorAll(".table-settings-col-visible")).forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        const colId = String(checkbox.getAttribute("data-gantt-col-id") || "").trim();
+        if (!colId) return;
+        draftVisibility[colId] = checkbox.checked;
+        draftVisibility[fixedId] = true;
+        const hasVisible = draftOrder.some((id) => id !== fixedId && draftVisibility[id] !== false);
+        if (!hasVisible) {
+          draftVisibility[colId] = true;
+          checkbox.checked = true;
+        }
+      });
+    });
+
+    const items = Array.from(listEl.querySelectorAll(".table-settings-dnd-item"));
+    items.forEach((item) => {
+      const colId = String(item.getAttribute("data-gantt-col-id") || "").trim();
+      if (!colId || colId === fixedId) return;
+      item.addEventListener("dragstart", (event) => {
+        dragId = colId;
+        item.classList.add("is-dragging");
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", colId);
+        }
+      });
+      item.addEventListener("dragend", () => {
+        dragId = "";
+        items.forEach((el) => el.classList.remove("is-dragging", "drop-target"));
+      });
+      item.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        if (!dragId || dragId === colId) return;
+        items.forEach((el) => el.classList.remove("drop-target"));
+        item.classList.add("drop-target");
+      });
+      item.addEventListener("dragleave", () => {
+        item.classList.remove("drop-target");
+      });
+      item.addEventListener("drop", (event) => {
+        event.preventDefault();
+        item.classList.remove("drop-target");
+        if (!dragId || dragId === colId) return;
+        const from = draftOrder.indexOf(dragId);
+        const to = draftOrder.indexOf(colId);
+        if (from < 1 || to < 1) return;
+        draftOrder.splice(from, 1);
+        draftOrder.splice(to, 0, dragId);
+        renderList();
+      });
+    });
+  };
+
+  cancelBtn?.addEventListener("click", () => overlay.remove());
+  applyBtn?.addEventListener("click", () => {
+    displaySettings.tasksGanttColumnOrder = [...draftOrder];
+    displaySettings.tasksGanttColumnVisibility = { ...draftVisibility, [fixedId]: true };
+    ensureTasksGanttColumnsDisplaySettings();
+    saveDisplaySettings();
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
   renderList();
 }
 

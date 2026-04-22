@@ -4678,6 +4678,10 @@ body.shared-report-mode .sidebar {
     text-align: center;
     max-width: 9.5rem;
   }
+
+  #tasksGanttZoomRange {
+    width: 120px;
+  }
 }
 
 .table-card--tasks-object-picker .tasks-object-picker-shell {
@@ -4732,6 +4736,36 @@ body.shared-report-mode .sidebar {
 .tasks-gantt-groupby-btn:focus-visible {
   outline: 2px solid #8b8dc9;
   outline-offset: 2px;
+}
+
+.tasks-gantt-zoom-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d4deea;
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 6px 10px;
+  min-height: 36px;
+}
+
+.tasks-gantt-zoom-label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+#tasksGanttZoomRange {
+  width: 150px;
+}
+
+.tasks-gantt-zoom-value {
+  min-width: 42px;
+  text-align: right;
+  font-size: 12px;
+  color: #334155;
+  font-weight: 700;
 }
 
 .tasks-gantt-modern-chart {
