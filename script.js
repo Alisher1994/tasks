@@ -2198,11 +2198,14 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
 
   const photoRefs = resolveTelegramSendablePhotoRefs(taskRow, token);
   const shortText = `У вас есть задача ID ${String(taskRow[TASK_COLUMNS.number] || "").trim() || "—"}.\nЧтобы прочитать полное содержание, нажмите «📖 Прочитать».`;
+  const directAssignee = targetAssigneeNames.length === 1 ? targetAssigneeNames[0] : "";
   const results = await Promise.all(
     targets.map(async (t) => {
       try {
         const isActionRecipient = actionChatIds.has(String(t.chatId || "").trim());
-        const outgoingText = String(isActionRecipient ? shortText : text).replace(/\r\n?/g, "\n");
+        const scopedRow = directAssignee ? buildTaskRowForAssignee(taskRow, directAssignee) : taskRow;
+        const scopedText = applyTaskMessageTemplate(template, scopedRow);
+        const outgoingText = String(isActionRecipient ? shortText : scopedText).replace(/\r\n?/g, "\n");
         const replyMarkup = !options.skipInlineKeyboard && isActionRecipient
           ? buildTelegramReadInlineKeyboardForTask(taskRow[TASK_COLUMNS.number])
           : undefined;
@@ -7760,6 +7763,73 @@ function getTaskMultiAssigneeMap(taskId, { create = false } = {}) {
   return taskMultiState[id];
 }
 
+function getTaskAssigneeStateEntry(map, assigneeName) {
+  if (!map || typeof map !== "object" || Array.isArray(map)) return null;
+  const exact = map[assigneeName];
+  if (exact && typeof exact === "object" && !Array.isArray(exact)) {
+    return { key: assigneeName, state: exact };
+  }
+  const wanted = String(assigneeName || "").trim().toLowerCase();
+  if (!wanted) return null;
+  for (const key of Object.keys(map)) {
+    if (String(key).startsWith("__")) continue;
+    if (String(key).toLowerCase() !== wanted) continue;
+    const state = map[key];
+    if (state && typeof state === "object" && !Array.isArray(state)) {
+      return { key, state };
+    }
+  }
+  return null;
+}
+
+function getTaskAssigneeState(taskRow, assigneeName, { create = false } = {}) {
+  const taskId = getTaskIdForMultiState(taskRow);
+  const assignee = normalizePersonName(assigneeName);
+  if (!taskId || !assignee) return null;
+  const map = getTaskMultiAssigneeMap(taskId, { create });
+  if (!map) return null;
+  const found = getTaskAssigneeStateEntry(map, assignee);
+  if (found) return found.state;
+  if (!create) return null;
+  map[assignee] = {};
+  return map[assignee];
+}
+
+function getTaskSubtaskDueDate(taskRow, assigneeName) {
+  const baseDue = String(taskRow?.[TASK_COLUMNS.dueDate] || "").trim();
+  const state = getTaskAssigneeState(taskRow, assigneeName);
+  const ownDue = String(state?.dueDate || "").trim();
+  return ownDue || baseDue;
+}
+
+function setTaskSubtaskDueDate(taskRow, assigneeName, dueDateValue) {
+  const state = getTaskAssigneeState(taskRow, assigneeName, { create: true });
+  if (!state) return false;
+  const due = String(dueDateValue || "").trim();
+  if (due) {
+    state.dueDate = due;
+  } else {
+    delete state.dueDate;
+  }
+  return true;
+}
+
+function buildTaskRowForAssignee(taskRow, assigneeName) {
+  const row = Array.isArray(taskRow) ? taskRow.slice() : [];
+  const assignee = normalizePersonName(assigneeName);
+  if (!assignee) return row;
+  const state = getTaskAssigneeState(taskRow, assignee);
+  if (!state) return row;
+  const status = String(state.status || "").trim();
+  const comment = String(state.comment || "").trim();
+  const due = String(state.dueDate || "").trim();
+  if (status) row[TASK_COLUMNS.status] = status;
+  if (comment) row[TASK_COLUMNS.plan] = comment;
+  if (due) row[TASK_COLUMNS.dueDate] = due;
+  row[TASK_COLUMNS.assignedResponsible] = assignee;
+  return row;
+}
+
 function getTaskAttachmentStoreMap(taskId, { create = false } = {}) {
   const id = String(taskId || "").trim();
   if (!id) return null;
@@ -8548,7 +8618,13 @@ function renderTaskAccordionReadonlyCell(taskRow, colIndex, assigneeName, assign
   if (colIndex === TASK_COLUMNS.closedDate && assigneeState?.closedAt) {
     return escapeHtmlText(String(assigneeState.closedAt));
   }
-  if (colIndex === TASK_COLUMNS.addedDate || colIndex === TASK_COLUMNS.dueDate || colIndex === TASK_COLUMNS.closedDate || colIndex === TASK_COLUMNS.lastSentAt) {
+  if (colIndex === TASK_COLUMNS.dueDate) {
+    const subDue = getTaskSubtaskDueDate(taskRow, assigneeName);
+    const shown = subDue ? formatStoredDateForDisplay(subDue) : "—";
+    if (!taskId || !assigneeName) return escapeHtmlText(shown);
+    return `<span class="task-sub-due-edit" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(assigneeName)}" title="Сменить срок подзадачи">${escapeHtmlText(shown)}</span>`;
+  }
+  if (colIndex === TASK_COLUMNS.addedDate || colIndex === TASK_COLUMNS.closedDate || colIndex === TASK_COLUMNS.lastSentAt) {
     return escapeHtmlText(String(parentValue || "").trim() || "—");
   }
   return escapeHtmlText(String(parentValue ?? "").trim() || "—");
@@ -10140,6 +10216,30 @@ function attachTaskAccordionHandlers(section) {
       );
     });
   });
+  document.querySelectorAll(".task-sub-due-edit").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const taskId = String(el.getAttribute("data-task-id") || "").trim();
+      const assignee = normalizePersonName(el.getAttribute("data-assignee") || "");
+      if (!taskId || !assignee) return;
+      const tasks = getSectionById("tasks");
+      const row = (tasks?.rows || []).find((r) => String(r[TASK_COLUMNS.number] || "").trim() === taskId);
+      if (!row) return;
+      openDatePickerModal(
+        "Плановый срок устранения (подзадача)",
+        getTaskSubtaskDueDate(row, assignee),
+        (value) => {
+          setTaskSubtaskDueDate(row, assignee, value);
+        },
+        {
+          taskId,
+          columnLabel: `Плановый срок устранения (подзадача: ${assignee})`,
+          getOld: () => getTaskSubtaskDueDate(row, assignee)
+        }
+      );
+    });
+  });
   document.querySelectorAll(".task-sub-view-btn").forEach((el) => {
     el.addEventListener("click", (event) => {
       event.preventDefault();
@@ -11416,6 +11516,10 @@ function attachHeaderActionHandlers(section, filteredEntries) {
 
   if (addRowBtn) {
     addRowBtn.addEventListener("click", () => {
+      if (section.id === "tasks") {
+        statusTabBySection[section.id] = "all";
+        resetTasksListPagingWindow();
+      }
       addEmptyRow(section);
       saveSectionsData();
       renderTablePreserveScroll();

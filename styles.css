@@ -5425,6 +5425,18 @@ td.object-photo-col {
   color: #4a52a6;
 }
 
+.task-sub-due-edit {
+  color: #334a72;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.task-sub-due-edit:hover {
+  color: #4a52a6;
+}
+
 .task-hierarchy-modal {
   width: min(960px, 96vw);
   max-height: min(92vh, 860px);
