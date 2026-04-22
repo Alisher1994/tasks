@@ -672,9 +672,10 @@ app.get("/api/auth/me", authMiddleware, (req, res) => {
 
 app.get("/api/data", authMiddleware, async (_req, res) => {
   try {
-    const { rows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
+    const { rows } = await pool.query("SELECT payload, updated_at FROM app_state WHERE id = 1");
     const payload = rows[0]?.payload ?? null;
-    return res.json({ data: payload });
+    const rev = rows[0]?.updated_at ? Date.parse(rows[0].updated_at) : 0;
+    return res.json({ data: payload, rev: Number.isFinite(rev) ? rev : 0 });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: "Ошибка чтения данных" });
@@ -1007,15 +1008,25 @@ app.put("/api/data", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: v.error || "Некорректные данные" });
     }
     const data = typeof incomingData === "object" && incomingData ? { ...incomingData } : incomingData;
-    const { rows: currentRows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
+    const baseRev = Number(req.body?.baseRev) || 0;
+    const { rows: currentRows } = await pool.query("SELECT payload, updated_at FROM app_state WHERE id = 1");
     const currentPayload = currentRows[0]?.payload && typeof currentRows[0].payload === "object"
       ? currentRows[0].payload
       : {};
+    const currentRev = currentRows[0]?.updated_at ? Date.parse(currentRows[0].updated_at) : 0;
+    if (baseRev > 0 && Number.isFinite(currentRev) && currentRev > 0 && baseRev < currentRev) {
+      return res.status(409).json({
+        error: "stale_data",
+        message: "Данные устарели. Обновите таблицу и повторите действие.",
+        data: currentPayload,
+        rev: currentRev
+      });
+    }
     const mergedData = mergeTaskSyncSafeFields(currentPayload, data);
     // Служебные поля Telegram живут только на сервере. На клиентском PUT /api/data
     // мы всегда сохраняем их из текущего payload в БД (без доверия клиентскому слепку),
     // чтобы гонки между webhook и авто-sync не ломали сценарии комментариев/фото.
-    await pool.query(
+    const { rows: savedRows } = await pool.query(
       `INSERT INTO app_state (id, payload, updated_at)
        VALUES (1, $1::jsonb, NOW())
        ON CONFLICT (id) DO UPDATE SET
@@ -1048,10 +1059,12 @@ app.put("/api/data", authMiddleware, async (req, res) => {
            COALESCE(app_state.payload->'telegramLastSeenMessageByChat', '{}'::jsonb),
            true
          ),
-         updated_at = NOW()`,
+         updated_at = NOW()
+       RETURNING updated_at`,
       [JSON.stringify(mergedData)]
     );
-    return res.json({ ok: true });
+    const savedRev = savedRows[0]?.updated_at ? Date.parse(savedRows[0].updated_at) : Date.now();
+    return res.json({ ok: true, rev: Number.isFinite(savedRev) ? savedRev : Date.now() });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: "Ошибка сохранения" });

@@ -864,6 +864,7 @@ let hasUnsyncedLocalChanges = false;
 let serverPushInFlight = false;
 let pendingRemoteTasksRerender = false;
 let initialRemoteBundleLoaded = false;
+let serverDataRevision = 0;
 let authExpiredNoticeShown = false;
 let bootLoaderCloseTimer = null;
 let sessionIdleCheckTimer = null;
@@ -955,13 +956,26 @@ async function pushAppToServer() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${getAuthToken()}`
       },
-      body: JSON.stringify({ data })
+      body: JSON.stringify({ data, baseRev: serverDataRevision })
     });
     if (r.status === 401) {
       handleServerAuthExpired();
       return;
     }
+    if (r.status === 409) {
+      const j = await r.json().catch(() => null);
+      if (j?.data && typeof j.data === "object") {
+        applyServerBundle(j.data, { rerender: activeSectionId === "tasks" });
+      }
+      const rev = Number(j?.rev) || 0;
+      if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
+      hasUnsyncedLocalChanges = false;
+      return;
+    }
     if (r.ok) {
+      const j = await r.json().catch(() => null);
+      const rev = Number(j?.rev) || 0;
+      if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
       hasUnsyncedLocalChanges = false;
     }
   } finally {
@@ -991,13 +1005,26 @@ async function pushAppToServerImmediate() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${getAuthToken()}`
       },
-      body: JSON.stringify({ data })
+      body: JSON.stringify({ data, baseRev: serverDataRevision })
     });
     if (r.status === 401) {
       handleServerAuthExpired();
       return false;
     }
+    if (r.status === 409) {
+      const j = await r.json().catch(() => null);
+      if (j?.data && typeof j.data === "object") {
+        applyServerBundle(j.data, { rerender: true });
+      }
+      const rev = Number(j?.rev) || 0;
+      if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
+      hasUnsyncedLocalChanges = false;
+      return false;
+    }
     if (r.ok) {
+      const j = await r.json().catch(() => null);
+      const rev = Number(j?.rev) || 0;
+      if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
       hasUnsyncedLocalChanges = false;
     }
     return r.ok;
@@ -1123,6 +1150,8 @@ async function mergeTaskReadStateFromServer(localPayload) {
     });
     if (!r.ok) return;
     const json = await r.json().catch(() => null);
+    const rev = Number(json?.rev) || 0;
+    if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
     const remotePayload = json?.data;
     const localTasks = Array.isArray(localPayload.sections)
       ? localPayload.sections.find((s) => s?.id === "tasks")
@@ -1167,6 +1196,8 @@ async function pullTaskReadStateFromServerIntoLocal({ rerender = true } = {}) {
     }
     if (!r.ok) return false;
     const json = await r.json().catch(() => null);
+    const rev = Number(json?.rev) || 0;
+    if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
     const remoteTasks = Array.isArray(json?.data?.sections)
       ? json.data.sections.find((s) => s?.id === "tasks")
       : null;
@@ -1393,6 +1424,8 @@ async function pullRemoteAppState(options = {}) {
   if (!r.ok) return;
   const json = await r.json();
   applyServerBundle(json.data, { rerender });
+  const rev = Number(json?.rev) || 0;
+  if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
   initialRemoteBundleLoaded = true;
 }
 
@@ -15817,6 +15850,7 @@ function clearSession() {
   localStorage.removeItem(SESSION_STORAGE_KEY);
   setAuthToken("");
   initialRemoteBundleLoaded = false;
+  serverDataRevision = 0;
   clearLastSessionActivityTs();
   stopRemoteAutoPull();
   hasUnsyncedLocalChanges = false;
