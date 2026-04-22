@@ -863,6 +863,7 @@ let statusReminderInFlight = false;
 let hasUnsyncedLocalChanges = false;
 let serverPushInFlight = false;
 let pendingRemoteTasksRerender = false;
+let initialRemoteBundleLoaded = false;
 let authExpiredNoticeShown = false;
 let bootLoaderCloseTimer = null;
 let sessionIdleCheckTimer = null;
@@ -926,6 +927,14 @@ async function refreshCurrentViewData() {
 
 function scheduleServerSync() {
   if (!isHostedRuntime() || !getAuthToken()) return;
+  if (!initialRemoteBundleLoaded) {
+    pullRemoteAppState({ rerender: false })
+      .then(() => {
+        if (initialRemoteBundleLoaded) scheduleServerSync();
+      })
+      .catch(() => {});
+    return;
+  }
   hasUnsyncedLocalChanges = true;
   clearTimeout(serverSyncTimer);
   serverSyncTimer = setTimeout(() => {
@@ -935,6 +944,7 @@ function scheduleServerSync() {
 
 async function pushAppToServer() {
   if (!isHostedRuntime() || !getAuthToken()) return;
+  if (!initialRemoteBundleLoaded) return;
   serverPushInFlight = true;
   try {
     const data = buildAppPayload();
@@ -962,6 +972,14 @@ async function pushAppToServer() {
 /** Немедленная синхронизация с сервером (без debounce), например перед регистрацией Telegram webhook. */
 async function pushAppToServerImmediate() {
   if (!isHostedRuntime() || !getAuthToken()) return false;
+  if (!initialRemoteBundleLoaded) {
+    try {
+      await pullRemoteAppState({ rerender: false });
+    } catch (_) {
+      return false;
+    }
+    if (!initialRemoteBundleLoaded) return false;
+  }
   hasUnsyncedLocalChanges = true;
   serverPushInFlight = true;
   try {
@@ -1375,6 +1393,7 @@ async function pullRemoteAppState(options = {}) {
   if (!r.ok) return;
   const json = await r.json();
   applyServerBundle(json.data, { rerender });
+  initialRemoteBundleLoaded = true;
 }
 
 function applyServerBundle(data, options = {}) {
@@ -15785,6 +15804,7 @@ function saveSession(userName) {
 function clearSession() {
   localStorage.removeItem(SESSION_STORAGE_KEY);
   setAuthToken("");
+  initialRemoteBundleLoaded = false;
   clearLastSessionActivityTs();
   stopRemoteAutoPull();
   hasUnsyncedLocalChanges = false;
