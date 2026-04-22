@@ -965,7 +965,7 @@ async function broadcastTaskCardUpdate(payload, token, row, reasonText, excludeC
 }
 
 function defaultAcceptTemplate() {
-  return "✅ Закрытие подтверждено.\n📝 Задача [ид_задачи] ([название_задачи]).";
+  return "Задача закрыта и подтверждена.";
 }
 
 export async function handleTelegramWebhook(req, res, pool) {
@@ -1783,18 +1783,23 @@ async function handleCallback(q, pool, token) {
 
       const sourceMid = Number(req.sourceMessageId) || 0;
       const requesterRow = buildTaskRowForChat(payload, row, req.chatId);
+      const tplText = String(applySimpleTemplate(tpl, requesterRow) || "").trim();
+      const confirmBlock = [`✅ ${confirmInfo}`, tplText].filter(Boolean).join("\n");
+      const requesterText = `${buildFullTaskMessage(requesterRow)}\n\n${confirmBlock}`;
       if (sourceMid) {
         await tg(token, "editMessageText", {
           chat_id: req.chatId,
           message_id: sourceMid,
-          text: `${buildFullTaskMessage(requesterRow)}\n\n${confirmInfo}`,
+          text: requesterText,
+          reply_markup: { inline_keyboard: mainKeyboard(taskId, requesterRow, resolveAppTimeZone(payload)) }
+        });
+      } else {
+        await tg(token, "sendMessage", {
+          chat_id: req.chatId,
+          text: requesterText,
           reply_markup: { inline_keyboard: mainKeyboard(taskId, requesterRow, resolveAppTimeZone(payload)) }
         });
       }
-      await tg(token, "sendMessage", {
-        chat_id: req.chatId,
-        text: `${buildFullTaskMessage(requesterRow)}\n\n${confirmInfo}\n\n${applySimpleTemplate(tpl, requesterRow)}`
-      });
       await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: messageId,
