@@ -73,6 +73,12 @@ const REPORT_CUSTOM_DATA_MODES = [
   { id: "by_status", label: "По статусу" }
 ];
 const REPORT_CUSTOM_STATUS_SERIES = ["Новый", "В процессе", "Закрыт"];
+const REPORT_DEPARTMENT_STATUS_SERIES = ["Закрыт", "В процессе", "Новый"];
+const REPORT_DEPARTMENT_STATUS_LABELS = {
+  Закрыт: "Закрыто",
+  "В процессе": "В процессе",
+  Новый: "Новая"
+};
 const REPORT_TOP_TRIO_IDS = ["status", "priority", "priorityDonut"];
 const REPORT_PHASE_GROUP_IDS = ["phase", "phaseSection", "phaseSubsection"];
 const REPORT_PHASE_GROUP_SET = new Set(REPORT_PHASE_GROUP_IDS);
@@ -5418,7 +5424,7 @@ function renderReportChartTileFragment(id, opts = {}) {
     phaseSubsection: `<h4>Подразделы</h4><div class="report-canvas-wrap report-canvas-wrap--phase-h report-canvas-scroll" id="reportChartPhaseSubsectionWrap"><canvas id="reportChartPhaseSubsection"></canvas></div>`,
     phaseSubsectionDonut: `<h4>Подразделы</h4><div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportChartPhaseSubsectionDonut"></canvas></div>`,
     object: `<h4>Объекты <span class="report-tile-note">(все, по убыванию; прокрутка)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartObjectWrap"><canvas id="reportChartObject"></canvas></div>`,
-    department: `<h4>По отделам <span class="report-tile-note">(исполнитель → отдел из справочника)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartDepartmentWrap"><canvas id="reportChartDepartment"></canvas></div>`,
+    department: `<h4>По отделам <span class="report-tile-note">(название отдела; исполнитель → отдел из справочника)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartDepartmentWrap"><canvas id="reportChartDepartment"></canvas></div>`,
     responsible: `<h4>Исполнители <span class="report-tile-note">(по статусам, топ)</span></h4><div class="report-canvas-wrap report-canvas-scroll" id="reportChartResponsibleWrap"><canvas id="reportChartResponsible"></canvas></div>`
   };
   const inner = bodies[id];
@@ -6801,6 +6807,16 @@ function destroyReportCharts() {
   reportChartInstances = [];
 }
 
+function normalizeDepartmentStatusForReport(statusValue) {
+  const raw = String(statusValue || "").trim();
+  if (!raw) return "";
+  if (raw === "Закрыто") return "Закрыт";
+  if (raw === "Новая") return "Новый";
+  if (REPORT_DEPARTMENT_STATUS_SERIES.includes(raw)) return raw;
+  const normalized = normalizeTaskStatusValue(raw);
+  return REPORT_DEPARTMENT_STATUS_SERIES.includes(normalized) ? normalized : "";
+}
+
 function buildTaskReportStats(rows) {
   const statusCounts = {};
   const priorityCounts = {};
@@ -6841,8 +6857,24 @@ function buildTaskReportStats(rows) {
     const psub = String(row[TASK_COLUMNS.phaseSubsection] || "").trim() || "— нет —";
     phaseSubsectionCounts[psub] = (phaseSubsectionCounts[psub] || 0) + 1;
 
-    const resp = String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "— не назначен —";
+    const respRaw = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
+    const resp = respRaw || "— не назначен —";
     responsibleCounts[resp] = (responsibleCounts[resp] || 0) + 1;
+    let deptLabel;
+    if (!respRaw) deptLabel = "— не назначен —";
+    else {
+      const key = normalizePersonName(respRaw);
+      deptLabel = nameToDept.get(key) || "Не в справочнике";
+    }
+    const deptStatus = normalizeDepartmentStatusForReport(st);
+    if (deptStatus) {
+      if (!departmentStatusMap.has(deptLabel)) {
+        const o = {};
+        for (const stName of REPORT_DEPARTMENT_STATUS_SERIES) o[stName] = 0;
+        departmentStatusMap.set(deptLabel, o);
+      }
+      departmentStatusMap.get(deptLabel)[deptStatus] += 1;
+    }
     const delayReason = String(row[TASK_COLUMNS.delayReason] || "").trim();
     if (delayReason) {
       delayReasonCounts[delayReason] = (delayReasonCounts[delayReason] || 0) + 1;
@@ -6876,27 +6908,12 @@ function buildTaskReportStats(rows) {
     }
 
     if (STATUS_OPTIONS.includes(st)) {
-      const respRaw = String(row[TASK_COLUMNS.assignedResponsible] || "").trim();
-      const respLabel = respRaw || "— не назначен —";
-      if (!responsibleStatusMap.has(respLabel)) {
+      if (!responsibleStatusMap.has(resp)) {
         const o = {};
         for (const st of STATUS_OPTIONS) o[st] = 0;
-        responsibleStatusMap.set(respLabel, o);
+        responsibleStatusMap.set(resp, o);
       }
-      responsibleStatusMap.get(respLabel)[st] += 1;
-
-      let deptLabel;
-      if (!respRaw) deptLabel = "— не назначен —";
-      else {
-        const key = normalizePersonName(respRaw);
-        deptLabel = nameToDept.get(key) || "Не в справочнике";
-      }
-      if (!departmentStatusMap.has(deptLabel)) {
-        const o = {};
-        for (const st of STATUS_OPTIONS) o[st] = 0;
-        departmentStatusMap.set(deptLabel, o);
-      }
-      departmentStatusMap.get(deptLabel)[st] += 1;
+      responsibleStatusMap.get(resp)[st] += 1;
 
       if (!objectStatusMap.has(ob)) {
         const o = {};
@@ -6935,9 +6952,14 @@ function buildTaskReportStats(rows) {
 
   const monthKeysSorted = Object.keys(monthCounts).sort();
 
-  const buildStatusStacked = (statusMap, stackId, maxItems = null) => {
+  const buildStatusStacked = (statusMap, stackId, maxItems = null, options = {}) => {
+    const statusSeries =
+      Array.isArray(options.statusSeries) && options.statusSeries.length > 0
+        ? options.statusSeries
+        : STATUS_OPTIONS;
+    const statusLabelMap = options.statusLabelMap && typeof options.statusLabelMap === "object" ? options.statusLabelMap : null;
     const labelsSorted = Array.from(statusMap.keys()).sort((a, b) => {
-      const sum = (key) => STATUS_OPTIONS.reduce((s, st) => s + (statusMap.get(key)[st] || 0), 0);
+      const sum = (key) => statusSeries.reduce((s, st) => s + (statusMap.get(key)[st] || 0), 0);
       const ta = sum(a);
       const tb = sum(b);
       if (tb !== ta) return tb - ta;
@@ -6947,8 +6969,8 @@ function buildTaskReportStats(rows) {
     return labels.length > 0
       ? {
           labels,
-          datasets: STATUS_OPTIONS.map((st) => ({
-            label: st,
+          datasets: statusSeries.map((st) => ({
+            label: statusLabelMap?.[st] || st,
             data: labels.map((lab) => statusMap.get(lab)[st] || 0),
             backgroundColor: colorForStatusLabel(st),
             stack: stackId
@@ -6956,8 +6978,8 @@ function buildTaskReportStats(rows) {
         }
       : {
           labels: ["Нет данных"],
-          datasets: STATUS_OPTIONS.map((st) => ({
-            label: st,
+          datasets: statusSeries.map((st) => ({
+            label: statusLabelMap?.[st] || st,
             data: [0],
             backgroundColor: colorForStatusLabel(st),
             stack: stackId
@@ -6965,7 +6987,10 @@ function buildTaskReportStats(rows) {
         };
   };
 
-  const departmentStacked = buildStatusStacked(departmentStatusMap, "dept");
+  const departmentStacked = buildStatusStacked(departmentStatusMap, "dept", null, {
+    statusSeries: REPORT_DEPARTMENT_STATUS_SERIES,
+    statusLabelMap: REPORT_DEPARTMENT_STATUS_LABELS
+  });
   const responsibleStacked = buildStatusStacked(responsibleStatusMap, "resp", 10);
   const objectStacked = buildStatusStacked(objectStatusMap, "obj");
   const phaseStacked = buildStatusStacked(phaseStatusMap, "ph", 10);
