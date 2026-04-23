@@ -827,6 +827,21 @@ function bindSessionActivityListeners() {
   });
 }
 
+function markScrollbarActivity() {
+  document.documentElement.classList.add("scrollbars-active");
+  clearTimeout(scrollbarActivityTimer);
+  scrollbarActivityTimer = setTimeout(() => {
+    document.documentElement.classList.remove("scrollbars-active");
+  }, 900);
+}
+
+function initGlobalScrollbarActivityTracker() {
+  const opts = { passive: true, capture: true };
+  ["scroll", "wheel", "touchmove"].forEach((eventName) => {
+    window.addEventListener(eventName, markScrollbarActivity, opts);
+  });
+}
+
 function handleIdleSessionExpired() {
   if (!getAuthToken()) return;
   clearSession();
@@ -901,6 +916,7 @@ let turboLoaderProgress = 0;
 let turboLoaderProgressTimer = null;
 let turboLoaderHideTimer = null;
 let employeeChatIdAutoRefreshTimer = null;
+let scrollbarActivityTimer = null;
 
 function handleServerAuthExpired() {
   if (authExpiredNoticeShown) return;
@@ -16860,6 +16876,7 @@ ensureSystemDepartments();
 normalizePhaseAndSectionCatalogs();
 restoreTrashData();
 registerHotkeys();
+initGlobalScrollbarActivityTracker();
 activeSectionId = restoreActiveSection();
 isSettingsOpen = activeSectionId !== "tasks" && activeSectionId !== "report";
 sidebarBrandToggle?.addEventListener("click", () => toggleSidebarCollapse());

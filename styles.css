@@ -6062,3 +6062,72 @@ td.object-photo-col {
   }
 }
 
+/* Глобальные тонкие кастомные скроллбары (вертикальные + горизонтальные).
+   Скроллбар всегда занимает место, а "скрытие" сделано прозрачностью — без прыжков layout. */
+:root {
+  --scrollbar-size: 10px;
+  --scrollbar-radius: 999px;
+  --scrollbar-track-idle: rgba(146, 164, 186, 0.12);
+  --scrollbar-track-active: rgba(146, 164, 186, 0.22);
+  --scrollbar-thumb-idle: rgba(122, 141, 166, 0);
+  --scrollbar-thumb-active: rgba(122, 141, 166, 0.88);
+  --scrollbar-thumb-hover: rgba(102, 123, 149, 0.96);
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+* {
+  scrollbar-width: thin !important;
+  scrollbar-color: var(--scrollbar-thumb-idle) var(--scrollbar-track-idle) !important;
+}
+
+:root.scrollbars-active *,
+*:hover,
+*:focus-within {
+  scrollbar-color: var(--scrollbar-thumb-active) var(--scrollbar-track-active) !important;
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size) !important;
+  height: var(--scrollbar-size) !important;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track-idle) !important;
+  border-radius: var(--scrollbar-radius) !important;
+  transition: background-color 0.2s ease !important;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb-idle) !important;
+  border-radius: var(--scrollbar-radius) !important;
+  border: 2px solid transparent !important;
+  background-clip: padding-box !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease !important;
+}
+
+:root.scrollbars-active *::-webkit-scrollbar-track,
+*:hover::-webkit-scrollbar-track,
+*:focus-within::-webkit-scrollbar-track {
+  background: var(--scrollbar-track-active) !important;
+}
+
+:root.scrollbars-active *::-webkit-scrollbar-thumb,
+*:hover::-webkit-scrollbar-thumb,
+*:focus-within::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb-active) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+}
+
+:root.scrollbars-active *::-webkit-scrollbar-thumb:hover,
+*:hover::-webkit-scrollbar-thumb:hover,
+*:focus-within::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover) !important;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent !important;
+}
+
