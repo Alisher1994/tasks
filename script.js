@@ -29,6 +29,7 @@ const STATUS_REMINDER_SEND_WINDOW_MINUTES = 5;
 /** JWT при работе с сервером (Railway) */
 const AUTH_TOKEN_KEY = "mbc_jwt";
 const SESSION_STORAGE_KEY = "mbc_task_auth_user";
+const SESSION_PHONE_STORAGE_KEY = "mbc_task_auth_phone";
 const SESSION_LAST_ACTIVITY_KEY = "mbc_task_last_activity_ts";
 const ACTIVE_SECTION_STORAGE_KEY = "mbc_task_active_section";
 const DISPLAY_SETTINGS_KEY = "mbc_task_display_settings";
@@ -1667,6 +1668,53 @@ function escapeHtmlAttr(s) {
 
 function getSessionUserDisplayName() {
   return String(localStorage.getItem(SESSION_STORAGE_KEY) || "").trim() || "Пользователь";
+}
+
+function saveSessionPhone(phone) {
+  try {
+    const normalized = normalizeUzPhone(String(phone || ""));
+    if (!normalized) {
+      localStorage.removeItem(SESSION_PHONE_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(SESSION_PHONE_STORAGE_KEY, normalized);
+  } catch (_) {
+    /* noop */
+  }
+}
+
+function getSessionPhone() {
+  try {
+    return normalizeUzPhone(String(localStorage.getItem(SESSION_PHONE_STORAGE_KEY) || ""));
+  } catch (_) {
+    return "";
+  }
+}
+
+function isGenericSystemUserName(value) {
+  const name = String(value || "").trim().toLowerCase();
+  return name === "пользователь" || name === "администратор";
+}
+
+function findEmployeeFullNameByPhone(phone) {
+  const normalized = normalizeUzPhone(String(phone || ""));
+  if (!normalized) return "";
+  const employeesRows = getSectionById("employees")?.rows || [];
+  for (const row of employeesRows) {
+    const rowPhone = normalizeUzPhone(String(row?.[EMPLOYEE_COLUMNS.phone] || ""));
+    if (rowPhone === normalized) {
+      return normalizePersonName(row?.[EMPLOYEE_COLUMNS.fullName] || "");
+    }
+  }
+  return "";
+}
+
+function getTaskCreatorDisplayName() {
+  const sessionName = getSessionUserDisplayName();
+  const phoneName = findEmployeeFullNameByPhone(getSessionPhone());
+  if (phoneName) return phoneName;
+  if (sessionName && !isGenericSystemUserName(sessionName)) return sessionName;
+  return sessionName || "Пользователь";
 }
 
 function canAccessSettingsMenu() {
@@ -10405,7 +10453,7 @@ function parseTaskImportPayload(rawText) {
 
 function createTaskRowFromImport(values, taskId) {
   const row = new Array(TASK_ROW_LENGTH).fill("");
-  const sessionUserName = getSessionUserDisplayName();
+  const sessionUserName = getTaskCreatorDisplayName();
   row[TASK_COLUMNS.number] = normalizeTaskIdValue(taskId);
   row[TASK_COLUMNS.object] = normalizeTaskImportCellValue(values.object);
   row[TASK_COLUMNS.status] = "Новый";
@@ -17299,7 +17347,7 @@ function addEmptyRow(section) {
   row[0] = section.id === "tasks" ? allocateNextTaskId() : String(nextId);
 
   if (section.id === "tasks") {
-    const sessionUserName = getSessionUserDisplayName();
+    const sessionUserName = getTaskCreatorDisplayName();
     row[TASK_COLUMNS.status] = "Новый";
     row[TASK_COLUMNS.priority] = "Средний";
     row[TASK_COLUMNS.addedDate] = getTodayRuDate();
@@ -18133,6 +18181,7 @@ function saveSession(userName) {
 
 function clearSession() {
   localStorage.removeItem(SESSION_STORAGE_KEY);
+  localStorage.removeItem(SESSION_PHONE_STORAGE_KEY);
   setAuthToken("");
   initialRemoteBundleLoaded = false;
   serverDataRevision = 0;
@@ -18173,6 +18222,7 @@ loginForm.addEventListener("submit", async (event) => {
         const me = await refreshAuthMeProfile();
         const userName = String(me?.displayName || j.displayName || "").trim() || "Пользователь";
         saveSession(userName);
+        saveSessionPhone(phone);
         await pullRemoteAppState();
         showApp(userName);
         scheduleServerSync();
@@ -18190,6 +18240,7 @@ loginForm.addEventListener("submit", async (event) => {
     const userName = "Пользователь";
     currentAuthRole = "admin";
     saveSession(userName);
+    saveSessionPhone(phone);
     showApp(userName);
     return;
   }
