@@ -4400,10 +4400,6 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 }
 
 @media (max-width: 1100px) {
-  .report-tabs-topbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
   .report-custom-builder {
     flex-direction: column;
     align-items: stretch;

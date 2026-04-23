@@ -8153,7 +8153,6 @@ function renderReportsPanel() {
         `
         : `
           <div class="report-custom-stage">
-            ${renderReportCustomBuilderHtml()}
             ${renderReportCustomChartsHtml()}
             ${renderReportCustomSelectionDockHtml()}
           </div>
