@@ -5309,14 +5309,16 @@ function loadReportViewTab() {
   try {
     const key = buildUserScopedStorageKey(REPORT_VIEW_TAB_STORAGE_KEY);
     const value = String(localStorage.getItem(key) || "").trim();
-    return value === "custom" ? "custom" : "system";
+    return ["system", "kpi", "custom"].includes(value) ? value : "system";
   } catch (_) {
     return "system";
   }
 }
 
 function saveReportViewTab(tabId) {
-  const tab = tabId === "custom" ? "custom" : "system";
+  const tab = ["system", "kpi", "custom"].includes(String(tabId || "").trim())
+    ? String(tabId).trim()
+    : "system";
   reportViewTab = tab;
   try {
     const key = buildUserScopedStorageKey(REPORT_VIEW_TAB_STORAGE_KEY);
@@ -5669,12 +5671,13 @@ function renderReportChartsGridHtml() {
 }
 
 function renderReportTabsSwitchHtml() {
-  const tab = reportViewTab === "custom" ? "custom" : "system";
+  const tab = ["system", "kpi", "custom"].includes(reportViewTab) ? reportViewTab : "system";
   const showAdd = !sharedReportMode && tab === "custom";
   return `
     <div class="report-tabs-topbar">
       <div class="report-tabs-row" role="tablist" aria-label="Тип аналитики">
         <button type="button" class="report-tab-btn ${tab === "system" ? "active" : ""}" data-report-tab="system" role="tab" aria-selected="${tab === "system" ? "true" : "false"}">Системные</button>
+        <button type="button" class="report-tab-btn ${tab === "kpi" ? "active" : ""}" data-report-tab="kpi" role="tab" aria-selected="${tab === "kpi" ? "true" : "false"}">KPI выполнения</button>
         <button type="button" class="report-tab-btn ${tab === "custom" ? "active" : ""}" data-report-tab="custom" role="tab" aria-selected="${tab === "custom" ? "true" : "false"}">Кастомный отчет</button>
       </div>
       ${showAdd
@@ -7311,6 +7314,272 @@ function buildTaskReportStats(rows) {
   };
 }
 
+function parseRuDateTimeString(value) {
+  const s = String(value || "").trim();
+  if (!s || s === "—") return null;
+  const match = /^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(s);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const hour = Number(match[4] || 0);
+  const minute = Number(match[5] || 0);
+  const second = Number(match[6] || 0);
+  if (!day || !month || !year) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) return null;
+  const dt = new Date(year, month - 1, day, hour, minute, second, 0);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function parseTaskClosedDateFallback(value) {
+  const parts = parseRuDateStringToParts(value);
+  if (!parts) return null;
+  const dt = new Date(parts.year, parts.month - 1, parts.day, 23, 59, 59, 999);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function formatDurationCompact(ms) {
+  const totalMs = Number(ms) || 0;
+  if (totalMs <= 0) return "0 мин";
+  const totalMinutes = Math.round(totalMs / 60000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return hours > 0 ? `${days} д ${hours} ч` : `${days} д`;
+  if (hours > 0) return minutes > 0 ? `${hours} ч ${minutes} мин` : `${hours} ч`;
+  return `${minutes} мин`;
+}
+
+function formatDurationAxisTick(value) {
+  const ms = Number(value) || 0;
+  const totalHours = ms / 3600000;
+  if (totalHours >= 24) return `${(totalHours / 24).toFixed(totalHours >= 120 ? 0 : 1)} д`;
+  if (totalHours >= 1) return `${totalHours.toFixed(totalHours >= 10 ? 0 : 1)} ч`;
+  return `${Math.round(ms / 60000)} мин`;
+}
+
+function computeMedian(numbers) {
+  const sorted = (Array.isArray(numbers) ? numbers : [])
+    .map((x) => Number(x) || 0)
+    .filter((x) => x >= 0)
+    .sort((a, b) => a - b);
+  if (!sorted.length) return 0;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
+function aggregateDurationBy(entries, pickLabel, { fallback = "—", limit = 18 } = {}) {
+  const map = new Map();
+  (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    const raw = typeof pickLabel === "function" ? pickLabel(entry) : "";
+    const label = String(raw || "").trim() || fallback;
+    if (!map.has(label)) map.set(label, []);
+    map.get(label).push(Number(entry?.durationMs) || 0);
+  });
+  return Array.from(map.entries())
+    .map(([label, values]) => {
+      const count = values.length;
+      const avgMs = count ? values.reduce((sum, value) => sum + value, 0) / count : 0;
+      return {
+        label,
+        count,
+        avgMs,
+        medianMs: computeMedian(values),
+        minMs: count ? Math.min(...values) : 0,
+        maxMs: count ? Math.max(...values) : 0
+      };
+    })
+    .sort((a, b) => b.avgMs - a.avgMs || b.count - a.count || String(a.label).localeCompare(String(b.label), "ru"))
+    .slice(0, limit);
+}
+
+function buildExecutionTimeEntries(rows) {
+  const taskRows = Array.isArray(rows) ? rows : [];
+  const nameToDept = buildEmployeeNameToDepartmentMap();
+  const out = [];
+
+  taskRows.forEach((row) => {
+    const taskRow = Array.isArray(row) ? row : [];
+    const taskId = getTaskIdForMultiState(taskRow);
+    const assignees = parseTaskAssigneeNames(taskRow?.[TASK_COLUMNS.assignedResponsible]);
+    const multiState = taskId ? getTaskMultiAssigneeMap(taskId) || {} : {};
+    const baseRead = getTaskReadStateParts(taskRow?.[TASK_COLUMNS.readState]);
+    const baseReadAt = parseRuDateTimeString(baseRead.whenText);
+    const baseClosedAt = parseTaskClosedDateFallback(taskRow?.[TASK_COLUMNS.closedDate]);
+    const pushEntry = (assigneeName, assigneeState = null) => {
+      const normalizedStatus = normalizeTaskStatusValue(String(assigneeState?.status || taskRow?.[TASK_COLUMNS.status] || "").trim());
+      if (normalizedStatus !== "Закрыт") return;
+      const readAt = parseRuDateTimeString(assigneeState?.readAt) || baseReadAt;
+      const closedAt = parseRuDateTimeString(assigneeState?.closedAt) || baseClosedAt;
+      if (!(readAt instanceof Date) || Number.isNaN(readAt.getTime())) return;
+      if (!(closedAt instanceof Date) || Number.isNaN(closedAt.getTime())) return;
+      const durationMs = closedAt.getTime() - readAt.getTime();
+      if (!Number.isFinite(durationMs) || durationMs < 0) return;
+      const responsible = normalizePersonName(assigneeName || taskRow?.[TASK_COLUMNS.assignedResponsible]) || "— не назначен —";
+      out.push({
+        taskId: String(taskRow?.[TASK_COLUMNS.number] || "").trim(),
+        responsible,
+        department: nameToDept.get(responsible) || (responsible === "— не назначен —" ? "— не назначен —" : "Не в справочнике"),
+        object: String(taskRow?.[TASK_COLUMNS.object] || "").trim() || "— нет —",
+        phase: String(taskRow?.[TASK_COLUMNS.phase] || "").trim() || "— нет —",
+        section: String(taskRow?.[TASK_COLUMNS.phaseSection] || "").trim() || "— нет —",
+        subsection: String(taskRow?.[TASK_COLUMNS.phaseSubsection] || "").trim() || "— нет —",
+        priority: String(taskRow?.[TASK_COLUMNS.priority] || "").trim() || "(не указан)",
+        readAt,
+        closedAt,
+        durationMs
+      });
+    };
+
+    if (assignees.length > 1) {
+      assignees.forEach((name) => pushEntry(name, multiState?.[name] || null));
+      return;
+    }
+
+    pushEntry(assignees[0] || String(taskRow?.[TASK_COLUMNS.assignedResponsible] || "").trim(), null);
+  });
+
+  return out;
+}
+
+function buildExecutionTimeReportStats(rows) {
+  const entries = buildExecutionTimeEntries(rows);
+  const durationValues = entries.map((item) => item.durationMs);
+  const totalClosed = entries.length;
+  const totalDuration = durationValues.reduce((sum, value) => sum + value, 0);
+  const avgMs = totalClosed ? totalDuration / totalClosed : 0;
+  const medianMs = computeMedian(durationValues);
+  const minMs = totalClosed ? Math.min(...durationValues) : 0;
+  const maxMs = totalClosed ? Math.max(...durationValues) : 0;
+  const monthMap = new Map();
+
+  entries.forEach((item) => {
+    const dt = item.closedAt;
+    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+    if (!monthMap.has(key)) monthMap.set(key, []);
+    monthMap.get(key).push(item.durationMs);
+  });
+
+  const monthSeries = Array.from(monthMap.entries())
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    .map(([key, values]) => ({
+      key,
+      label: formatDateLabelForAxis(key),
+      avgMs: values.reduce((sum, value) => sum + value, 0) / values.length,
+      medianMs: computeMedian(values),
+      count: values.length
+    }));
+
+  return {
+    totalClosed,
+    avgMs,
+    medianMs,
+    minMs,
+    maxMs,
+    monthSeries,
+    byResponsible: aggregateDurationBy(entries, (item) => item.responsible),
+    byDepartment: aggregateDurationBy(entries, (item) => item.department),
+    byObject: aggregateDurationBy(entries, (item) => item.object),
+    byPhase: aggregateDurationBy(entries, (item) => item.phase),
+    bySection: aggregateDurationBy(entries, (item) => item.section),
+    bySubsection: aggregateDurationBy(entries, (item) => item.subsection),
+    byPriority: aggregateDurationBy(entries, (item) => item.priority, { limit: 10 }),
+    entries
+  };
+}
+
+function formatDateLabelForAxis(key) {
+  const match = /^(\d{4})-(\d{2})$/.exec(String(key || "").trim());
+  if (!match) return String(key || "");
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const monthLabel = REPORT_MONTH_LABELS_RU[Math.max(0, Math.min(11, month - 1))] || String(month).padStart(2, "0");
+  return `${monthLabel} ${year}`;
+}
+
+function renderExecutionMetricValue(value) {
+  return `<div style="font-size:24px;font-weight:700;line-height:1.15;color:#1e293b;">${escapeHtmlText(formatDurationCompact(value))}</div>`;
+}
+
+function renderExecutionKpiPanel(stats) {
+  const summaryTiles = [
+    {
+      title: "Среднее время",
+      note: "От прочтения до закрытия",
+      value: renderExecutionMetricValue(stats.avgMs)
+    },
+    {
+      title: "Медиана",
+      note: "Типовое время выполнения",
+      value: renderExecutionMetricValue(stats.medianMs)
+    },
+    {
+      title: "Минимум",
+      note: "Самое быстрое закрытие",
+      value: renderExecutionMetricValue(stats.minMs)
+    },
+    {
+      title: "Максимум",
+      note: "Самое долгое закрытие",
+      value: renderExecutionMetricValue(stats.maxMs)
+    },
+    {
+      title: "Закрыто в расчёте",
+      note: "Только задачи с readAt и closedAt",
+      value: `<div style="font-size:24px;font-weight:700;line-height:1.15;color:#1e293b;">${escapeHtmlText(String(stats.totalClosed || 0))}</div>`
+    }
+  ];
+
+  const renderMetricTile = (tile) => `
+    <div class="report-tile">
+      <h4>${escapeHtmlText(tile.title)}</h4>
+      ${tile.value}
+      <div class="hint" style="margin-top:8px;">${escapeHtmlText(tile.note)}</div>
+    </div>
+  `;
+
+  return `
+    <div class="report-grid">
+      ${summaryTiles.map(renderMetricTile).join("")}
+      <div class="report-tile report-tile-wide">
+        <h4>Среднее время выполнения по месяцам <span class="report-tile-note">(дата закрытия)</span></h4>
+        <div class="report-canvas-wrap report-canvas-tall"><canvas id="reportExecutionChartMonths"></canvas></div>
+      </div>
+      <div class="report-tile">
+        <h4>По приоритету <span class="report-tile-note">(среднее)</span></h4>
+        <div class="report-canvas-wrap report-canvas-tall"><canvas id="reportExecutionChartPriority"></canvas></div>
+      </div>
+      <div class="report-tile report-tile-wide">
+        <h4>По сотрудникам <span class="report-tile-note">(среднее, топ)</span></h4>
+        <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartResponsibleWrap"><canvas id="reportExecutionChartResponsible"></canvas></div>
+      </div>
+      <div class="report-tile report-tile-wide">
+        <h4>По отделам <span class="report-tile-note">(среднее)</span></h4>
+        <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartDepartmentWrap"><canvas id="reportExecutionChartDepartment"></canvas></div>
+      </div>
+      <div class="report-tile report-tile-wide">
+        <h4>По объектам <span class="report-tile-note">(среднее)</span></h4>
+        <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartObjectWrap"><canvas id="reportExecutionChartObject"></canvas></div>
+      </div>
+      <div class="report-tile">
+        <h4>По фазам <span class="report-tile-note">(среднее)</span></h4>
+        <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartPhaseWrap"><canvas id="reportExecutionChartPhase"></canvas></div>
+      </div>
+      <div class="report-tile">
+        <h4>По разделам <span class="report-tile-note">(среднее)</span></h4>
+        <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartSectionWrap"><canvas id="reportExecutionChartSection"></canvas></div>
+      </div>
+      <div class="report-tile">
+        <h4>По подразделам <span class="report-tile-note">(среднее)</span></h4>
+        <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartSubsectionWrap"><canvas id="reportExecutionChartSubsection"></canvas></div>
+      </div>
+    </div>
+  `;
+}
+
 function renderResponsibleStatusTable(rsRows) {
   if (!rsRows.length) return "";
   const cols = STATUS_OPTIONS;
@@ -8129,6 +8398,7 @@ function renderReportsPanel() {
   reportViewTab = loadReportViewTab();
   const rows = getReportFilteredRows();
   const stats = buildTaskReportStats(rows);
+  const executionStats = buildExecutionTimeReportStats(rows);
   const rsRows = buildResponsibleStatusRows(rows);
   const shareBanner = sharedReportMode
     ? `<div class="shared-report-banner" role="status">
@@ -8215,6 +8485,11 @@ function renderReportsPanel() {
           </div>
           ${stats.total > 0 ? renderResponsibleStatusTable(rsRows) : ""}
         `
+        : reportViewTab === "kpi"
+        ? `
+          ${executionStats.totalClosed === 0 ? '<p class="hint report-empty-hint">Нет закрытых задач с корректными датой/временем прочтения и закрытия по текущему фильтру.</p>' : ""}
+          ${renderExecutionKpiPanel(executionStats)}
+        `
         : `
           <div class="report-custom-stage">
             ${renderReportCustomChartsHtml()}
@@ -8232,7 +8507,7 @@ function attachReportTabSwitchHandlers() {
   root.querySelectorAll("[data-report-tab]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const next = String(btn.getAttribute("data-report-tab") || "").trim();
-      saveReportViewTab(next === "custom" ? "custom" : "system");
+      saveReportViewTab(["system", "kpi", "custom"].includes(next) ? next : "system");
       refreshReportView();
     });
   });
@@ -8776,8 +9051,178 @@ function attachCustomReportCharts() {
   });
 }
 
+function attachExecutionReportCharts() {
+  if (reportViewTab !== "kpi" || typeof Chart === "undefined") return;
+  const hasDl = ensureReportChartPlugins();
+  const rows = getReportFilteredRows();
+  const stats = buildExecutionTimeReportStats(rows);
+  if (!stats.totalClosed) return;
+
+  const common = {
+    responsive: true,
+    maintainAspectRatio: false
+  };
+  const tickCb = (value) => formatDurationAxisTick(value);
+  const tooltipDuration = (value) => formatDurationCompact(value);
+  const legendOff = { display: false };
+  const dlBar = hasDl
+    ? {
+        anchor: "end",
+        align: "end",
+        offset: 4,
+        formatter: (value) => (Number(value) > 0 ? formatDurationCompact(value) : ""),
+        color: "#475569",
+        font: { weight: "600", size: 10 },
+        clamp: true,
+        clip: false
+      }
+    : { display: false };
+  const dlLine = hasDl
+    ? {
+        align: "top",
+        anchor: "end",
+        offset: 4,
+        formatter: (value) => (Number(value) > 0 ? formatDurationCompact(value) : ""),
+        color: "#475569",
+        font: { weight: "600", size: 10 },
+        clamp: true,
+        clip: false
+      }
+    : { display: false };
+
+  const buildGradient = (chart, color) => reportBarGradientHorizontal(chart, color);
+  const buildDurationBarChart = (canvasId, wrapId, items, color) => {
+    const wrap = wrapId ? document.getElementById(wrapId) : null;
+    const labelsCount = items.length || 1;
+    if (wrap) {
+      setReportScrollableChartHeight(wrap, labelsCount, { maxPx: 1100, minPx: 240, rowPx: 24 });
+    }
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    const labels = items.length ? items.map((item) => item.label) : ["Нет данных"];
+    const data = items.length ? items.map((item) => item.avgMs) : [0];
+    const counts = items.length ? items.map((item) => item.count) : [0];
+    reportChartInstances.push(
+      new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [
+            {
+              label: "Среднее время",
+              data,
+              backgroundColor: (context) => buildGradient(context.chart, color),
+              borderRadius: 8,
+              borderSkipped: false
+            }
+          ]
+        },
+        options: {
+          ...common,
+          ...REPORT_HBAR_OPTIONS_THIN,
+          indexAxis: "y",
+          scales: {
+            x: {
+              ...REPORT_HBAR_SCALE_X,
+              ticks: {
+                callback: tickCb
+              }
+            },
+            y: {
+              ticks: {
+                autoSkip: false,
+                font: { size: labelsCount > 35 ? 9 : 11 }
+              }
+            }
+          },
+          plugins: {
+            legend: legendOff,
+            tooltip: {
+              callbacks: {
+                label: (context) => `Среднее: ${tooltipDuration(context.parsed.x)}`,
+                afterLabel: (context) => `Закрыто задач: ${counts[context.dataIndex] || 0}`
+              }
+            },
+            datalabels: dlBar
+          }
+        }
+      })
+    );
+  };
+
+  const ctxMonths = document.getElementById("reportExecutionChartMonths");
+  if (ctxMonths) {
+    const labels = stats.monthSeries.length ? stats.monthSeries.map((item) => item.label) : ["Нет данных"];
+    const data = stats.monthSeries.length ? stats.monthSeries.map((item) => item.avgMs) : [0];
+    const counts = stats.monthSeries.length ? stats.monthSeries.map((item) => item.count) : [0];
+    reportChartInstances.push(
+      new Chart(ctxMonths, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            {
+              label: "Среднее время",
+              data,
+              borderColor: "#3e8f75",
+              backgroundColor: (context) => {
+                const chart = context.chart;
+                const { ctx, chartArea } = chart;
+                if (!chartArea) return "rgba(62, 143, 117, 0.2)";
+                const g = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+                g.addColorStop(0, "rgba(62, 143, 117, 0)");
+                g.addColorStop(0.55, "rgba(62, 143, 117, 0.24)");
+                g.addColorStop(1, "rgba(62, 143, 117, 0.36)");
+                return g;
+              },
+              fill: true,
+              tension: 0.25,
+              pointRadius: 4,
+              pointHoverRadius: 5
+            }
+          ]
+        },
+        options: {
+          ...common,
+          ...REPORT_CHART_LABEL_SAFE_LAYOUT,
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                callback: tickCb
+              }
+            }
+          },
+          plugins: {
+            legend: legendOff,
+            tooltip: {
+              callbacks: {
+                label: (context) => `Среднее: ${tooltipDuration(context.parsed.y)}`,
+                afterLabel: (context) => `Закрыто задач: ${counts[context.dataIndex] || 0}`
+              }
+            },
+            datalabels: dlLine
+          }
+        }
+      })
+    );
+  }
+
+  buildDurationBarChart("reportExecutionChartPriority", null, stats.byPriority, "#5b86e5");
+  buildDurationBarChart("reportExecutionChartResponsible", "reportExecutionChartResponsibleWrap", stats.byResponsible, "#d97706");
+  buildDurationBarChart("reportExecutionChartDepartment", "reportExecutionChartDepartmentWrap", stats.byDepartment, "#3b82f6");
+  buildDurationBarChart("reportExecutionChartObject", "reportExecutionChartObjectWrap", stats.byObject, "#16a34a");
+  buildDurationBarChart("reportExecutionChartPhase", "reportExecutionChartPhaseWrap", stats.byPhase, "#7c3aed");
+  buildDurationBarChart("reportExecutionChartSection", "reportExecutionChartSectionWrap", stats.bySection, "#dc2626");
+  buildDurationBarChart("reportExecutionChartSubsection", "reportExecutionChartSubsectionWrap", stats.bySubsection, "#0f766e");
+}
+
 function attachReportCharts() {
   if (typeof Chart === "undefined") {
+    return;
+  }
+  if (reportViewTab === "kpi") {
+    attachExecutionReportCharts();
     return;
   }
   if (reportViewTab === "custom") {
