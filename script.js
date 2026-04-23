@@ -5453,12 +5453,98 @@ function renderReportCustomBuilderHtml() {
   `;
 }
 
-function buildReportCustomTypePreviewClass(typeId) {
-  const id = String(typeId || "").trim();
-  if (id === "line") return "report-type-preview--line";
-  if (id === "pie" || id === "donut") return "report-type-preview--donut";
-  if (id === "hbar") return "report-type-preview--hbar";
-  return "report-type-preview--bar";
+function getReportWizardChartPreviewConfig(state, { compact = false } = {}) {
+  const typeRaw = String(state?.type || "donut").trim();
+  const dataModeRaw = String(state?.dataMode || "total").trim();
+  const groupByRaw = String(state?.groupBy || "status").trim();
+  const labelsByGroup = {
+    status: ["Новый", "В процессе", "Закрыт", "Требует решения"],
+    priority: ["Критический", "Высокий", "Средний", "Низкий"],
+    object: ["Object A", "Object B", "Object C", "Object D"],
+    phase: ["Инициация", "План", "Реализация", "Финиш"],
+    section: ["СМР", "ПТО", "Финансы", "Снабжение"],
+    subsection: ["Раздел 1", "Раздел 2", "Раздел 3", "Раздел 4"],
+    responsible: ["Исп. 1", "Исп. 2", "Исп. 3", "Исп. 4"],
+    department: ["Отдел 1", "Отдел 2", "Отдел 3", "Отдел 4"],
+    overdue: ["В срок", "1-3 дн", "4-7 дн", "7+ дн"]
+  };
+  const labels = labelsByGroup[groupByRaw] || labelsByGroup.status;
+  const type = typeRaw === "hbar" ? "bar" : typeRaw;
+  const isDonutLike = typeRaw === "donut" || typeRaw === "pie";
+  const paletteFill = [
+    "rgba(184, 196, 239, 0.95)",
+    "rgba(238, 242, 255, 0.95)",
+    "rgba(184, 196, 239, 0.62)",
+    "rgba(238, 242, 255, 0.7)"
+  ];
+  const border = "#b8c4ef";
+
+  let data;
+  if (dataModeRaw === "by_status") {
+    if (isDonutLike) {
+      data = {
+        labels: REPORT_CUSTOM_STATUS_SERIES,
+        datasets: [{
+          label: "Статусы",
+          data: [26, 18, 11],
+          backgroundColor: paletteFill.slice(0, 3),
+          borderColor: border,
+          borderWidth: 1.5
+        }]
+      };
+    } else {
+      const datasets = REPORT_CUSTOM_STATUS_SERIES.map((label, idx) => ({
+        label,
+        data: [
+          Math.max(2, 18 - idx * 3),
+          Math.max(2, 14 - idx * 2),
+          Math.max(2, 11 - idx * 2),
+          Math.max(2, 8 - idx)
+        ],
+        backgroundColor: paletteFill[idx % paletteFill.length],
+        borderColor: border,
+        borderWidth: 1.5,
+        fill: type === "line"
+      }));
+      data = { labels, datasets };
+    }
+  } else {
+    data = {
+      labels,
+      datasets: [{
+        label: "Общее",
+        data: [18, 14, 10, 7],
+        backgroundColor: isDonutLike ? paletteFill : paletteFill[0],
+        borderColor: border,
+        borderWidth: 1.5,
+        fill: type === "line",
+        tension: type === "line" ? 0.35 : 0
+      }]
+    };
+  }
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: compact ? false : { duration: 260 },
+    indexAxis: typeRaw === "hbar" ? "y" : "x",
+    plugins: {
+      legend: {
+        display: true,
+        position: compact ? "bottom" : "right",
+        labels: { boxWidth: compact ? 8 : 10, boxHeight: compact ? 8 : 10, font: { size: compact ? 9 : 11 } }
+      },
+      tooltip: { enabled: !compact }
+    },
+    scales: isDonutLike
+      ? {}
+      : {
+          x: { grid: { color: "rgba(184, 196, 239, 0.35)" }, ticks: { color: "#55657c", maxRotation: 0, autoSkip: true } },
+          y: { grid: { color: "rgba(184, 196, 239, 0.35)" }, ticks: { color: "#55657c" }, beginAtZero: true }
+        }
+  };
+
+  return { type, data, options };
 }
 
 function openReportCustomChartWizardModal(onSave) {
@@ -5472,6 +5558,9 @@ function openReportCustomChartWizardModal(onSave) {
   const getModeLabel = (id) => REPORT_CUSTOM_DATA_MODES.find((x) => x.id === id)?.label || "Общее";
   const getGroupLabel = (id) => REPORT_CUSTOM_GROUP_BY_OPTIONS.find((x) => x.id === id)?.label || "По статусу";
   const getTypeLabel = (id) => REPORT_CUSTOM_CHART_TYPES.find((x) => x.id === id)?.label || "Donut";
+  const safeChartLib = typeof Chart !== "undefined" ? Chart : null;
+  let wizardPreviewChart = null;
+  let wizardCardCharts = [];
 
   const overlay = document.createElement("div");
   overlay.className = "report-custom-wizard-overlay";
@@ -5488,7 +5577,19 @@ function openReportCustomChartWizardModal(onSave) {
         <div class="report-custom-wizard-step" data-step-dot="2"><span>2</span><em>Данные</em></div>
         <div class="report-custom-wizard-step" data-step-dot="3"><span>3</span><em>Проверка</em></div>
       </div>
-      <div class="report-custom-wizard-body" id="reportCustomWizardBody"></div>
+      <div class="report-custom-wizard-body">
+        <div class="report-custom-wizard-layout">
+          <div class="report-custom-wizard-main" id="reportCustomWizardBody"></div>
+          <aside class="report-custom-wizard-preview-pane">
+            <h5>Предпросмотр результата</h5>
+            <div class="report-custom-wizard-preview-wrap">
+              <canvas id="reportCustomWizardPreviewCanvas"></canvas>
+              <div id="reportCustomWizardPreviewFallback" class="report-custom-preview-fallback hidden">Предпросмотр недоступен</div>
+            </div>
+            <div class="report-custom-preview-meta" id="reportCustomWizardPreviewMeta"></div>
+          </aside>
+        </div>
+      </div>
       <div class="report-custom-wizard-actions">
         <button type="button" class="secondary" id="reportCustomWizardBackBtn">Назад</button>
         <button type="button" class="secondary" id="reportCustomWizardCancelBtn">Отмена</button>
@@ -5500,12 +5601,73 @@ function openReportCustomChartWizardModal(onSave) {
   initLucideIcons();
 
   const body = overlay.querySelector("#reportCustomWizardBody");
+  const previewCanvas = overlay.querySelector("#reportCustomWizardPreviewCanvas");
+  const previewMeta = overlay.querySelector("#reportCustomWizardPreviewMeta");
+  const previewFallback = overlay.querySelector("#reportCustomWizardPreviewFallback");
   const backBtn = overlay.querySelector("#reportCustomWizardBackBtn");
   const nextBtn = overlay.querySelector("#reportCustomWizardNextBtn");
   const cancelBtn = overlay.querySelector("#reportCustomWizardCancelBtn");
   const closeBtn = overlay.querySelector(".report-custom-wizard-close");
 
-  const close = () => overlay.remove();
+  const destroyPreviewChart = () => {
+    if (wizardPreviewChart && typeof wizardPreviewChart.destroy === "function") {
+      wizardPreviewChart.destroy();
+    }
+    wizardPreviewChart = null;
+  };
+  const destroyCardCharts = () => {
+    wizardCardCharts.forEach((chart) => {
+      if (chart && typeof chart.destroy === "function") chart.destroy();
+    });
+    wizardCardCharts = [];
+  };
+
+  const renderLivePreview = () => {
+    if (!previewMeta) return;
+    previewMeta.innerHTML = `
+      <div><span>Тип:</span><strong>${escapeHtmlText(getTypeLabel(state.type))}</strong></div>
+      <div><span>Режим:</span><strong>${escapeHtmlText(getModeLabel(state.dataMode))}</strong></div>
+      <div><span>Группа:</span><strong>${escapeHtmlText(getGroupLabel(state.groupBy))}</strong></div>
+    `;
+    if (!safeChartLib || !(previewCanvas instanceof HTMLCanvasElement)) {
+      previewFallback?.classList.remove("hidden");
+      return;
+    }
+    previewFallback?.classList.add("hidden");
+    destroyPreviewChart();
+    const cfg = getReportWizardChartPreviewConfig(state);
+    wizardPreviewChart = new safeChartLib(previewCanvas, cfg);
+  };
+
+  const renderTypeCardsCharts = () => {
+    destroyCardCharts();
+    if (!safeChartLib) return;
+    const canvases = Array.from(body.querySelectorAll("[data-wizard-type-canvas]"));
+    canvases.forEach((canvas) => {
+      if (!(canvas instanceof HTMLCanvasElement)) return;
+      const type = String(canvas.getAttribute("data-wizard-type-canvas") || "bar").trim();
+      const cfg = getReportWizardChartPreviewConfig({ ...state, type, dataMode: "total", groupBy: "status" }, { compact: true });
+      const mergedCfg = {
+        ...cfg,
+        options: {
+          ...cfg.options,
+          plugins: {
+            ...cfg.options.plugins,
+            legend: { display: false },
+            tooltip: { enabled: false }
+          }
+        }
+      };
+      const chart = new safeChartLib(canvas, mergedCfg);
+      wizardCardCharts.push(chart);
+    });
+  };
+
+  const close = () => {
+    destroyPreviewChart();
+    destroyCardCharts();
+    overlay.remove();
+  };
 
   const renderStep = () => {
     overlay.querySelectorAll("[data-step-dot]").forEach((dot) => {
@@ -5519,8 +5681,10 @@ function openReportCustomChartWizardModal(onSave) {
     if (state.step === 1) {
       const typeCards = REPORT_CUSTOM_CHART_TYPES
         .map((opt) => `
-          <button type="button" class="report-custom-choice ${state.type === opt.id ? "is-active" : ""}" data-wizard-type="${escapeHtmlAttr(opt.id)}">
-            <span class="report-custom-choice-preview ${buildReportCustomTypePreviewClass(opt.id)}" aria-hidden="true"></span>
+          <button type="button" class="report-custom-choice report-custom-choice--chart ${state.type === opt.id ? "is-active" : ""}" data-wizard-type="${escapeHtmlAttr(opt.id)}">
+            <div class="report-custom-choice-chart-wrap">
+              <canvas data-wizard-type-canvas="${escapeHtmlAttr(opt.id)}"></canvas>
+            </div>
             <strong>${escapeHtmlText(opt.label)}</strong>
           </button>
         `)
@@ -5537,6 +5701,8 @@ function openReportCustomChartWizardModal(onSave) {
           renderStep();
         });
       });
+      renderTypeCardsCharts();
+      renderLivePreview();
       return;
     }
 
@@ -5554,6 +5720,7 @@ function openReportCustomChartWizardModal(onSave) {
           <div class="report-custom-pill-row">${modeChoices}</div>
           <label class="report-custom-wizard-label">Группировка</label>
           <div class="report-custom-pill-row">${groupChoices}</div>
+          <p class="report-custom-step-hint">Справа показывается актуальный итоговый вид на примерных данных.</p>
         </div>
       `;
       body.querySelectorAll("[data-wizard-mode]").forEach((btn) => {
@@ -5568,6 +5735,8 @@ function openReportCustomChartWizardModal(onSave) {
           renderStep();
         });
       });
+      destroyCardCharts();
+      renderLivePreview();
       return;
     }
 
@@ -5581,17 +5750,21 @@ function openReportCustomChartWizardModal(onSave) {
         </div>
         <label class="report-custom-wizard-label" for="reportCustomWizardNameInput">Название диаграммы</label>
         <input type="text" id="reportCustomWizardNameInput" class="report-custom-input" maxlength="70" value="${escapeHtmlAttr(state.name)}" placeholder="Например: Статусы по объектам" />
+        <p class="report-custom-step-hint">Предпросмотр справа показывает, как будет выглядеть итоговый чарт.</p>
       </div>
     `;
     const nameInput = body.querySelector("#reportCustomWizardNameInput");
     nameInput?.addEventListener("input", () => {
       state.name = String(nameInput.value || "").trim();
+      renderLivePreview();
     });
     nameInput?.focus();
     if (nameInput instanceof HTMLInputElement) {
       const len = nameInput.value.length;
       nameInput.setSelectionRange(len, len);
     }
+    destroyCardCharts();
+    renderLivePreview();
   };
 
   const moveNext = () => {
