@@ -13128,11 +13128,25 @@ function attachHeaderActionHandlers(section, filteredEntries) {
 
   if (addRowBtn) {
     addRowBtn.addEventListener("click", () => {
+      let prefillTaskObject = "";
+      let shouldPrefillTaskObject = false;
       if (section.id === "tasks") {
+        const browseMode = displaySettings.tasksListBrowseMode === "byObject" ? "byObject" : "flat";
+        shouldPrefillTaskObject = browseMode === "byObject" && tasksBrowseObjectKey !== null;
+        if (shouldPrefillTaskObject) {
+          const selectedObject = String(tasksBrowseObjectKey || "").trim();
+          prefillTaskObject = selectedObject === TASKS_EMPTY_OBJECT_LABEL ? "" : selectedObject;
+        }
         statusTabBySection[section.id] = "all";
         resetTasksListPagingWindow();
       }
       addEmptyRow(section);
+      if (section.id === "tasks" && shouldPrefillTaskObject) {
+        const newRow = section.rows[section.rows.length - 1];
+        if (Array.isArray(newRow)) {
+          newRow[TASK_COLUMNS.object] = prefillTaskObject;
+        }
+      }
       saveSectionsData();
       renderTablePreserveScroll();
     });
