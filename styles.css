@@ -4109,9 +4109,23 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 .report-custom-selection-dock .report-custom-add-btn,
 .report-custom-selection-dock .report-custom-reset-btn {
   width: auto;
-  min-width: 160px;
+  min-width: 136px;
   height: 36px;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.1;
+  gap: 6px;
+  padding: 0 12px;
+}
+
+.report-custom-selection-dock #reportCustomGroupApplyBtn {
+  min-width: 150px;
+}
+
+.report-custom-selection-dock #reportCustomUngroupBtn {
+  min-width: 104px;
 }
 
 .report-custom-layout-overlay {
@@ -4162,7 +4176,7 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 }
 
 .report-custom-layout-card {
-  min-height: 92px;
+  min-height: 106px;
   border: 1px solid #d9e1ee;
   border-radius: 12px;
   background: #fff;
@@ -4227,7 +4241,7 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 
 .report-custom-grid-preview-chart {
   position: relative;
-  height: 20px;
+  height: 26px;
   border-radius: 6px;
   border: 1px solid #d7deea;
   background: linear-gradient(180deg, #f8fbff 0%, #fff 100%);
@@ -4254,7 +4268,7 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 .report-custom-grid-preview-chart--line::before {
   left: 2px;
   right: 2px;
-  top: 8px;
+  top: 11px;
   height: 2px;
   background: linear-gradient(90deg, rgba(62, 64, 149, 0.2), rgba(62, 64, 149, 0.55), rgba(62, 64, 149, 0.28));
   transform: skewX(-26deg);
@@ -4272,8 +4286,8 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 .report-custom-grid-preview-chart--hbar::before {
   left: 3px;
   right: 3px;
-  top: 3px;
-  bottom: 3px;
+  top: 5px;
+  bottom: 5px;
   background:
     linear-gradient(90deg, rgba(62, 64, 149, 0.3), rgba(62, 64, 149, 0.3)) left 0 top 0 / 66% 3px no-repeat,
     linear-gradient(90deg, rgba(62, 64, 149, 0.2), rgba(62, 64, 149, 0.2)) left 0 center / 42% 3px no-repeat,
@@ -4282,9 +4296,9 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 
 .report-custom-grid-preview-chart--donut::before,
 .report-custom-grid-preview-chart--pie::before {
-  width: 12px;
-  height: 12px;
-  top: 2px;
+  width: 16px;
+  height: 16px;
+  top: 4px;
   left: 50%;
   transform: translateX(-50%);
   border-radius: 50%;
@@ -4292,9 +4306,9 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 }
 
 .report-custom-grid-preview-chart--donut::after {
-  width: 6px;
-  height: 6px;
-  top: 5px;
+  width: 8px;
+  height: 8px;
+  top: 8px;
   left: 50%;
   transform: translateX(-50%);
   border-radius: 50%;
@@ -4329,6 +4343,17 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 .report-dashboard-card::-webkit-scrollbar-thumb:hover,
 .report-custom-layout-modal::-webkit-scrollbar-thumb:hover {
   background: #b6c5df;
+}
+
+.report-dashboard-card,
+.report-custom-layout-modal {
+  scrollbar-width: thin;
+  scrollbar-color: #c7d3e8 #eef3fb;
+  --scrollbar-track-idle: #eef3fb;
+  --scrollbar-track-active: #e4ecf8;
+  --scrollbar-thumb-idle: #c7d3e8;
+  --scrollbar-thumb-active: #bdcbe2;
+  --scrollbar-thumb-hover: #adbdd8;
 }
 
 .report-custom-remove-btn:hover {
