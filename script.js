@@ -8141,8 +8141,15 @@ function attachCustomReportCharts() {
               data: { labels, datasets: statusSeries.map((ds) => ({ ...ds, stack: "status" })) },
               options: {
                 ...common,
-                ...REPORT_HBAR_OPTIONS_THIN,
+                ...REPORT_CHART_LABEL_SAFE_LAYOUT,
                 indexAxis: "y",
+                datasets: {
+                  bar: {
+                    maxBarThickness: 28,
+                    categoryPercentage: 0.82,
+                    barPercentage: 0.9
+                  }
+                },
                 scales: {
                   x: { ...REPORT_HBAR_SCALE_X, stacked: true },
                   y: { offset: true, stacked: true, ticks: { autoSkip: false } }
