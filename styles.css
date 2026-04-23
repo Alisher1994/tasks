@@ -3727,10 +3727,10 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 }
 
 .report-custom-builder {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) 160px minmax(160px, 1fr) 150px auto;
-  gap: 8px;
+  display: flex;
+  gap: 10px;
   align-items: center;
+  justify-content: space-between;
 }
 
 .report-custom-input,
@@ -3743,6 +3743,11 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   font-size: 13px;
 }
 
+.report-custom-builder-note {
+  color: #5f6d80;
+  font-size: 12px;
+}
+
 .report-custom-add-btn {
   border: 1px solid #b8c4ef;
   border-radius: 9px;
@@ -3752,6 +3757,10 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.report-custom-add-btn:hover {
+  background: #e4eaff;
 }
 
 .report-custom-grid {
@@ -3799,13 +3808,270 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 
 @media (max-width: 1100px) {
   .report-custom-builder {
-    grid-template-columns: 1fr 1fr 1fr;
-  }
-  .report-custom-builder .report-custom-add-btn {
-    grid-column: 1 / -1;
+    flex-direction: column;
+    align-items: stretch;
   }
   .report-custom-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+.report-custom-wizard-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.34);
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.report-custom-wizard {
+  width: min(900px, 96vw);
+  max-height: 92vh;
+  background: #fff;
+  border: 1px solid #dbe3f0;
+  border-radius: 14px;
+  box-shadow: 0 20px 44px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.report-custom-wizard-head {
+  padding: 14px 16px;
+  border-bottom: 1px solid #e5ebf5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.report-custom-wizard-head h4 {
+  margin: 0;
+  font-size: 20px;
+  color: #1f2a37;
+  text-align: left;
+}
+
+.report-custom-wizard-stepper {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e8eef7;
+  background: #f9fbff;
+}
+
+.report-custom-wizard-step {
+  border: 1px solid #d6dfed;
+  border-radius: 10px;
+  background: #fff;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #5b6d85;
+}
+
+.report-custom-wizard-step span {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid #c8d4e6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.report-custom-wizard-step em {
+  font-style: normal;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.report-custom-wizard-step.is-active {
+  background: #eef2ff;
+  border-color: #b8c4ef;
+  color: #35469a;
+}
+
+.report-custom-wizard-step.is-active span {
+  border-color: #aebbea;
+  background: #fff;
+}
+
+.report-custom-wizard-step.is-done {
+  border-color: #c8d8f7;
+  color: #3e4f97;
+}
+
+.report-custom-wizard-body {
+  padding: 16px;
+  overflow: auto;
+}
+
+.report-custom-wizard-section h5 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: #213248;
+}
+
+.report-custom-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.report-custom-choice {
+  border: 1px solid #d7e1f2;
+  border-radius: 10px;
+  background: #fff;
+  color: #334155;
+  min-height: 88px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.report-custom-choice:hover {
+  border-color: #b8c4ef;
+  background: #f8faff;
+}
+
+.report-custom-choice.is-active {
+  border-color: #b8c4ef;
+  background: #eef2ff;
+  color: #2f3f8f;
+}
+
+.report-custom-choice-preview {
+  width: 48px;
+  height: 24px;
+  border: 1px solid #b8c4ef;
+  border-radius: 8px;
+  background: #eef2ff;
+  position: relative;
+}
+
+.report-type-preview--bar::before,
+.report-type-preview--hbar::before,
+.report-type-preview--line::before,
+.report-type-preview--donut::before {
+  content: "";
+  position: absolute;
+}
+
+.report-type-preview--bar::before {
+  inset: auto 7px 5px 7px;
+  height: 14px;
+  background: linear-gradient(
+    to right,
+    #b8c4ef 0 18%,
+    transparent 18% 24%,
+    #b8c4ef 24% 48%,
+    transparent 48% 54%,
+    #b8c4ef 54% 100%
+  );
+}
+
+.report-type-preview--hbar::before {
+  inset: 5px 7px 5px 7px;
+  background: linear-gradient(
+    to bottom,
+    #b8c4ef 0 18%,
+    transparent 18% 40%,
+    #b8c4ef 40% 62%,
+    transparent 62% 78%,
+    #b8c4ef 78% 100%
+  );
+}
+
+.report-type-preview--line::before {
+  left: 6px;
+  right: 6px;
+  top: 5px;
+  bottom: 5px;
+  border-bottom: 2px solid #b8c4ef;
+  transform: skewX(-25deg);
+}
+
+.report-type-preview--donut::before {
+  width: 14px;
+  height: 14px;
+  border: 4px solid #b8c4ef;
+  border-radius: 999px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: #fff;
+}
+
+.report-custom-choice--pill {
+  min-height: 38px;
+  flex-direction: row;
+  justify-content: center;
+  padding: 8px 12px;
+}
+
+.report-custom-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.report-custom-wizard-label {
+  display: block;
+  margin: 12px 0 6px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.report-custom-summary-card {
+  border: 1px solid #b8c4ef;
+  border-radius: 10px;
+  background: #eef2ff;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.report-custom-summary-card div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-custom-summary-card span {
+  color: #5a6c84;
+  font-size: 12px;
+  min-width: 110px;
+}
+
+.report-custom-summary-card strong {
+  color: #2f3f8f;
+  font-size: 13px;
+}
+
+.report-custom-wizard-actions {
+  border-top: 1px solid #e5ebf5;
+  padding: 12px 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .report-custom-choice-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

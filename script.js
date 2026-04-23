@@ -5443,24 +5443,190 @@ function renderReportSystemHiddenControlsHtml() {
 
 function renderReportCustomBuilderHtml() {
   if (sharedReportMode) return "";
-  const modeOptions = REPORT_CUSTOM_DATA_MODES
-    .map((opt) => `<option value="${escapeHtmlAttr(opt.id)}">${escapeHtmlText(opt.label)}</option>`)
-    .join("");
-  const groupOptions = REPORT_CUSTOM_GROUP_BY_OPTIONS
-    .map((opt) => `<option value="${escapeHtmlAttr(opt.id)}">${escapeHtmlText(opt.label)}</option>`)
-    .join("");
-  const typeOptions = REPORT_CUSTOM_CHART_TYPES
-    .map((opt) => `<option value="${escapeHtmlAttr(opt.id)}">${escapeHtmlText(opt.label)}</option>`)
-    .join("");
   return `
     <div class="report-custom-builder">
-      <input type="text" id="reportCustomNameInput" class="report-custom-input" maxlength="70" placeholder="Название диаграммы" />
-      <select id="reportCustomDataModeSelect" class="report-custom-select">${modeOptions}</select>
-      <select id="reportCustomGroupBySelect" class="report-custom-select">${groupOptions}</select>
-      <select id="reportCustomTypeSelect" class="report-custom-select">${typeOptions}</select>
-      <button type="button" class="report-custom-add-btn" id="reportCustomAddBtn">Добавить</button>
+      <div class="report-custom-builder-note">
+        Добавление диаграммы через мастер: шаги выбора типа, данных и финальный просмотр перед сохранением.
+      </div>
+      <button type="button" class="report-custom-add-btn" id="reportCustomAddBtn">Добавить диаграмму</button>
     </div>
   `;
+}
+
+function buildReportCustomTypePreviewClass(typeId) {
+  const id = String(typeId || "").trim();
+  if (id === "line") return "report-type-preview--line";
+  if (id === "pie" || id === "donut") return "report-type-preview--donut";
+  if (id === "hbar") return "report-type-preview--hbar";
+  return "report-type-preview--bar";
+}
+
+function openReportCustomChartWizardModal(onSave) {
+  const state = {
+    step: 1,
+    type: "donut",
+    dataMode: "total",
+    groupBy: "status",
+    name: "Кастомный график"
+  };
+  const getModeLabel = (id) => REPORT_CUSTOM_DATA_MODES.find((x) => x.id === id)?.label || "Общее";
+  const getGroupLabel = (id) => REPORT_CUSTOM_GROUP_BY_OPTIONS.find((x) => x.id === id)?.label || "По статусу";
+  const getTypeLabel = (id) => REPORT_CUSTOM_CHART_TYPES.find((x) => x.id === id)?.label || "Donut";
+
+  const overlay = document.createElement("div");
+  overlay.className = "report-custom-wizard-overlay";
+  overlay.innerHTML = `
+    <div class="report-custom-wizard" role="dialog" aria-modal="true" aria-label="Мастер диаграммы">
+      <div class="report-custom-wizard-head">
+        <h4>Добавление диаграммы</h4>
+        <button type="button" class="icon-action-btn report-custom-wizard-close" title="Закрыть">
+          <i data-lucide="x" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="report-custom-wizard-stepper">
+        <div class="report-custom-wizard-step is-active" data-step-dot="1"><span>1</span><em>Тип</em></div>
+        <div class="report-custom-wizard-step" data-step-dot="2"><span>2</span><em>Данные</em></div>
+        <div class="report-custom-wizard-step" data-step-dot="3"><span>3</span><em>Проверка</em></div>
+      </div>
+      <div class="report-custom-wizard-body" id="reportCustomWizardBody"></div>
+      <div class="report-custom-wizard-actions">
+        <button type="button" class="secondary" id="reportCustomWizardBackBtn">Назад</button>
+        <button type="button" class="secondary" id="reportCustomWizardCancelBtn">Отмена</button>
+        <button type="button" class="report-custom-add-btn" id="reportCustomWizardNextBtn">Далее</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  initLucideIcons();
+
+  const body = overlay.querySelector("#reportCustomWizardBody");
+  const backBtn = overlay.querySelector("#reportCustomWizardBackBtn");
+  const nextBtn = overlay.querySelector("#reportCustomWizardNextBtn");
+  const cancelBtn = overlay.querySelector("#reportCustomWizardCancelBtn");
+  const closeBtn = overlay.querySelector(".report-custom-wizard-close");
+
+  const close = () => overlay.remove();
+
+  const renderStep = () => {
+    overlay.querySelectorAll("[data-step-dot]").forEach((dot) => {
+      const n = Number(dot.getAttribute("data-step-dot"));
+      dot.classList.toggle("is-active", n === state.step);
+      dot.classList.toggle("is-done", n < state.step);
+    });
+    backBtn.disabled = state.step <= 1;
+    nextBtn.textContent = state.step >= 3 ? "Сохранить" : "Далее";
+
+    if (state.step === 1) {
+      const typeCards = REPORT_CUSTOM_CHART_TYPES
+        .map((opt) => `
+          <button type="button" class="report-custom-choice ${state.type === opt.id ? "is-active" : ""}" data-wizard-type="${escapeHtmlAttr(opt.id)}">
+            <span class="report-custom-choice-preview ${buildReportCustomTypePreviewClass(opt.id)}" aria-hidden="true"></span>
+            <strong>${escapeHtmlText(opt.label)}</strong>
+          </button>
+        `)
+        .join("");
+      body.innerHTML = `
+        <div class="report-custom-wizard-section">
+          <h5>Шаг 1. Выберите тип диаграммы</h5>
+          <div class="report-custom-choice-grid">${typeCards}</div>
+        </div>
+      `;
+      body.querySelectorAll("[data-wizard-type]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.type = String(btn.getAttribute("data-wizard-type") || "donut");
+          renderStep();
+        });
+      });
+      return;
+    }
+
+    if (state.step === 2) {
+      const modeChoices = REPORT_CUSTOM_DATA_MODES
+        .map((opt) => `<button type="button" class="report-custom-choice report-custom-choice--pill ${state.dataMode === opt.id ? "is-active" : ""}" data-wizard-mode="${escapeHtmlAttr(opt.id)}">${escapeHtmlText(opt.label)}</button>`)
+        .join("");
+      const groupChoices = REPORT_CUSTOM_GROUP_BY_OPTIONS
+        .map((opt) => `<button type="button" class="report-custom-choice report-custom-choice--pill ${state.groupBy === opt.id ? "is-active" : ""}" data-wizard-group="${escapeHtmlAttr(opt.id)}">${escapeHtmlText(opt.label)}</button>`)
+        .join("");
+      body.innerHTML = `
+        <div class="report-custom-wizard-section">
+          <h5>Шаг 2. Выберите данные и группировку</h5>
+          <label class="report-custom-wizard-label">Режим данных</label>
+          <div class="report-custom-pill-row">${modeChoices}</div>
+          <label class="report-custom-wizard-label">Группировка</label>
+          <div class="report-custom-pill-row">${groupChoices}</div>
+        </div>
+      `;
+      body.querySelectorAll("[data-wizard-mode]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.dataMode = String(btn.getAttribute("data-wizard-mode") || "total");
+          renderStep();
+        });
+      });
+      body.querySelectorAll("[data-wizard-group]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.groupBy = String(btn.getAttribute("data-wizard-group") || "status");
+          renderStep();
+        });
+      });
+      return;
+    }
+
+    body.innerHTML = `
+      <div class="report-custom-wizard-section">
+        <h5>Шаг 3. Проверка и сохранение</h5>
+        <div class="report-custom-summary-card">
+          <div><span>Тип:</span><strong>${escapeHtmlText(getTypeLabel(state.type))}</strong></div>
+          <div><span>Режим данных:</span><strong>${escapeHtmlText(getModeLabel(state.dataMode))}</strong></div>
+          <div><span>Группировка:</span><strong>${escapeHtmlText(getGroupLabel(state.groupBy))}</strong></div>
+        </div>
+        <label class="report-custom-wizard-label" for="reportCustomWizardNameInput">Название диаграммы</label>
+        <input type="text" id="reportCustomWizardNameInput" class="report-custom-input" maxlength="70" value="${escapeHtmlAttr(state.name)}" placeholder="Например: Статусы по объектам" />
+      </div>
+    `;
+    const nameInput = body.querySelector("#reportCustomWizardNameInput");
+    nameInput?.addEventListener("input", () => {
+      state.name = String(nameInput.value || "").trim();
+    });
+    nameInput?.focus();
+    if (nameInput instanceof HTMLInputElement) {
+      const len = nameInput.value.length;
+      nameInput.setSelectionRange(len, len);
+    }
+  };
+
+  const moveNext = () => {
+    if (state.step < 3) {
+      state.step += 1;
+      renderStep();
+      return;
+    }
+    const name = String(state.name || "").trim() || "Кастомный график";
+    const validMode = REPORT_CUSTOM_DATA_MODES.some((x) => x.id === state.dataMode) ? state.dataMode : "total";
+    const validGroup = REPORT_CUSTOM_GROUP_BY_OPTIONS.some((x) => x.id === state.groupBy) ? state.groupBy : "status";
+    const validType = REPORT_CUSTOM_CHART_TYPES.some((x) => x.id === state.type) ? state.type : "bar";
+    onSave?.({
+      id: `custom_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      name,
+      dataMode: validMode,
+      groupBy: validGroup,
+      type: validType
+    });
+    close();
+  };
+
+  backBtn?.addEventListener("click", () => {
+    if (state.step <= 1) return;
+    state.step -= 1;
+    renderStep();
+  });
+  nextBtn?.addEventListener("click", moveNext);
+  cancelBtn?.addEventListener("click", close);
+  closeBtn?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+
+  renderStep();
 }
 
 function renderReportCustomChartsHtml() {
@@ -7525,31 +7691,15 @@ function attachReportCustomBuilderHandlers() {
   if (!root) return;
   const addBtn = root.querySelector("#reportCustomAddBtn");
   addBtn?.addEventListener("click", () => {
-    const nameInput = root.querySelector("#reportCustomNameInput");
-    const modeInput = root.querySelector("#reportCustomDataModeSelect");
-    const groupInput = root.querySelector("#reportCustomGroupBySelect");
-    const typeInput = root.querySelector("#reportCustomTypeSelect");
-    const name = String(nameInput?.value || "").trim() || "Кастомный график";
-    const dataMode = String(modeInput?.value || "total").trim();
-    const groupBy = String(groupInput?.value || "status").trim();
-    const type = String(typeInput?.value || "bar").trim();
-    const validMode = REPORT_CUSTOM_DATA_MODES.some((x) => x.id === dataMode) ? dataMode : "total";
-    const validGroup = REPORT_CUSTOM_GROUP_BY_OPTIONS.some((x) => x.id === groupBy) ? groupBy : "status";
-    const validType = REPORT_CUSTOM_CHART_TYPES.some((x) => x.id === type) ? type : "bar";
-    const list = loadReportCustomCharts();
-    if (list.length >= REPORT_CUSTOM_MAX_CHARTS) {
-      showToast(`Можно добавить максимум ${REPORT_CUSTOM_MAX_CHARTS} графиков.`);
-      return;
-    }
-    const item = {
-      id: `custom_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-      name,
-      dataMode: validMode,
-      groupBy: validGroup,
-      type: validType
-    };
-    saveReportCustomCharts([...list, item]);
-    refreshReportView();
+    openReportCustomChartWizardModal((item) => {
+      const list = loadReportCustomCharts();
+      if (list.length >= REPORT_CUSTOM_MAX_CHARTS) {
+        showToast(`Можно добавить максимум ${REPORT_CUSTOM_MAX_CHARTS} графиков.`);
+        return;
+      }
+      saveReportCustomCharts([...list, item]);
+      refreshReportView();
+    });
   });
   root.querySelectorAll("[data-remove-custom-chart]").forEach((btn) => {
     btn.addEventListener("click", () => {
