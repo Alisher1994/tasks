@@ -340,6 +340,25 @@ function ensureTaskMultiStateStore(payload) {
   return payload.taskMultiState;
 }
 
+function ensureTaskCloseMetaStore(payload) {
+  if (!payload.taskCloseMeta || typeof payload.taskCloseMeta !== "object" || Array.isArray(payload.taskCloseMeta)) {
+    payload.taskCloseMeta = {};
+  }
+  return payload.taskCloseMeta;
+}
+
+function setSingleTaskClosedAt(payload, row, closedAtText) {
+  const taskId = String(row?.[TASK_COLUMNS.number] ?? "").trim();
+  if (!taskId) return;
+  const store = ensureTaskCloseMetaStore(payload);
+  const value = String(closedAtText || "").trim();
+  if (!value) {
+    delete store[taskId];
+    return;
+  }
+  store[taskId] = { closedAt: value };
+}
+
 function getTaskMultiStateForRow(payload, row, { create = false } = {}) {
   const taskId = String(row?.[TASK_COLUMNS.number] ?? "").trim();
   if (!taskId) return null;
@@ -1666,14 +1685,21 @@ async function handleCallback(q, pool, token) {
         row[TASK_COLUMNS.status] = newStatus;
         if (newStatus !== "Закрыт") {
           row[TASK_COLUMNS.closedDate] = "";
-        } else if (!String(row[TASK_COLUMNS.closedDate] || "").trim()) {
-          row[TASK_COLUMNS.closedDate] = formatRuDate(new Date(), appTz);
+          setSingleTaskClosedAt(payload, row, "");
+        } else {
+          if (!String(row[TASK_COLUMNS.closedDate] || "").trim()) {
+            row[TASK_COLUMNS.closedDate] = formatRuDate(new Date(), appTz);
+          }
+          setSingleTaskClosedAt(payload, row, nowText);
         }
       } else {
         updateTaskAggregateStatusFromMulti(payload, row, appTz);
       }
     } else {
       row[TASK_COLUMNS.status] = newStatus;
+      if (newStatus !== "Закрыт") {
+        setSingleTaskClosedAt(payload, row, "");
+      }
     }
     appendTaskHistory(payload, taskId, empName, `Telegram: статус «${oldStatus || "—"}» → «${newStatus}»`);
     setLastTaskContext(payload, chatId, taskId, messageId);
@@ -1808,6 +1834,19 @@ async function handleCallback(q, pool, token) {
   }
 
   if (parsed.action === "bk") {
+    const currentRead = getTaskReadStateParts(row[TASK_COLUMNS.readState]);
+    const assigneeName = getTaskAssigneeNameByChat(payload, row, chatId);
+    const state = assigneeName ? getTaskMultiStateForRow(payload, row, { create: true }) : null;
+    const assigneeReadAt = assigneeName && state?.[assigneeName] ? String(state[assigneeName].readAt || "").trim() : "";
+    if (canChatUseTaskActions(payload, row, chatId) && (!currentRead.isRead || (assigneeName && !assigneeReadAt))) {
+      const nowText = formatRuDateTime(new Date(), appTz);
+      row[TASK_COLUMNS.readState] = composeReadStateValue(true, nowText);
+      if (assigneeName && state?.[assigneeName]) {
+        state[assigneeName].readAt = nowText;
+        state[assigneeName].updatedAt = nowText;
+      }
+      appendTaskHistory(payload, taskId, empName, `Telegram: задача открыта/прочитана (${nowText})`);
+    }
     clearSession(payload, String(chatId));
     setLastTaskContext(payload, chatId, taskId, messageId);
     await savePayload(pool, payload);
@@ -1858,6 +1897,7 @@ async function handleCallback(q, pool, token) {
       } else {
         row[TASK_COLUMNS.status] = "Закрыт";
         row[TASK_COLUMNS.closedDate] = formatRuDate(now, appTz);
+        setSingleTaskClosedAt(payload, row, confirmedAt);
       }
       const confirmInfo = requesterAssignee && assignees.length > 1
         ? `Закрытие подтверждено: ${requesterAssignee} (${empName || "—"}), ${confirmedAt}`

@@ -1078,32 +1078,37 @@ app.put("/api/data", authMiddleware, async (req, res) => {
              jsonb_set(
                jsonb_set(
                  jsonb_set(
-                   jsonb_set(
-                     EXCLUDED.payload,
-                     '{telegramSessions}',
-                     COALESCE(app_state.payload->'telegramSessions', '{}'::jsonb),
-                     true
-                   ),
-                   '{telegramPhoneChatBindings}',
-                   COALESCE(app_state.payload->'telegramPhoneChatBindings', '{}'::jsonb),
-                   true
-                 ),
-                 '{telegramCloseRequests}',
-                 COALESCE(app_state.payload->'telegramCloseRequests', '{}'::jsonb),
-                 true
-               ),
-               '{telegramLastTaskByChat}',
-               COALESCE(app_state.payload->'telegramLastTaskByChat', '{}'::jsonb),
-               true
-             ),
-             '{telegramChatClearRequests}',
-             COALESCE(app_state.payload->'telegramChatClearRequests', '{}'::jsonb),
-             true
-           ),
-           '{telegramLastSeenMessageByChat}',
-           COALESCE(app_state.payload->'telegramLastSeenMessageByChat', '{}'::jsonb),
-           true
-         ),
+                    jsonb_set(
+                      jsonb_set(
+                        EXCLUDED.payload,
+                        '{telegramSessions}',
+                        COALESCE(app_state.payload->'telegramSessions', '{}'::jsonb),
+                        true
+                      ),
+                      '{telegramPhoneChatBindings}',
+                      COALESCE(app_state.payload->'telegramPhoneChatBindings', '{}'::jsonb),
+                      true
+                    ),
+                    '{telegramCloseRequests}',
+                    COALESCE(app_state.payload->'telegramCloseRequests', '{}'::jsonb),
+                    true
+                  ),
+                  '{telegramLastTaskByChat}',
+                  COALESCE(app_state.payload->'telegramLastTaskByChat', '{}'::jsonb),
+                  true
+                ),
+                '{telegramChatClearRequests}',
+                COALESCE(app_state.payload->'telegramChatClearRequests', '{}'::jsonb),
+                true
+              ),
+              '{telegramLastSeenMessageByChat}',
+              COALESCE(app_state.payload->'telegramLastSeenMessageByChat', '{}'::jsonb),
+              true
+            ),
+            '{taskCloseMeta}',
+            COALESCE(app_state.payload->'taskCloseMeta', '{}'::jsonb),
+            true
+          ),
          updated_at = NOW()
        RETURNING updated_at`,
       [JSON.stringify(mergedData)]

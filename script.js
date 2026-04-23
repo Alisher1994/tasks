@@ -42,6 +42,7 @@ const TRASH_STORAGE_KEY = "mbc_task_trash_data";
 /** История действий по задачам: { [taskId]: Array<{ t, who, action }> } */
 const TASK_HISTORY_STORAGE_KEY = "mbc_task_action_history";
 const TASK_MULTI_STATE_STORAGE_KEY = "mbc_task_multi_state";
+const TASK_CLOSE_META_STORAGE_KEY = "mbc_task_close_meta";
 const TASK_ATTACHMENTS_STORAGE_KEY = "mbc_task_attachments";
 const TASK_HISTORY_MAX_PER_TASK = 300;
 const REPORT_CHART_ORDER_STORAGE_KEY = "mbc_report_chart_tile_order";
@@ -917,6 +918,7 @@ function stopSessionIdleWatcher() {
 
 function buildAppPayload() {
   normalizeTaskMultiStateStore();
+  normalizeTaskCloseMetaStore();
   cleanupTaskAttachmentsStore();
   return {
     sections: JSON.parse(JSON.stringify(sections)),
@@ -924,6 +926,7 @@ function buildAppPayload() {
     trashBySection: JSON.parse(JSON.stringify(trashBySection)),
     taskHistory: loadTaskHistoryStore(),
     taskMultiState: JSON.parse(JSON.stringify(taskMultiState)),
+    taskCloseMeta: JSON.parse(JSON.stringify(taskCloseMeta)),
     taskAttachments: JSON.parse(JSON.stringify(taskAttachmentsByTaskId)),
     reportShares: loadReportShares(),
     reportChartOrder: loadReportChartOrder(),
@@ -1256,6 +1259,9 @@ async function mergeTaskReadStateFromServer(localPayload) {
         localPayload.taskMultiState
       );
     }
+    if (remotePayload?.taskCloseMeta && typeof remotePayload.taskCloseMeta === "object" && !Array.isArray(remotePayload.taskCloseMeta)) {
+      localPayload.taskCloseMeta = JSON.parse(JSON.stringify(remotePayload.taskCloseMeta));
+    }
   } catch (_) {
     /* noop */
   }
@@ -1304,6 +1310,15 @@ async function pullTaskReadStateFromServerIntoLocal({ rerender = true } = {}) {
         if (nextMulti !== prevMulti) {
           taskMultiState = mergedMulti;
           localStorage.setItem(TASK_MULTI_STATE_STORAGE_KEY, JSON.stringify(taskMultiState));
+          multiChanged = true;
+        }
+      }
+      if (json?.data?.taskCloseMeta && typeof json.data.taskCloseMeta === "object" && !Array.isArray(json.data.taskCloseMeta)) {
+        const nextCloseMeta = JSON.stringify(json.data.taskCloseMeta);
+        const prevCloseMeta = JSON.stringify(taskCloseMeta || {});
+        if (nextCloseMeta !== prevCloseMeta) {
+          taskCloseMeta = JSON.parse(nextCloseMeta);
+          localStorage.setItem(TASK_CLOSE_META_STORAGE_KEY, JSON.stringify(taskCloseMeta));
           multiChanged = true;
         }
       }
@@ -1548,6 +1563,14 @@ function applyServerBundle(data, options = {}) {
     try {
       localStorage.setItem(TASK_MULTI_STATE_STORAGE_KEY, JSON.stringify(data.taskMultiState));
       restoreTaskMultiState();
+    } catch (_) {
+      /* noop */
+    }
+  }
+  if (data.taskCloseMeta && typeof data.taskCloseMeta === "object" && !Array.isArray(data.taskCloseMeta)) {
+    try {
+      localStorage.setItem(TASK_CLOSE_META_STORAGE_KEY, JSON.stringify(data.taskCloseMeta));
+      restoreTaskCloseMeta();
     } catch (_) {
       /* noop */
     }
@@ -3666,6 +3689,7 @@ let displaySettings = {
   reportCustomCharts: []
 };
 let taskMultiState = {};
+let taskCloseMeta = {};
 let taskAttachmentsByTaskId = {};
 const expandedTaskAssigneeRows = new Set();
 
@@ -7339,6 +7363,12 @@ function parseTaskClosedDateFallback(value) {
   return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
+function getTaskClosedAtExactValue(taskId) {
+  const key = String(taskId || "").trim();
+  if (!key) return "";
+  return String(taskCloseMeta?.[key]?.closedAt || "").trim();
+}
+
 function formatDurationCompact(ms) {
   const totalMs = Number(ms) || 0;
   if (totalMs <= 0) return "0 мин";
@@ -7408,7 +7438,7 @@ function buildExecutionTimeEntries(rows) {
     const multiState = taskId ? getTaskMultiAssigneeMap(taskId) || {} : {};
     const baseRead = getTaskReadStateParts(taskRow?.[TASK_COLUMNS.readState]);
     const baseReadAt = parseRuDateTimeString(baseRead.whenText);
-    const baseClosedAt = parseTaskClosedDateFallback(taskRow?.[TASK_COLUMNS.closedDate]);
+    const baseClosedAt = parseRuDateTimeString(getTaskClosedAtExactValue(taskId)) || parseTaskClosedDateFallback(taskRow?.[TASK_COLUMNS.closedDate]);
     const pushEntry = (assigneeName, assigneeState = null) => {
       const normalizedStatus = normalizeTaskStatusValue(String(assigneeState?.status || taskRow?.[TASK_COLUMNS.status] || "").trim());
       if (normalizedStatus !== "Закрыт") return;
@@ -17830,9 +17860,11 @@ function getTodayRuDate() {
 
 function saveSectionsData() {
   normalizeTaskMultiStateStore();
+  normalizeTaskCloseMetaStore();
   cleanupTaskAttachmentsStore();
   localStorage.setItem(DATA_STORAGE_KEY, JSON.stringify(sections));
   localStorage.setItem(TASK_MULTI_STATE_STORAGE_KEY, JSON.stringify(taskMultiState));
+  localStorage.setItem(TASK_CLOSE_META_STORAGE_KEY, JSON.stringify(taskCloseMeta));
   localStorage.setItem(TASK_ATTACHMENTS_STORAGE_KEY, JSON.stringify(taskAttachmentsByTaskId));
   scheduleServerSync();
 }
@@ -17853,6 +17885,43 @@ function restoreTaskMultiState() {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
     taskMultiState = parsed;
     normalizeTaskMultiStateStore();
+  } catch (_) {
+    // ignore broken storage
+  }
+}
+
+function normalizeTaskCloseMetaStore() {
+  if (!taskCloseMeta || typeof taskCloseMeta !== "object" || Array.isArray(taskCloseMeta)) {
+    taskCloseMeta = {};
+  }
+  const existingTaskIds = new Set(getAllTaskRows().map((row) => String(row?.[TASK_COLUMNS.number] || "").trim()).filter(Boolean));
+  Object.keys(taskCloseMeta).forEach((taskId) => {
+    if (!existingTaskIds.has(taskId)) {
+      delete taskCloseMeta[taskId];
+      return;
+    }
+    const entry = taskCloseMeta[taskId];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      delete taskCloseMeta[taskId];
+      return;
+    }
+    const closedAt = String(entry.closedAt || "").trim();
+    if (!closedAt) {
+      delete taskCloseMeta[taskId];
+      return;
+    }
+    taskCloseMeta[taskId] = { closedAt };
+  });
+}
+
+function restoreTaskCloseMeta() {
+  const raw = localStorage.getItem(TASK_CLOSE_META_STORAGE_KEY);
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+    taskCloseMeta = parsed;
+    normalizeTaskCloseMetaStore();
   } catch (_) {
     // ignore broken storage
   }
@@ -18731,6 +18800,7 @@ logoutBtn.innerHTML = withLucideIcon("log-out", "Выйти");
 restoreDisplaySettings();
 restoreSectionsData();
 restoreTaskMultiState();
+restoreTaskCloseMeta();
 restoreTaskAttachmentsData();
 cleanupPendingImportedTaskIds({ save: false });
 applyObjectsSeedIfNeeded();
