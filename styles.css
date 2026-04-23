@@ -4018,6 +4018,7 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
+  align-items: stretch;
 }
 
 .report-custom-choice {
@@ -4052,6 +4053,9 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 
 .report-custom-choice--chart {
   padding: 10px 10px 12px;
+  aspect-ratio: 1 / 1;
+  min-height: 0;
+  justify-content: space-between;
 }
 
 .report-custom-choice-chart-wrap {
@@ -4195,6 +4199,14 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.report-custom-wizard.is-step-1 .report-custom-wizard-layout {
+  grid-template-columns: 1fr;
+}
+
+.report-custom-wizard.is-step-1 .report-custom-wizard-preview-pane {
+  display: none;
 }
 
 @media (max-width: 900px) {

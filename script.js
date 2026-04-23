@@ -5469,7 +5469,7 @@ function getReportWizardChartPreviewConfig(state, { compact = false } = {}) {
     overdue: ["В срок", "1-3 дн", "4-7 дн", "7+ дн"]
   };
   const labels = labelsByGroup[groupByRaw] || labelsByGroup.status;
-  const type = typeRaw === "hbar" ? "bar" : typeRaw;
+  const type = typeRaw === "hbar" ? "bar" : typeRaw === "donut" ? "doughnut" : typeRaw;
   const isDonutLike = typeRaw === "donut" || typeRaw === "pie";
   const paletteFill = [
     "rgba(184, 196, 239, 0.95)",
@@ -5614,7 +5614,7 @@ function openReportCustomChartWizardModal(onSave) {
   const getModeLabel = (id) => REPORT_CUSTOM_DATA_MODES.find((x) => x.id === id)?.label || "Общее";
   const getGroupLabel = (id) => REPORT_CUSTOM_GROUP_BY_OPTIONS.find((x) => x.id === id)?.label || "По статусу";
   const getTypeLabel = (id) => REPORT_CUSTOM_CHART_TYPES.find((x) => x.id === id)?.label || "Donut";
-  const safeChartLib = window.Chart && typeof window.Chart === "function" ? window.Chart : null;
+  const safeChartLib = typeof Chart !== "undefined" ? Chart : null;
   let wizardPreviewChart = null;
 
   const overlay = document.createElement("div");
@@ -5656,6 +5656,7 @@ function openReportCustomChartWizardModal(onSave) {
   initLucideIcons();
 
   const body = overlay.querySelector("#reportCustomWizardBody");
+  const wizard = overlay.querySelector(".report-custom-wizard");
   const previewCanvas = overlay.querySelector("#reportCustomWizardPreviewCanvas");
   const previewMeta = overlay.querySelector("#reportCustomWizardPreviewMeta");
   const previewFallback = overlay.querySelector("#reportCustomWizardPreviewFallback");
@@ -5693,6 +5694,7 @@ function openReportCustomChartWizardModal(onSave) {
   };
 
   const renderStep = () => {
+    wizard?.classList.toggle("is-step-1", state.step === 1);
     overlay.querySelectorAll("[data-step-dot]").forEach((dot) => {
       const n = Number(dot.getAttribute("data-step-dot"));
       dot.classList.toggle("is-active", n === state.step);
