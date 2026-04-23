@@ -566,8 +566,7 @@ function buildOverdueSummaryText(overdueCount) {
   return [
     "⚠️ Уведомление",
     "",
-    `Количество просроченных задач: ${count} шт.`,
-    "Для просмотра выберите из списка задачу."
+    `Количество просроченных задач: ${count} шт.`
   ].join("\n");
 }
 
@@ -576,6 +575,23 @@ function overdueSummaryKeyboard(overdueCount = 0) {
   return {
     inline_keyboard: [[{ text: `📋 Посмотреть - ${count} шт`, callback_data: "ov|ls" }]]
   };
+}
+
+function isPrivilegedViewerChat(payload, chatId) {
+  const chat = String(chatId || "").trim();
+  if (!chat) return false;
+  const adminChat = String(payload?.displaySettings?.telegramAdminChatId || "").trim();
+  if (adminChat && adminChat === chat) return true;
+
+  const employees = getEmployeesSection(payload);
+  const emp = findEmployeeByChatId(employees, chat);
+  if (!emp) return false;
+  if (String(emp[EMPLOYEE_COLUMNS.telegram] || "").trim() !== "Подключен") return false;
+
+  const position = String(emp[EMPLOYEE_COLUMNS.position] || "").trim().toLowerCase();
+  if (!position) return false;
+  if (position === "администратор") return true;
+  return position.includes("директор");
 }
 
 function getOverdueRowsForChat(payload, chatId, appTimeZone = "UTC") {
@@ -587,7 +603,7 @@ function getOverdueRowsForChat(payload, chatId, appTimeZone = "UTC") {
   const out = [];
   for (const row of rows) {
     if (!Array.isArray(row)) continue;
-    if (!isTaskActionAllowedForChat(payload, row, chat)) continue;
+    if (!isTaskVisibleForChat(payload, row, chat)) continue;
     const status = normalizeTaskStatusValue(String(row[TASK_COLUMNS.status] || "").trim());
     if (status === "Закрыт") continue;
     const dueRaw = String(row[TASK_COLUMNS.dueDate] || "").trim();
@@ -620,10 +636,14 @@ function isTaskActionAllowedForChat(payload, row, chatId) {
   return actionChats.has(chat);
 }
 
+function isTaskVisibleForChat(payload, row, chatId) {
+  return isTaskActionAllowedForChat(payload, row, chatId) || isPrivilegedViewerChat(payload, chatId);
+}
+
 function getMyTasksForChat(payload, chatId) {
   const tasks = getTasksSection(payload);
   const rows = Array.isArray(tasks?.rows) ? tasks.rows : [];
-  return rows.filter((row) => Array.isArray(row) && isTaskActionAllowedForChat(payload, row, chatId));
+  return rows.filter((row) => Array.isArray(row) && isTaskVisibleForChat(payload, row, chatId));
 }
 
 function getMyTaskObjects(rows) {
@@ -951,9 +971,12 @@ function getTaskActionChatIds(payload, row) {
 }
 
 function canChatUseTaskActions(payload, row, chatId) {
-  const actionChats = getTaskActionChatIds(payload, row);
-  if (!actionChats.size) return true;
-  return actionChats.has(String(chatId || "").trim());
+  return isTaskActionAllowedForChat(payload, row, chatId);
+}
+
+function mainKeyboardForChat(payload, taskNumber, row, chatId, appTimeZone = "UTC") {
+  if (!canChatUseTaskActions(payload, row, chatId)) return [];
+  return mainKeyboard(taskNumber, row, appTimeZone);
 }
 
 async function broadcastTaskCardUpdate(payload, token, row, reasonText, excludeChatId = "") {
@@ -1528,7 +1551,7 @@ async function handleCallback(q, pool, token) {
       chat_id: chatId,
       message_id: messageId,
       text: `${buildFullTaskMessage(viewerRow)}\n\nВыберите действие по задаче:`,
-      reply_markup: { inline_keyboard: mainKeyboard(taskId, viewerRow, appTz) }
+      reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, viewerRow, chatId, appTz) }
     });
     await answerOk("Задача отмечена как прочитанная");
     return;
@@ -1620,7 +1643,7 @@ async function handleCallback(q, pool, token) {
         chat_id: chatId,
         message_id: messageId,
         text: `${taskCaptionWithPlan(viewerRow)}\n\nЗапрос на закрытие отправлен администратору. Ожидайте подтверждения.`,
-        reply_markup: { inline_keyboard: mainKeyboard(taskId, viewerRow, appTz) }
+        reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, viewerRow, chatId, appTz) }
       });
       await notifyCloseConfirmRecipients(pool, token, payload, taskId, row, empName);
       await answerOk();
@@ -1660,7 +1683,7 @@ async function handleCallback(q, pool, token) {
       chat_id: chatId,
       message_id: messageId,
       text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId))}\n\nСтатус обновлён.`,
-      reply_markup: { inline_keyboard: mainKeyboard(taskId, buildTaskRowForChat(payload, row, chatId), appTz) }
+      reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, buildTaskRowForChat(payload, row, chatId), chatId, appTz) }
     });
     await answerOk();
     return;
@@ -1754,7 +1777,7 @@ async function handleCallback(q, pool, token) {
       chat_id: chatId,
       message_id: messageId,
       text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId))}\n\nПричина отставания сохранена.`,
-      reply_markup: { inline_keyboard: mainKeyboard(taskId, buildTaskRowForChat(payload, row, chatId), appTz) }
+      reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, buildTaskRowForChat(payload, row, chatId), chatId, appTz) }
     });
     await broadcastTaskCardUpdate(payload, token, row, "Причина отставания обновлена.", String(chatId));
     await answerOk();
@@ -1792,7 +1815,7 @@ async function handleCallback(q, pool, token) {
       chat_id: chatId,
       message_id: messageId,
       text: `${taskCaptionWithPlan(viewerRow)}\n\nВыберите действие по задаче:`,
-      reply_markup: { inline_keyboard: mainKeyboard(taskId, viewerRow, appTz) }
+      reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, viewerRow, chatId, appTz) }
     });
     await answerOk();
     return;
@@ -1851,13 +1874,13 @@ async function handleCallback(q, pool, token) {
           chat_id: req.chatId,
           message_id: sourceMid,
           text: requesterText,
-          reply_markup: { inline_keyboard: mainKeyboard(taskId, requesterRow, resolveAppTimeZone(payload)) }
+          reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, requesterRow, req.chatId, resolveAppTimeZone(payload)) }
         });
       } else {
         await tg(token, "sendMessage", {
           chat_id: req.chatId,
           text: requesterText,
-          reply_markup: { inline_keyboard: mainKeyboard(taskId, requesterRow, resolveAppTimeZone(payload)) }
+          reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, requesterRow, req.chatId, resolveAppTimeZone(payload)) }
         });
       }
       await tg(token, "editMessageText", {
@@ -1988,7 +2011,7 @@ async function handleMessage(msg, pool, token) {
           chat_id: chatId,
           message_id: promptMessageId,
           text: `${taskCaptionWithPlan(scopedRow)}\n\nДействие отменено.`,
-          reply_markup: { inline_keyboard: mainKeyboard(taskId, scopedRow, appTz) }
+          reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, scopedRow, chatId, appTz) }
         });
         if (edited?.ok) return;
       }
@@ -1996,7 +2019,7 @@ async function handleMessage(msg, pool, token) {
         await tg(token, "sendMessage", {
           chat_id: chatId,
           text: `${taskCaptionWithPlan(scopedRow)}\n\nДействие отменено.`,
-          reply_markup: { inline_keyboard: mainKeyboard(taskId, scopedRow, appTz) }
+          reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, scopedRow, chatId, appTz) }
         });
         return;
       }
@@ -2133,20 +2156,20 @@ async function handleMessage(msg, pool, token) {
         chat_id: chatId,
         message_id: promptMessageId,
         text: `${taskCaptionWithPlan(getChatRow())}\n\nКомментарий сохранён.`,
-        reply_markup: { inline_keyboard: mainKeyboard(taskId, getChatRow(), appTz) }
+        reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
       });
       if (!edited?.ok) {
         await tg(token, "sendMessage", {
           chat_id: chatId,
           text: `${taskCaptionWithPlan(getChatRow())}\n\nКомментарий сохранён.`,
-          reply_markup: { inline_keyboard: mainKeyboard(taskId, getChatRow(), appTz) }
+          reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
         });
       }
     } else {
       await tg(token, "sendMessage", {
         chat_id: chatId,
         text: `${taskCaptionWithPlan(getChatRow())}\n\nКомментарий сохранён.`,
-        reply_markup: { inline_keyboard: mainKeyboard(taskId, getChatRow(), appTz) }
+        reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
       });
     }
     await broadcastTaskCardUpdate(payload, token, row, "Комментарий сотрудника обновлён.", chatKey);
@@ -2167,14 +2190,14 @@ async function handleMessage(msg, pool, token) {
         chat_id: chatId,
         message_id: promptMessageId,
         text: `${taskCaptionWithPlan(getChatRow())}\n\nПричина отставания станет доступна после просрочки планового срока.`,
-        reply_markup: { inline_keyboard: mainKeyboard(taskId, getChatRow(), appTz) }
+        reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
       });
       if (edited?.ok) return;
     }
     await tg(token, "sendMessage", {
       chat_id: chatId,
       text: `${taskCaptionWithPlan(getChatRow())}\n\nПричина отставания станет доступна после просрочки планового срока.`,
-      reply_markup: { inline_keyboard: mainKeyboard(taskId, getChatRow(), appTz) }
+      reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
     });
     return;
   }
@@ -2192,20 +2215,20 @@ async function handleMessage(msg, pool, token) {
         chat_id: chatId,
         message_id: promptMessageId,
         text: `${taskCaptionWithPlan(getChatRow())}\n\nПричина отставания сохранена.`,
-        reply_markup: { inline_keyboard: mainKeyboard(taskId, getChatRow(), appTz) }
+        reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
       });
       if (!edited?.ok) {
         await tg(token, "sendMessage", {
           chat_id: chatId,
           text: `${taskCaptionWithPlan(getChatRow())}\n\nПричина отставания сохранена.`,
-          reply_markup: { inline_keyboard: mainKeyboard(taskId, getChatRow(), appTz) }
+          reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
         });
       }
     } else {
       await tg(token, "sendMessage", {
         chat_id: chatId,
         text: `${taskCaptionWithPlan(getChatRow())}\n\nПричина отставания сохранена.`,
-        reply_markup: { inline_keyboard: mainKeyboard(taskId, getChatRow(), appTz) }
+        reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
       });
     }
     await broadcastTaskCardUpdate(payload, token, row, "Причина отставания обновлена.", chatKey);
@@ -2252,20 +2275,20 @@ async function handleMessage(msg, pool, token) {
         chat_id: chatId,
         message_id: promptMessageId,
         text: `${taskCaptionWithPlan(getChatRow())}\n\nФото добавлено в «Медиа после».`,
-        reply_markup: { inline_keyboard: mainKeyboard(taskId, getChatRow(), appTz) }
+        reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
       });
       if (!edited?.ok) {
         await tg(token, "sendMessage", {
           chat_id: chatId,
           text: `${taskCaptionWithPlan(getChatRow())}\n\nФото добавлено в «Медиа после».`,
-          reply_markup: { inline_keyboard: mainKeyboard(taskId, getChatRow(), appTz) }
+          reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
         });
       }
     } else {
       await tg(token, "sendMessage", {
         chat_id: chatId,
         text: `${taskCaptionWithPlan(getChatRow())}\n\nФото добавлено в «Медиа после».`,
-        reply_markup: { inline_keyboard: mainKeyboard(taskId, getChatRow(), appTz) }
+        reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
       });
     }
     return;
