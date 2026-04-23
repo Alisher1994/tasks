@@ -5838,15 +5838,19 @@ function renderReportCustomChartsHtml() {
     <div class="report-custom-grid">
       ${list
         .map(
-          (item) => `
+          (item) => {
+            const isDonutLike = item.type === "donut" || item.type === "pie";
+            const wrapClass = isDonutLike ? "report-canvas-wrap report-canvas-wrap--donut" : "report-canvas-wrap report-canvas-wrap--custom";
+            return `
         <div class="report-tile report-custom-tile" data-custom-chart-id="${escapeHtmlAttr(item.id)}">
           <button type="button" class="report-custom-remove-btn" data-remove-custom-chart="${escapeHtmlAttr(item.id)}" title="Удалить диаграмму" aria-label="Удалить диаграмму">
             <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
           </button>
           <h4>${escapeHtmlText(item.name)}</h4>
-          <div class="report-canvas-wrap report-canvas-wrap--donut"><canvas id="reportCustomChart_${escapeHtmlAttr(item.id)}"></canvas></div>
+          <div class="${wrapClass}"><canvas id="reportCustomChart_${escapeHtmlAttr(item.id)}"></canvas></div>
         </div>
-      `
+      `;
+          }
         )
         .join("")}
     </div>
@@ -7917,6 +7921,7 @@ function attachCustomReportCharts() {
   const donutLegendWithCount = {
     display: true,
     position: "right",
+    align: "center",
     labels: {
       boxWidth: 10,
       boxHeight: 10,
@@ -7939,6 +7944,7 @@ function attachCustomReportCharts() {
   const datasetLegendWithCount = {
     display: true,
     position: "right",
+    align: "center",
     labels: {
       boxWidth: 10,
       boxHeight: 10,
@@ -7971,6 +7977,79 @@ function attachCustomReportCharts() {
       chart.update();
     }
   };
+  const donutCenterTotalPlugin = {
+    id: "reportCustomDonutCenterTotal",
+    afterDraw(chart) {
+      const dataset = Array.isArray(chart?.data?.datasets) ? chart.data.datasets[0] : null;
+      const values = Array.isArray(dataset?.data) ? dataset.data : [];
+      const centerTotal = values.reduce((sum, value) => sum + (Number(value) || 0), 0);
+      const firstArc = chart?.getDatasetMeta?.(0)?.data?.[0];
+      const x = Number.isFinite(firstArc?.x) ? firstArc.x : (chart?.chartArea?.left || 0) + (chart?.chartArea?.width || 0) / 2;
+      const y = Number.isFinite(firstArc?.y) ? firstArc.y : (chart?.chartArea?.top || 0) + (chart?.chartArea?.height || 0) / 2;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      const subtitle = String(chart?.options?.plugins?.reportCustomDonutCenterTotal?.subtitle || "задач").trim() || "задач";
+      const c = chart.ctx;
+      c.save();
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.font = "600 20px Inter, system-ui, 'Segoe UI', sans-serif";
+      c.fillStyle = "#1e293b";
+      c.fillText(String(Math.round(centerTotal)), x, y - 9);
+      c.font = "11px Inter, system-ui, 'Segoe UI', sans-serif";
+      c.fillStyle = "#64748b";
+      c.fillText(subtitle, x, y + 12);
+      c.restore();
+    }
+  };
+  const dlBarV = hasDl
+    ? {
+        anchor: "end",
+        align: "top",
+        offset: 2,
+        formatter: (v) => (Number(v) > 0 ? String(Math.round(Number(v))) : ""),
+        color: "#475569",
+        font: { weight: "600", size: 11 },
+        clamp: true,
+        clip: false
+      }
+    : { display: false };
+  const dlBarH = hasDl
+    ? {
+        anchor: "end",
+        align: "end",
+        offset: 4,
+        formatter: (v) => (Number(v) > 0 ? String(Math.round(Number(v))) : ""),
+        color: "#475569",
+        font: { weight: "600", size: 11 },
+        clamp: true,
+        clip: false
+      }
+    : { display: false };
+  const dlLine = hasDl
+    ? {
+        align: "top",
+        anchor: "end",
+        offset: 4,
+        formatter: (v) => (Number(v) > 0 ? String(Math.round(Number(v))) : ""),
+        color: "#475569",
+        font: { weight: "600", size: 11 },
+        clamp: true,
+        clip: false
+      }
+    : { display: false };
+  const dlDonut = hasDl
+    ? {
+        formatter: (value) => (Number(value) > 0 ? String(Math.round(Number(value))) : ""),
+        color: "#334155",
+        font: { weight: "700", size: 10 },
+        textAlign: "center",
+        anchor: "end",
+        align: "end",
+        offset: 4,
+        clamp: true,
+        clip: false
+      }
+    : { display: false };
   list.forEach((item, index) => {
     const canvas = document.getElementById(`reportCustomChart_${String(item.id || "")}`);
     if (!canvas) return;
@@ -7995,6 +8074,7 @@ function attachCustomReportCharts() {
       (item.type === "donut" || item.type === "pie") && dataMode === "by_status"
         ? {
             type: chartType,
+            plugins: [donutCenterTotalPlugin],
             data: {
               labels: REPORT_CUSTOM_STATUS_SERIES,
               datasets: [
@@ -8010,9 +8090,14 @@ function attachCustomReportCharts() {
             },
             options: {
               ...common,
+              ...REPORT_CHART_LABEL_SAFE_LAYOUT,
+              cutout: item.type === "donut" ? "52%" : "0%",
               plugins: {
+                reportCustomDonutCenterTotal: {
+                  subtitle: "задач"
+                },
                 legend: donutLegendWithCount,
-                datalabels: hasDl ? { formatter: (v) => (Number(v) > 0 ? String(v) : ""), color: "#334155", font: { size: 10, weight: "600" } } : { display: false }
+                datalabels: dlDonut
               }
             }
           }
@@ -8022,7 +8107,8 @@ function attachCustomReportCharts() {
               data: { labels, datasets: statusSeries.map((ds) => ({ ...ds, borderColor: ds.borderColor, backgroundColor: reportHexToRgba(ds.borderColor, 0.22) })) },
               options: {
                 ...common,
-                plugins: { legend: datasetLegendWithCount, datalabels: hasDl ? { display: false } : { display: false } },
+                ...REPORT_CHART_LABEL_SAFE_LAYOUT,
+                plugins: { legend: datasetLegendWithCount, datalabels: dlLine },
                 scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
               }
             }
@@ -8044,7 +8130,8 @@ function attachCustomReportCharts() {
             },
             options: {
               ...common,
-              plugins: { legend: datasetLegendWithCount, datalabels: hasDl ? { display: false } : { display: false } },
+              ...REPORT_CHART_LABEL_SAFE_LAYOUT,
+              plugins: { legend: datasetLegendWithCount, datalabels: dlLine },
               scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
             }
           }
@@ -8054,9 +8141,10 @@ function attachCustomReportCharts() {
               data: { labels, datasets: statusSeries.map((ds) => ({ ...ds })) },
               options: {
                 ...common,
+                ...REPORT_HBAR_OPTIONS_THIN,
                 indexAxis: "y",
-                scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { ticks: { autoSkip: false } } },
-                plugins: { legend: datasetLegendWithCount, datalabels: hasDl ? { display: false } : { display: false } }
+                scales: { x: { ...REPORT_HBAR_SCALE_X }, y: { offset: true, ticks: { autoSkip: false } } },
+                plugins: { legend: datasetLegendWithCount, datalabels: dlBarH }
               }
             }
           : item.type === "hbar"
@@ -8068,9 +8156,10 @@ function attachCustomReportCharts() {
                 },
                 options: {
                   ...common,
+                  ...REPORT_HBAR_OPTIONS_THIN,
                   indexAxis: "y",
-                  scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { ticks: { autoSkip: false } } },
-                  plugins: { legend: datasetLegendWithCount, datalabels: hasDl ? { display: false } : { display: false } }
+                  scales: { x: { ...REPORT_HBAR_SCALE_X }, y: { offset: true, ticks: { autoSkip: false } } },
+                  plugins: { legend: datasetLegendWithCount, datalabels: dlBarH }
                 }
               }
             : chartType === "bar" && dataMode === "by_status"
@@ -8079,8 +8168,9 @@ function attachCustomReportCharts() {
                   data: { labels, datasets: statusSeries.map((ds) => ({ ...ds })) },
                   options: {
                     ...common,
+                    ...REPORT_CHART_LABEL_SAFE_LAYOUT,
                     scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
-                    plugins: { legend: datasetLegendWithCount, datalabels: hasDl ? { display: false } : { display: false } }
+                    plugins: { legend: datasetLegendWithCount, datalabels: dlBarV }
                   }
                 }
           : chartType === "bar"
@@ -8098,21 +8188,28 @@ function attachCustomReportCharts() {
               },
               options: {
                 ...common,
-                plugins: { legend: datasetLegendWithCount, datalabels: hasDl ? { color: "#334155", anchor: "end", align: "top" } : { display: false } },
+                ...REPORT_CHART_LABEL_SAFE_LAYOUT,
+                plugins: { legend: datasetLegendWithCount, datalabels: dlBarV },
                 scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
               }
             }
           : {
               type: chartType,
+              plugins: [donutCenterTotalPlugin],
               data: {
                 labels,
                 datasets: [{ data: values, backgroundColor: colors, borderColor: "#f8fafc", borderWidth: 2 }]
               },
               options: {
                 ...common,
+                ...REPORT_CHART_LABEL_SAFE_LAYOUT,
+                cutout: item.type === "donut" ? "52%" : "0%",
                 plugins: {
+                  reportCustomDonutCenterTotal: {
+                    subtitle: "задач"
+                  },
                   legend: donutLegendWithCount,
-                  datalabels: hasDl ? { formatter: (v) => (Number(v) > 0 ? String(v) : ""), color: "#334155", font: { size: 10, weight: "600" } } : { display: false }
+                  datalabels: dlDonut
                 }
               }
             };

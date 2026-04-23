@@ -3692,6 +3692,11 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   height: 310px;
 }
 
+.report-canvas-wrap--custom {
+  min-height: 250px;
+  height: 250px;
+}
+
 .report-canvas-wrap--phase-h {
   min-height: 0;
   flex: 0 0 auto;
