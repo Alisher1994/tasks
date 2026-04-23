@@ -5547,6 +5547,62 @@ function getReportWizardChartPreviewConfig(state, { compact = false } = {}) {
   return { type, data, options };
 }
 
+function buildReportTypePreviewSvg(typeId) {
+  const t = String(typeId || "").trim();
+  const stroke = "#b8c4ef";
+  const fill = "#eef2ff";
+  if (t === "line") {
+    return `
+      <svg viewBox="0 0 120 70" role="img" aria-label="Line preview">
+        <rect x="0" y="0" width="120" height="70" fill="${fill}" />
+        <polyline points="6,50 22,44 38,46 54,34 70,40 86,30 102,36 114,28" fill="none" stroke="${stroke}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    `;
+  }
+  if (t === "hbar") {
+    return `
+      <svg viewBox="0 0 120 70" role="img" aria-label="Horizontal bar preview">
+        <rect x="0" y="0" width="120" height="70" fill="${fill}" />
+        <rect x="8" y="10" width="48" height="8" rx="2" fill="${stroke}" />
+        <rect x="8" y="24" width="72" height="8" rx="2" fill="${stroke}" />
+        <rect x="8" y="38" width="60" height="8" rx="2" fill="${stroke}" />
+        <rect x="8" y="52" width="90" height="8" rx="2" fill="${stroke}" />
+      </svg>
+    `;
+  }
+  if (t === "bar") {
+    return `
+      <svg viewBox="0 0 120 70" role="img" aria-label="Bar preview">
+        <rect x="0" y="0" width="120" height="70" fill="${fill}" />
+        <rect x="10" y="42" width="14" height="18" rx="2" fill="${stroke}" />
+        <rect x="30" y="30" width="14" height="30" rx="2" fill="${stroke}" />
+        <rect x="50" y="36" width="14" height="24" rx="2" fill="${stroke}" />
+        <rect x="70" y="18" width="14" height="42" rx="2" fill="${stroke}" />
+        <rect x="90" y="26" width="14" height="34" rx="2" fill="${stroke}" />
+      </svg>
+    `;
+  }
+  if (t === "pie" || t === "donut") {
+    const ring = t === "donut" ? 12 : 20;
+    return `
+      <svg viewBox="0 0 120 70" role="img" aria-label="${t} preview">
+        <rect x="0" y="0" width="120" height="70" fill="${fill}" />
+        <circle cx="60" cy="35" r="20" fill="none" stroke="${stroke}" stroke-width="${ring}" stroke-dasharray="56 18 26 22 20 30" transform="rotate(-90 60 35)" />
+      </svg>
+    `;
+  }
+  return `
+    <svg viewBox="0 0 120 70" role="img" aria-label="Chart preview">
+      <rect x="0" y="0" width="120" height="70" fill="${fill}" />
+      <rect x="10" y="42" width="14" height="18" rx="2" fill="${stroke}" />
+      <rect x="30" y="30" width="14" height="30" rx="2" fill="${stroke}" />
+      <rect x="50" y="36" width="14" height="24" rx="2" fill="${stroke}" />
+      <rect x="70" y="18" width="14" height="42" rx="2" fill="${stroke}" />
+      <rect x="90" y="26" width="14" height="34" rx="2" fill="${stroke}" />
+    </svg>
+  `;
+}
+
 function openReportCustomChartWizardModal(onSave) {
   const state = {
     step: 1,
@@ -5558,9 +5614,8 @@ function openReportCustomChartWizardModal(onSave) {
   const getModeLabel = (id) => REPORT_CUSTOM_DATA_MODES.find((x) => x.id === id)?.label || "Общее";
   const getGroupLabel = (id) => REPORT_CUSTOM_GROUP_BY_OPTIONS.find((x) => x.id === id)?.label || "По статусу";
   const getTypeLabel = (id) => REPORT_CUSTOM_CHART_TYPES.find((x) => x.id === id)?.label || "Donut";
-  const safeChartLib = typeof Chart !== "undefined" ? Chart : null;
+  const safeChartLib = window.Chart && typeof window.Chart === "function" ? window.Chart : null;
   let wizardPreviewChart = null;
-  let wizardCardCharts = [];
 
   const overlay = document.createElement("div");
   overlay.className = "report-custom-wizard-overlay";
@@ -5615,13 +5670,6 @@ function openReportCustomChartWizardModal(onSave) {
     }
     wizardPreviewChart = null;
   };
-  const destroyCardCharts = () => {
-    wizardCardCharts.forEach((chart) => {
-      if (chart && typeof chart.destroy === "function") chart.destroy();
-    });
-    wizardCardCharts = [];
-  };
-
   const renderLivePreview = () => {
     if (!previewMeta) return;
     previewMeta.innerHTML = `
@@ -5639,33 +5687,8 @@ function openReportCustomChartWizardModal(onSave) {
     wizardPreviewChart = new safeChartLib(previewCanvas, cfg);
   };
 
-  const renderTypeCardsCharts = () => {
-    destroyCardCharts();
-    if (!safeChartLib) return;
-    const canvases = Array.from(body.querySelectorAll("[data-wizard-type-canvas]"));
-    canvases.forEach((canvas) => {
-      if (!(canvas instanceof HTMLCanvasElement)) return;
-      const type = String(canvas.getAttribute("data-wizard-type-canvas") || "bar").trim();
-      const cfg = getReportWizardChartPreviewConfig({ ...state, type, dataMode: "total", groupBy: "status" }, { compact: true });
-      const mergedCfg = {
-        ...cfg,
-        options: {
-          ...cfg.options,
-          plugins: {
-            ...cfg.options.plugins,
-            legend: { display: false },
-            tooltip: { enabled: false }
-          }
-        }
-      };
-      const chart = new safeChartLib(canvas, mergedCfg);
-      wizardCardCharts.push(chart);
-    });
-  };
-
   const close = () => {
     destroyPreviewChart();
-    destroyCardCharts();
     overlay.remove();
   };
 
@@ -5683,7 +5706,7 @@ function openReportCustomChartWizardModal(onSave) {
         .map((opt) => `
           <button type="button" class="report-custom-choice report-custom-choice--chart ${state.type === opt.id ? "is-active" : ""}" data-wizard-type="${escapeHtmlAttr(opt.id)}">
             <div class="report-custom-choice-chart-wrap">
-              <canvas data-wizard-type-canvas="${escapeHtmlAttr(opt.id)}"></canvas>
+              ${buildReportTypePreviewSvg(opt.id)}
             </div>
             <strong>${escapeHtmlText(opt.label)}</strong>
           </button>
@@ -5701,7 +5724,6 @@ function openReportCustomChartWizardModal(onSave) {
           renderStep();
         });
       });
-      renderTypeCardsCharts();
       renderLivePreview();
       return;
     }
@@ -5735,7 +5757,6 @@ function openReportCustomChartWizardModal(onSave) {
           renderStep();
         });
       });
-      destroyCardCharts();
       renderLivePreview();
       return;
     }
@@ -5763,7 +5784,6 @@ function openReportCustomChartWizardModal(onSave) {
       const len = nameInput.value.length;
       nameInput.setSelectionRange(len, len);
     }
-    destroyCardCharts();
     renderLivePreview();
   };
 
