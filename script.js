@@ -135,8 +135,6 @@ const TASK_DEFAULT_COLUMN_ORDER = [
   TASK_COLUMNS.status,
   TASK_COLUMNS.priority,
   TASK_COLUMNS.addedDate,
-  TASK_COLUMNS.createdBy,
-  TASK_COLUMNS.createdAt,
   TASK_COLUMNS.dueDate,
   TASK_COLUMNS.phase,
   TASK_COLUMNS.phaseSection,
@@ -152,7 +150,9 @@ const TASK_DEFAULT_COLUMN_ORDER = [
   TASK_COLUMNS.mediaBefore,
   TASK_COLUMNS.mediaAfter,
   TASK_COLUMNS.readState,
-  TASK_COLUMNS.lastSentAt
+  TASK_COLUMNS.lastSentAt,
+  TASK_COLUMNS.createdBy,
+  TASK_COLUMNS.createdAt
 ];
 const OBJECT_COLUMNS = {
   id: 0,
@@ -10888,6 +10888,24 @@ function isReadonlyColumn(section, colIndex) {
   return false;
 }
 
+function getFixedColumnIndexes(section) {
+  const fixed = new Set([0]);
+  if (section?.id === "tasks") {
+    fixed.add(TASK_COLUMNS.createdBy);
+    fixed.add(TASK_COLUMNS.createdAt);
+  }
+  return fixed;
+}
+
+function normalizeTasksTailColumnsOrder(order) {
+  const tail = [TASK_COLUMNS.createdBy, TASK_COLUMNS.createdAt];
+  const out = Array.isArray(order) ? [...order] : [];
+  const tailSet = new Set(tail);
+  const withoutTail = out.filter((idx) => !tailSet.has(Number(idx)));
+  tail.forEach((idx) => withoutTail.push(idx));
+  return withoutTail;
+}
+
 function getVisibleColumnIndexes(section) {
   ensureColumnDisplayState(section);
   const visibility = visibleColumnsBySection[section.id];
@@ -10897,6 +10915,7 @@ function getVisibleColumnIndexes(section) {
 
 function ensureColumnDisplayState(section) {
   const FIXED_COLUMN_INDEX = 0;
+  const fixedIndexes = getFixedColumnIndexes(section);
   const size = section.columns.length;
   const buildDefaultColumnOrder = () => {
     if (section.id !== "tasks") return section.columns.map((_, index) => index);
@@ -10921,8 +10940,10 @@ function ensureColumnDisplayState(section) {
     while (visibility.length < size) visibility.push(true);
     visibility.length = size;
   }
-  // ID/№ всегда видимый и фиксированный.
-  if (size > 0) visibility[FIXED_COLUMN_INDEX] = true;
+  // Служебные колонки всегда видимы и фиксированы.
+  fixedIndexes.forEach((idx) => {
+    if (Number.isInteger(idx) && idx >= 0 && idx < size) visibility[idx] = true;
+  });
 
   if (!Array.isArray(columnOrderBySection[section.id])) {
     columnOrderBySection[section.id] = buildDefaultColumnOrder();
@@ -10944,6 +10965,11 @@ function ensureColumnDisplayState(section) {
   if (fixedPos > 0) {
     normalized.splice(fixedPos, 1);
     normalized.unshift(FIXED_COLUMN_INDEX);
+  }
+  if (section.id === "tasks") {
+    const withTail = normalizeTasksTailColumnsOrder(normalized);
+    normalized.length = 0;
+    withTail.forEach((idx) => normalized.push(idx));
   }
   if (section.id === "tasks" && normalized.length === size && normalized.every((val, idx) => val === idx)) {
     columnOrderBySection[section.id] = buildDefaultColumnOrder();
@@ -16808,6 +16834,7 @@ function openCatalogImportModal(section) {
 function openTableSettingsModal(section) {
   ensureColumnDisplayState(section);
   const FIXED_COLUMN_INDEX = 0;
+  const fixedIndexes = getFixedColumnIndexes(section);
   const initialOrder = [...columnOrderBySection[section.id]];
   const initialVisibility = [...visibleColumnsBySection[section.id]];
   const initialHeaderNumbers = headerNumberingBySection[section.id] !== false;
@@ -16847,7 +16874,7 @@ function openTableSettingsModal(section) {
       .map((colIndex, position) => {
         const title = String(section.columns[colIndex] || `Колонка ${colIndex + 1}`);
         const checked = draftVisibility[colIndex] !== false;
-        const isFixed = colIndex === FIXED_COLUMN_INDEX;
+        const isFixed = fixedIndexes.has(colIndex);
         const cbId = `tableSettingsColVisible_${section.id}_${colIndex}`;
         return `
           <div class="table-settings-dnd-item${isFixed ? " is-fixed" : ""}" data-col-index="${colIndex}" draggable="${isFixed ? "false" : "true"}">
@@ -16868,8 +16895,10 @@ function openTableSettingsModal(section) {
         const colIndex = Number(checkbox.dataset.colIndex);
         if (!Number.isInteger(colIndex) || colIndex < 0) return;
         draftVisibility[colIndex] = checkbox.checked;
-        draftVisibility[FIXED_COLUMN_INDEX] = true;
-        const nonFixedVisible = draftOrder.some((idx) => idx !== FIXED_COLUMN_INDEX && draftVisibility[idx] !== false);
+        fixedIndexes.forEach((idx) => {
+          if (Number.isInteger(idx) && idx >= 0 && idx < draftVisibility.length) draftVisibility[idx] = true;
+        });
+        const nonFixedVisible = draftOrder.some((idx) => !fixedIndexes.has(idx) && draftVisibility[idx] !== false);
         if (!nonFixedVisible) {
           draftVisibility[colIndex] = true;
           checkbox.checked = true;
@@ -16880,7 +16909,7 @@ function openTableSettingsModal(section) {
     const items = Array.from(listEl.querySelectorAll(".table-settings-dnd-item"));
     items.forEach((item) => {
       const colIndex = Number(item.dataset.colIndex);
-      const isFixed = colIndex === FIXED_COLUMN_INDEX;
+      const isFixed = fixedIndexes.has(colIndex);
       if (isFixed) return;
 
       item.addEventListener("dragstart", (event) => {
@@ -16910,9 +16939,13 @@ function openTableSettingsModal(section) {
         if (dragColIndex == null || dragColIndex === colIndex) return;
         const from = draftOrder.indexOf(dragColIndex);
         const to = draftOrder.indexOf(colIndex);
-        if (from < 1 || to < 1) return;
+        if (from < 0 || to < 0) return;
+        if (fixedIndexes.has(draftOrder[to])) return;
         draftOrder.splice(from, 1);
         draftOrder.splice(to, 0, dragColIndex);
+        if (section.id === "tasks") {
+          draftOrder.splice(0, draftOrder.length, ...normalizeTasksTailColumnsOrder(draftOrder));
+        }
         renderList();
       });
     });
@@ -16927,8 +16960,14 @@ function openTableSettingsModal(section) {
   });
   applyBtn?.addEventListener("click", () => {
     visibleColumnsBySection[section.id] = [...draftVisibility];
-    visibleColumnsBySection[section.id][FIXED_COLUMN_INDEX] = true;
-    columnOrderBySection[section.id] = [...draftOrder];
+    fixedIndexes.forEach((idx) => {
+      if (Number.isInteger(idx) && idx >= 0 && idx < visibleColumnsBySection[section.id].length) {
+        visibleColumnsBySection[section.id][idx] = true;
+      }
+    });
+    columnOrderBySection[section.id] = section.id === "tasks"
+      ? normalizeTasksTailColumnsOrder(draftOrder)
+      : [...draftOrder];
     headerNumberingBySection[section.id] = draftHeaderNumbers;
     overlay.remove();
     renderTablePreserveScroll();

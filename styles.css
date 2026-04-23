@@ -2349,7 +2349,7 @@ body.app-booting .app-boot-loader {
 .employee-admin-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
   user-select: none;
 }
@@ -2363,8 +2363,8 @@ body.app-booting .app-boot-loader {
 }
 
 .employee-admin-toggle-ui {
-  width: 38px;
-  height: 22px;
+  width: 32px;
+  height: 18px;
   border-radius: 999px;
   background: #d1d5db;
   border: 1px solid #cbd5e1;
@@ -2377,8 +2377,8 @@ body.app-booting .app-boot-loader {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.22);
@@ -2391,7 +2391,7 @@ body.app-booting .app-boot-loader {
 }
 
 .employee-admin-toggle-input:checked + .employee-admin-toggle-ui::after {
-  transform: translateX(16px);
+  transform: translateX(14px);
 }
 
 .employee-admin-toggle-input:disabled + .employee-admin-toggle-ui {
@@ -2399,7 +2399,9 @@ body.app-booting .app-boot-loader {
 }
 
 .employee-admin-toggle-text {
-  font-size: 0.88rem;
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 400;
   color: #1f2937;
 }
 
