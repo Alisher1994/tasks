@@ -3813,14 +3813,12 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 }
 
 .report-custom-group-name-wrap {
-  display: grid;
-  gap: 4px;
-  font-size: 11px;
-  color: #64748b;
+  display: block;
 }
 
 .report-custom-group-name-input {
-  min-width: 0;
+  min-width: 220px;
+  height: 36px;
 }
 
 .report-custom-stage {
@@ -4083,9 +4081,13 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
     0 2px 8px rgba(148, 163, 184, 0.16);
   padding: 10px 12px;
   display: grid;
-  grid-template-columns: 90px minmax(180px, 260px) auto auto;
+  grid-template-columns: 90px minmax(180px, 260px) max-content max-content;
   gap: 8px;
   align-items: center;
+  justify-content: start;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
 }
 
 .report-custom-reset-btn {
@@ -4102,6 +4104,14 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 
 .report-custom-selection-dock .report-custom-group-name-wrap {
   align-self: stretch;
+}
+
+.report-custom-selection-dock .report-custom-add-btn,
+.report-custom-selection-dock .report-custom-reset-btn {
+  width: auto;
+  min-width: 160px;
+  height: 36px;
+  white-space: nowrap;
 }
 
 .report-custom-layout-overlay {

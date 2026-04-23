@@ -5686,7 +5686,6 @@ function renderReportCustomSelectionDockHtml() {
       <div class="report-custom-selection-dock-inner">
         <span class="report-custom-group-batch-count">Выбрано: <b id="reportCustomSelectionCount">${selectedCount}</b></span>
         <label class="report-custom-group-name-wrap">
-          <span>Группа</span>
           <input type="text" id="reportCustomGroupNameInput" class="report-custom-input report-custom-group-name-input" maxlength="40" value="${groupNameValue}" placeholder="Например: Финблок" />
         </label>
         <button type="button" class="report-custom-add-btn" id="reportCustomGroupApplyBtn" ${hasSelection ? "" : "disabled"}>
