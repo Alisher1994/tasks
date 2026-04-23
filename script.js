@@ -7503,26 +7503,25 @@ function buildExecutionTimeReportStats(rows) {
   const medianMs = computeMedian(durationValues);
   const minMs = totalClosed ? Math.min(...durationValues) : 0;
   const maxMs = totalClosed ? Math.max(...durationValues) : 0;
-  const monthMap = new Map();
+  const currentYear = new Date().getFullYear();
+  const monthBuckets = Array.from({ length: 12 }, () => []);
 
   entries.forEach((item) => {
     const dt = item.closedAt;
-    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
-    if (!monthMap.has(key)) monthMap.set(key, []);
-    monthMap.get(key).push(item.durationMs);
+    if (dt.getFullYear() !== currentYear) return;
+    monthBuckets[dt.getMonth()].push(item.durationMs);
   });
 
-  const monthSeries = Array.from(monthMap.entries())
-    .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
-    .map(([key, values]) => ({
-      key,
-      label: formatDateLabelForAxis(key),
-      avgMs: values.reduce((sum, value) => sum + value, 0) / values.length,
-      medianMs: computeMedian(values),
-      count: values.length
-    }));
+  const monthSeries = monthBuckets.map((values, monthIndex) => ({
+    key: `${currentYear}-${String(monthIndex + 1).padStart(2, "0")}`,
+    label: REPORT_MONTH_LABELS_RU[monthIndex],
+    avgMs: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0,
+    medianMs: computeMedian(values),
+    count: values.length
+  }));
 
   return {
+    year: currentYear,
     totalClosed,
     strictReadCount: entries.filter((item) => item.startSource === "readAt").length,
     fallbackCount: entries.filter((item) => item.startSource !== "readAt").length,
@@ -7558,26 +7557,36 @@ function renderExecutionMetricValue(value) {
 function renderExecutionKpiPanel(stats) {
   const summaryTiles = [
     {
+      icon: "timer-reset",
+      iconClass: "is-avg",
       title: "Среднее время",
       note: "От прочтения до закрытия",
       value: renderExecutionMetricValue(stats.avgMs)
     },
     {
+      icon: "gauge",
+      iconClass: "is-median",
       title: "Медиана",
       note: "Типовое время выполнения",
       value: renderExecutionMetricValue(stats.medianMs)
     },
     {
+      icon: "zap",
+      iconClass: "is-min",
       title: "Минимум",
       note: "Самое быстрое закрытие",
       value: renderExecutionMetricValue(stats.minMs)
     },
     {
+      icon: "hourglass",
+      iconClass: "is-max",
       title: "Максимум",
       note: "Самое долгое закрытие",
       value: renderExecutionMetricValue(stats.maxMs)
     },
     {
+      icon: "list-checks",
+      iconClass: "is-total",
       title: "Закрыто в расчёте",
       note: stats.fallbackCount > 0
         ? `Точных: ${stats.strictReadCount} · fallback: ${stats.fallbackCount}`
@@ -7587,18 +7596,21 @@ function renderExecutionKpiPanel(stats) {
   ];
 
   const renderMetricTile = (tile) => `
-    <div class="report-tile">
-      <h4>${escapeHtmlText(tile.title)}</h4>
+    <div class="report-tile report-tile--metric">
+      <div class="report-kpi-metric-head">
+        <span class="report-kpi-metric-icon ${escapeHtmlAttr(tile.iconClass)}"><i data-lucide="${escapeHtmlAttr(tile.icon)}" class="lucide-icon" aria-hidden="true"></i></span>
+        <h4>${escapeHtmlText(tile.title)}</h4>
+      </div>
       ${tile.value}
       <div class="hint" style="margin-top:8px;">${escapeHtmlText(tile.note)}</div>
     </div>
   `;
 
   return `
-    <div class="report-grid">
+    <div class="report-grid report-grid--kpi">
       ${summaryTiles.map(renderMetricTile).join("")}
       <div class="report-tile report-tile-wide">
-        <h4>Среднее время выполнения по месяцам <span class="report-tile-note">(дата закрытия)</span></h4>
+        <h4>Среднее выполнение по месяцам <span class="report-tile-year">${escapeHtmlText(String(stats.year))}</span> <span class="report-tile-note">(все месяцы текущего года)</span></h4>
         <div class="report-canvas-wrap report-canvas-tall"><canvas id="reportExecutionChartMonths"></canvas></div>
       </div>
       <div class="report-tile">
@@ -7617,17 +7629,19 @@ function renderExecutionKpiPanel(stats) {
         <h4>По объектам <span class="report-tile-note">(среднее)</span></h4>
         <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartObjectWrap"><canvas id="reportExecutionChartObject"></canvas></div>
       </div>
-      <div class="report-tile">
-        <h4>По фазам <span class="report-tile-note">(среднее)</span></h4>
-        <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartPhaseWrap"><canvas id="reportExecutionChartPhase"></canvas></div>
-      </div>
-      <div class="report-tile">
-        <h4>По разделам <span class="report-tile-note">(среднее)</span></h4>
-        <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartSectionWrap"><canvas id="reportExecutionChartSection"></canvas></div>
-      </div>
-      <div class="report-tile">
-        <h4>По подразделам <span class="report-tile-note">(среднее)</span></h4>
-        <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartSubsectionWrap"><canvas id="reportExecutionChartSubsection"></canvas></div>
+      <div class="report-phase-group-row report-kpi-phase-row">
+        <div class="report-tile">
+          <h4>По фазам <span class="report-tile-note">(среднее)</span></h4>
+          <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartPhaseWrap"><canvas id="reportExecutionChartPhase"></canvas></div>
+        </div>
+        <div class="report-tile">
+          <h4>По разделам <span class="report-tile-note">(среднее)</span></h4>
+          <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartSectionWrap"><canvas id="reportExecutionChartSection"></canvas></div>
+        </div>
+        <div class="report-tile">
+          <h4>По подразделам <span class="report-tile-note">(среднее)</span></h4>
+          <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartSubsectionWrap"><canvas id="reportExecutionChartSubsection"></canvas></div>
+        </div>
       </div>
     </div>
   `;
@@ -9205,33 +9219,21 @@ function attachExecutionReportCharts() {
 
   const ctxMonths = document.getElementById("reportExecutionChartMonths");
   if (ctxMonths) {
-    const labels = stats.monthSeries.length ? stats.monthSeries.map((item) => item.label) : ["Нет данных"];
-    const data = stats.monthSeries.length ? stats.monthSeries.map((item) => item.avgMs) : [0];
-    const counts = stats.monthSeries.length ? stats.monthSeries.map((item) => item.count) : [0];
+    const labels = stats.monthSeries.map((item) => item.label);
+    const data = stats.monthSeries.map((item) => item.avgMs);
+    const counts = stats.monthSeries.map((item) => item.count);
     reportChartInstances.push(
       new Chart(ctxMonths, {
-        type: "line",
+        type: "bar",
         data: {
           labels,
           datasets: [
             {
               label: "Среднее время",
               data,
-              borderColor: "#3e8f75",
-              backgroundColor: (context) => {
-                const chart = context.chart;
-                const { ctx, chartArea } = chart;
-                if (!chartArea) return "rgba(62, 143, 117, 0.2)";
-                const g = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
-                g.addColorStop(0, "rgba(62, 143, 117, 0)");
-                g.addColorStop(0.55, "rgba(62, 143, 117, 0.24)");
-                g.addColorStop(1, "rgba(62, 143, 117, 0.36)");
-                return g;
-              },
-              fill: true,
-              tension: 0.25,
-              pointRadius: 4,
-              pointHoverRadius: 5
+              backgroundColor: (context) => reportBarGradientVertical(context.chart, counts[context.dataIndex] > 0 ? "#3e8f75" : "#cbd5e1"),
+              borderRadius: 10,
+              borderSkipped: false
             }
           ]
         },
@@ -9239,6 +9241,13 @@ function attachExecutionReportCharts() {
           ...common,
           ...REPORT_CHART_LABEL_SAFE_LAYOUT,
           scales: {
+            x: {
+              ticks: {
+                autoSkip: false,
+                maxRotation: 0,
+                minRotation: 0
+              }
+            },
             y: {
               beginAtZero: true,
               ticks: {
@@ -9250,11 +9259,20 @@ function attachExecutionReportCharts() {
             legend: legendOff,
             tooltip: {
               callbacks: {
-                label: (context) => `Среднее: ${tooltipDuration(context.parsed.y)}`,
+                label: (context) => counts[context.dataIndex] > 0
+                  ? `Среднее: ${tooltipDuration(context.parsed.y)}`
+                  : "Нет закрытых задач",
                 afterLabel: (context) => `Закрыто задач: ${counts[context.dataIndex] || 0}`
               }
             },
-            datalabels: dlLine
+            datalabels: hasDl
+              ? {
+                  ...dlBar,
+                  anchor: "end",
+                  align: "top",
+                  formatter: (value, context) => (counts[context.dataIndex] > 0 ? formatDurationCompact(value) : "")
+                }
+              : { display: false }
           }
         }
       })

@@ -3647,6 +3647,71 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   min-height: 260px;
 }
 
+.report-grid--kpi .report-tile {
+  min-height: 220px;
+}
+
+.report-tile--metric {
+  min-height: 136px !important;
+  gap: 4px;
+  justify-content: flex-start;
+}
+
+.report-kpi-metric-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.report-kpi-metric-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.report-kpi-metric-icon .lucide-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
+}
+
+.report-kpi-metric-icon.is-avg {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+
+.report-kpi-metric-icon.is-median {
+  background: #ede9fe;
+  color: #7c3aed;
+}
+
+.report-kpi-metric-icon.is-min {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.report-kpi-metric-icon.is-max {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.report-kpi-metric-icon.is-total {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.report-kpi-phase-row {
+  align-items: stretch;
+}
+
+.report-grid--kpi .report-canvas-wrap.report-canvas-tall {
+  min-height: 220px;
+}
+
 .report-tile-wide {
   grid-column: 1 / -1;
 }
