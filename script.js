@@ -3588,7 +3588,11 @@ let displaySettings = {
   /** порядок колонок сетки слева в Ганте */
   tasksGanttColumnOrder: TASK_GANTT_GRID_COLUMNS.map((col) => col.id),
   /** видимость колонок сетки слева в Ганте */
-  tasksGanttColumnVisibility: Object.fromEntries(TASK_GANTT_GRID_COLUMNS.map((col) => [col.id, col.defaultVisible !== false]))
+  tasksGanttColumnVisibility: Object.fromEntries(TASK_GANTT_GRID_COLUMNS.map((col) => [col.id, col.defaultVisible !== false])),
+  /** Кастомная аналитика: число колонок сетки (3..6) */
+  reportCustomGridColumns: 3,
+  /** Кастомная аналитика: сохранённые диаграммы (хранятся в payload/displaySettings, а не в browser cache) */
+  reportCustomCharts: []
 };
 let taskMultiState = {};
 let taskAttachmentsByTaskId = {};
@@ -5289,30 +5293,51 @@ function saveReportSystemChartVisibility(nextMap) {
   }
 }
 
+function normalizeReportCustomGridColumns(value) {
+  const n = Math.floor(Number(value));
+  if (Number.isFinite(n) && n >= 3 && n <= 6) return n;
+  return 3;
+}
+
+function getReportCustomGridColumns() {
+  return normalizeReportCustomGridColumns(displaySettings.reportCustomGridColumns);
+}
+
+function normalizeReportCustomChartsList(list) {
+  const parsed = Array.isArray(list) ? list : [];
+  const validTypes = new Set(REPORT_CUSTOM_CHART_TYPES.map((x) => x.id));
+  const validGroups = new Set(REPORT_CUSTOM_GROUP_BY_OPTIONS.map((x) => x.id));
+  const validModes = new Set(REPORT_CUSTOM_DATA_MODES.map((x) => x.id));
+  return parsed
+    .map((item, idx) => {
+      const id = String(item?.id || `custom_${Date.now()}_${idx}`).trim();
+      const type = validTypes.has(String(item?.type || "").trim()) ? String(item.type).trim() : "bar";
+      const groupBy = validGroups.has(String(item?.groupBy || "").trim()) ? String(item.groupBy).trim() : "status";
+      const dataMode = validModes.has(String(item?.dataMode || "").trim()) ? String(item.dataMode).trim() : "total";
+      const name = String(item?.name || "").trim() || `Кастомный график ${idx + 1}`;
+      return { id, type, groupBy, dataMode, name };
+    })
+    .slice(0, REPORT_CUSTOM_MAX_CHARTS);
+}
+
 function loadReportCustomCharts() {
   if (Array.isArray(reportCustomChartsCache)) return reportCustomChartsCache;
+  let out = normalizeReportCustomChartsList(displaySettings.reportCustomCharts);
+  if (out.length || Array.isArray(displaySettings.reportCustomCharts)) {
+    reportCustomChartsCache = out;
+    return out;
+  }
+
+  // Миграция старых настроек из localStorage в displaySettings (однократно).
   try {
     const key = buildUserScopedStorageKey(REPORT_CUSTOM_CHARTS_STORAGE_KEY);
     const raw = localStorage.getItem(key);
     const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) {
-      reportCustomChartsCache = [];
-      return reportCustomChartsCache;
-    }
-    const validTypes = new Set(REPORT_CUSTOM_CHART_TYPES.map((x) => x.id));
-    const validGroups = new Set(REPORT_CUSTOM_GROUP_BY_OPTIONS.map((x) => x.id));
-    const validModes = new Set(REPORT_CUSTOM_DATA_MODES.map((x) => x.id));
-    const out = parsed
-      .map((item, idx) => {
-        const id = String(item?.id || `custom_${Date.now()}_${idx}`).trim();
-        const type = validTypes.has(String(item?.type || "").trim()) ? String(item.type).trim() : "bar";
-        const groupBy = validGroups.has(String(item?.groupBy || "").trim()) ? String(item.groupBy).trim() : "status";
-        const dataMode = validModes.has(String(item?.dataMode || "").trim()) ? String(item.dataMode).trim() : "total";
-        const name = String(item?.name || "").trim() || `Кастомный график ${idx + 1}`;
-        return { id, type, groupBy, dataMode, name };
-      })
-      .slice(0, REPORT_CUSTOM_MAX_CHARTS);
+    out = normalizeReportCustomChartsList(parsed);
+    displaySettings.reportCustomCharts = out;
     reportCustomChartsCache = out;
+    saveDisplaySettings();
+    localStorage.removeItem(key);
     return out;
   } catch (_) {
     reportCustomChartsCache = [];
@@ -5321,15 +5346,17 @@ function loadReportCustomCharts() {
 }
 
 function saveReportCustomCharts(list) {
-  const arr = Array.isArray(list) ? list.slice(0, REPORT_CUSTOM_MAX_CHARTS) : [];
+  const arr = normalizeReportCustomChartsList(list);
   reportCustomChartsCache = arr;
-  try {
-    const key = buildUserScopedStorageKey(REPORT_CUSTOM_CHARTS_STORAGE_KEY);
-    localStorage.setItem(key, JSON.stringify(arr));
-    scheduleServerSync();
-  } catch (_) {
-    /* noop */
-  }
+  displaySettings.reportCustomCharts = arr;
+  saveDisplaySettings();
+}
+
+function saveReportCustomGridColumns(value) {
+  const next = normalizeReportCustomGridColumns(value);
+  if (next === getReportCustomGridColumns()) return;
+  displaySettings.reportCustomGridColumns = next;
+  saveDisplaySettings();
 }
 
 function getDefaultReportChartOrder() {
@@ -5518,10 +5545,25 @@ function renderReportSystemHiddenControlsHtml() {
 
 function renderReportCustomBuilderHtml() {
   if (sharedReportMode) return "";
+  const gridCols = getReportCustomGridColumns();
+  const gridButtons = [3, 4, 5, 6]
+    .map((cols) => {
+      const active = cols === gridCols ? " is-active" : "";
+      return `<button type="button" class="report-custom-layout-btn${active}" data-report-custom-grid-cols="${cols}" title="Сетка ${cols} колонки">${cols}</button>`;
+    })
+    .join("");
   return `
     <div class="report-custom-builder">
-      <div class="report-custom-builder-note">
-        Добавление диаграммы через мастер: шаги выбора типа, данных и финальный просмотр перед сохранением.
+      <div class="report-custom-builder-left">
+        <div class="report-custom-builder-note">
+          Добавление диаграммы через мастер: шаги выбора типа, данных и финальный просмотр перед сохранением.
+        </div>
+        <div class="report-custom-layout-bar">
+          <span class="report-custom-layout-label">Сетка:</span>
+          <div class="report-custom-layout-btns" role="group" aria-label="Сетка кастомной аналитики">
+            ${gridButtons}
+          </div>
+        </div>
       </div>
       <button type="button" class="report-custom-add-btn" id="reportCustomAddBtn">Добавить диаграмму</button>
     </div>
@@ -5901,6 +5943,7 @@ function openReportCustomChartWizardModal(onSave) {
 
 function renderReportCustomChartsHtml() {
   const list = loadReportCustomCharts();
+  const cols = getReportCustomGridColumns();
   if (!list.length) {
     return `
       <div class="report-custom-empty">
@@ -5910,7 +5953,7 @@ function renderReportCustomChartsHtml() {
     `;
   }
   return `
-    <div class="report-custom-grid">
+    <div class="report-custom-grid report-custom-grid--cols-${cols}">
       ${list
         .map(
           (item) => {
@@ -7984,6 +8027,13 @@ function attachReportCustomBuilderHandlers() {
   if (isSharedReportView() || reportViewTab !== "custom") return;
   const root = tableContainer;
   if (!root) return;
+  root.querySelectorAll("[data-report-custom-grid-cols]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cols = Number(btn.getAttribute("data-report-custom-grid-cols"));
+      saveReportCustomGridColumns(cols);
+      refreshReportView();
+    });
+  });
   const addBtn = root.querySelector("#reportCustomAddBtn");
   addBtn?.addEventListener("click", () => {
     openReportCustomChartWizardModal((item) => {
@@ -14814,6 +14864,8 @@ function restoreDisplaySettings() {
     displaySettings.tasksGanttScale = normalizeTasksGanttScale(displaySettings.tasksGanttScale);
     displaySettings.tasksGanttZoomPercent = normalizeTasksGanttZoomPercent(displaySettings.tasksGanttZoomPercent);
     displaySettings.tasksGanttGridWidth = normalizeTasksGanttGridWidth(displaySettings.tasksGanttGridWidth, 0);
+    displaySettings.reportCustomGridColumns = normalizeReportCustomGridColumns(displaySettings.reportCustomGridColumns);
+    displaySettings.reportCustomCharts = normalizeReportCustomChartsList(displaySettings.reportCustomCharts);
     ensureTasksGanttColumnsDisplaySettings();
     let tps = Number(displaySettings.tasksListPageSize);
     if (!Number.isFinite(tps)) tps = 50;
