@@ -2900,6 +2900,7 @@ async function triggerGoogleSheetsManualSync() {
 
 async function triggerEmployeesChatIdRefresh(options = {}) {
   const silent = options?.silent === true;
+  const ensureLatestPayload = options?.ensureLatestPayload !== false;
   const employeesSection = getSectionById("employees");
   if (!employeesSection) return false;
 
@@ -2924,6 +2925,20 @@ async function triggerEmployeesChatIdRefresh(options = {}) {
       });
     }
     return true;
+  }
+
+  if (ensureLatestPayload) {
+    const synced = await pushAppToServerImmediate();
+    if (!synced) {
+      if (!silent) {
+        showStatusDialog({
+          title: "Сотрудники",
+          message: "Не удалось сначала сохранить изменения на сервер. Повторите попытку.",
+          type: "error"
+        });
+      }
+      return false;
+    }
   }
 
   try {
