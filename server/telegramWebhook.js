@@ -566,7 +566,7 @@ function buildOverdueSummaryText(overdueCount) {
   return [
     "⚠️ Уведомление",
     "",
-    `У вас есть ${count} просроченных задач.`,
+    `Количество просроченных задач: ${count} шт.`,
     "Для просмотра выберите из списка задачу."
   ].join("\n");
 }
@@ -587,15 +587,14 @@ function getOverdueRowsForChat(payload, chatId, appTimeZone = "UTC") {
   const out = [];
   for (const row of rows) {
     if (!Array.isArray(row)) continue;
-    const status = String(row[TASK_COLUMNS.status] || "").trim();
+    if (!isTaskActionAllowedForChat(payload, row, chat)) continue;
+    const status = normalizeTaskStatusValue(String(row[TASK_COLUMNS.status] || "").trim());
     if (status === "Закрыт") continue;
     const dueRaw = String(row[TASK_COLUMNS.dueDate] || "").trim();
     const due = parseRuDateToYmd(dueRaw);
     if (!due) continue;
     const diff = compareYmd(today, due);
     if (diff <= 0) continue;
-    const recipients = resolveTaskUpdateRecipientChatIds(payload, row);
-    if (!recipients.includes(chat)) continue;
     out.push({ row, overdueDays: diff });
   }
   out.sort((a, b) => b.overdueDays - a.overdueDays);

@@ -4228,7 +4228,7 @@ function buildOverdueDigestTelegramText(totalCount) {
   return [
     "⚠️ Уведомление",
     "",
-    `У вас есть ${count} просроченных задач.`,
+    `Количество просроченных задач: ${count} шт.`,
     "Нажмите «Посмотреть», чтобы открыть список."
   ].join("\n");
 }
@@ -9631,6 +9631,27 @@ function getTaskSubtaskDueDate(taskRow, assigneeName) {
   return ownDue || baseDue;
 }
 
+function getTaskParentDisplayDueDate(taskRow) {
+  const baseDue = String(taskRow?.[TASK_COLUMNS.dueDate] || "").trim();
+  const assignees = parseTaskAssigneeNames(taskRow?.[TASK_COLUMNS.assignedResponsible]);
+  if (assignees.length <= 1) return baseDue;
+
+  let maxDue = "";
+  let maxParts = null;
+  assignees.forEach((assigneeName) => {
+    const due = String(getTaskSubtaskDueDate(taskRow, assigneeName) || "").trim();
+    if (!due) return;
+    const parts = parseRuDateStringToParts(due);
+    if (!parts) return;
+    if (!maxParts || compareDateParts(parts, maxParts) > 0) {
+      maxParts = parts;
+      maxDue = due;
+    }
+  });
+
+  return maxDue || baseDue;
+}
+
 function setTaskSubtaskDueDate(taskRow, assigneeName, dueDateValue) {
   const state = getTaskAssigneeState(taskRow, assigneeName, { create: true });
   if (!state) return false;
@@ -10775,7 +10796,7 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
   }
 
   if (colIndex === TASK_COLUMNS.dueDate) {
-    return renderDueDateCell(value);
+    return renderDueDateCell(getTaskParentDisplayDueDate(row));
   }
 
   if (colIndex === TASK_COLUMNS.task) {
