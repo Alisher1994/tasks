@@ -7584,15 +7584,6 @@ function renderExecutionKpiPanel(stats) {
       title: "Максимум",
       note: "Самое долгое закрытие",
       value: renderExecutionMetricValue(stats.maxMs)
-    },
-    {
-      icon: "list-checks",
-      iconClass: "is-total",
-      title: "Закрыто в расчёте",
-      note: stats.fallbackCount > 0
-        ? `Точных: ${stats.strictReadCount} · fallback: ${stats.fallbackCount}`
-        : "Только задачи с readAt и closedAt",
-      value: `<div style="font-size:24px;font-weight:700;line-height:1.15;color:#1e293b;">${escapeHtmlText(String(stats.totalClosed || 0))}</div>`
     }
   ];
 

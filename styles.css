@@ -3651,6 +3651,10 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   min-height: 220px;
 }
 
+.report-grid--kpi {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .report-tile--metric {
   min-height: 136px !important;
   gap: 4px;
@@ -4528,6 +4532,9 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 }
 
 @media (max-width: 1100px) {
+  .report-grid--kpi {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .report-custom-builder {
     flex-direction: column;
     align-items: stretch;
@@ -4549,6 +4556,12 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
     align-items: stretch;
   }
   .report-custom-layout-modal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .report-grid--kpi {
     grid-template-columns: 1fr;
   }
 }
