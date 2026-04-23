@@ -121,6 +121,29 @@ const TASK_COLUMNS = {
   delayReason: 20
 };
 const TASK_ROW_LENGTH = TASK_COLUMNS.delayReason + 1;
+const TASK_DEFAULT_COLUMN_ORDER = [
+  TASK_COLUMNS.number,
+  TASK_COLUMNS.object,
+  TASK_COLUMNS.status,
+  TASK_COLUMNS.priority,
+  TASK_COLUMNS.addedDate,
+  TASK_COLUMNS.dueDate,
+  TASK_COLUMNS.phase,
+  TASK_COLUMNS.phaseSection,
+  TASK_COLUMNS.phaseSubsection,
+  TASK_COLUMNS.task,
+  TASK_COLUMNS.responsible,
+  TASK_COLUMNS.assignedResponsible,
+  TASK_COLUMNS.note,
+  TASK_COLUMNS.plan,
+  TASK_COLUMNS.delayReason,
+  TASK_COLUMNS.fact,
+  TASK_COLUMNS.closedDate,
+  TASK_COLUMNS.mediaBefore,
+  TASK_COLUMNS.mediaAfter,
+  TASK_COLUMNS.readState,
+  TASK_COLUMNS.lastSentAt
+];
 const OBJECT_COLUMNS = {
   id: 0,
   name: 1,
@@ -10398,6 +10421,21 @@ function getVisibleColumnIndexes(section) {
 function ensureColumnDisplayState(section) {
   const FIXED_COLUMN_INDEX = 0;
   const size = section.columns.length;
+  const buildDefaultColumnOrder = () => {
+    if (section.id !== "tasks") return section.columns.map((_, index) => index);
+    const seen = new Set();
+    const out = [];
+    TASK_DEFAULT_COLUMN_ORDER.forEach((idx) => {
+      const n = Number(idx);
+      if (!Number.isInteger(n) || n < 0 || n >= size || seen.has(n)) return;
+      seen.add(n);
+      out.push(n);
+    });
+    for (let i = 0; i < size; i += 1) {
+      if (!seen.has(i)) out.push(i);
+    }
+    return out;
+  };
   if (!visibleColumnsBySection[section.id]) {
     visibleColumnsBySection[section.id] = section.columns.map(() => true);
   }
@@ -10410,7 +10448,7 @@ function ensureColumnDisplayState(section) {
   if (size > 0) visibility[FIXED_COLUMN_INDEX] = true;
 
   if (!Array.isArray(columnOrderBySection[section.id])) {
-    columnOrderBySection[section.id] = section.columns.map((_, index) => index);
+    columnOrderBySection[section.id] = buildDefaultColumnOrder();
   }
   const rawOrder = columnOrderBySection[section.id];
   const seen = new Set();
@@ -10429,6 +10467,10 @@ function ensureColumnDisplayState(section) {
   if (fixedPos > 0) {
     normalized.splice(fixedPos, 1);
     normalized.unshift(FIXED_COLUMN_INDEX);
+  }
+  if (section.id === "tasks" && normalized.length === size && normalized.every((val, idx) => val === idx)) {
+    columnOrderBySection[section.id] = buildDefaultColumnOrder();
+    return;
   }
   columnOrderBySection[section.id] = normalized;
 }
