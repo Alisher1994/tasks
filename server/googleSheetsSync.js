@@ -6,6 +6,10 @@ const TASK_COLUMNS = {
 
 let autoSyncTimer = null;
 let syncInFlight = false;
+const GOOGLE_SHEETS_WRITE_MODES = {
+  REWRITE: "rewrite",
+  UPDATE: "update"
+};
 
 function getEnv(name) {
   return String(process.env[name] || "").trim();
@@ -87,6 +91,12 @@ function normalizeSheetTitleKey(raw) {
     .trim();
 }
 
+function normalizeGoogleSheetsWriteMode(rawValue) {
+  return String(rawValue || "").trim() === GOOGLE_SHEETS_WRITE_MODES.UPDATE
+    ? GOOGLE_SHEETS_WRITE_MODES.UPDATE
+    : GOOGLE_SHEETS_WRITE_MODES.REWRITE;
+}
+
 function makeUniqueSheetTitle(baseTitle, used) {
   const base = normalizeSheetTitle(baseTitle);
   if (!used.has(base)) {
@@ -112,6 +122,11 @@ function makeUniqueSheetTitle(baseTitle, used) {
 function sheetRangeA1(title) {
   const escaped = String(title || "").replace(/'/g, "''");
   return `'${escaped}'!A1`;
+}
+
+function sheetRangeAll(title) {
+  const escaped = String(title || "").replace(/'/g, "''");
+  return `'${escaped}'`;
 }
 
 function normalizeCell(v) {
@@ -177,16 +192,21 @@ async function sheetsApi(spreadsheetId, accessToken, path = "", options = {}) {
 
 async function getSpreadsheetSheetTitles(spreadsheetId, accessToken) {
   const data = await sheetsApi(spreadsheetId, accessToken, "", {
-    query: "fields=sheets.properties.title"
+    query: "fields=sheets.properties(sheetId,title)"
   });
   const sheets = Array.isArray(data?.sheets) ? data.sheets : [];
-  return sheets.map((s) => String(s?.properties?.title || "").trim()).filter(Boolean);
+  return sheets
+    .map((s) => ({
+      sheetId: Number(s?.properties?.sheetId) || 0,
+      title: String(s?.properties?.title || "").trim()
+    }))
+    .filter((item) => item.sheetId > 0 && item.title);
 }
 
-async function ensureSheetsExist(spreadsheetId, accessToken, titles) {
+async function ensureSheetsExist(spreadsheetId, accessToken, titles, existingSheetEntries = null) {
   if (!titles.length) return;
-  const existing = await getSpreadsheetSheetTitles(spreadsheetId, accessToken);
-  const existingKeySet = new Set(existing.map((t) => normalizeSheetTitleKey(t)).filter(Boolean));
+  const existing = Array.isArray(existingSheetEntries) ? existingSheetEntries : await getSpreadsheetSheetTitles(spreadsheetId, accessToken);
+  const existingKeySet = new Set(existing.map((s) => normalizeSheetTitleKey(s.title)).filter(Boolean));
   const queue = [];
   const queuedKeySet = new Set();
   for (const title of titles) {
@@ -223,9 +243,23 @@ async function ensureSheetsExist(spreadsheetId, accessToken, titles) {
   }
 }
 
+async function deleteSheetsByIds(spreadsheetId, accessToken, sheetIds) {
+  const ids = Array.isArray(sheetIds) ? sheetIds.map((x) => Number(x) || 0).filter((x) => x > 0) : [];
+  if (!ids.length) return;
+  await sheetsApi(spreadsheetId, accessToken, ":batchUpdate", {
+    method: "POST",
+    body: {
+      requests: ids.map((sheetId) => ({
+        deleteSheet: { sheetId }
+      }))
+    }
+  });
+}
+
 async function writeSheetValues(spreadsheetId, accessToken, title, values) {
+  const clearRange = sheetRangeAll(title);
   const range = sheetRangeA1(title);
-  await sheetsApi(spreadsheetId, accessToken, `/values/${encodeURIComponent(range)}:clear`, {
+  await sheetsApi(spreadsheetId, accessToken, `/values/${encodeURIComponent(clearRange)}:clear`, {
     method: "POST",
     body: {}
   });
@@ -297,10 +331,12 @@ function readSyncSettings(payload) {
   const autoEnabled = Boolean(ds.googleSheetsAutoSyncEnabled);
   const includeObjectSheets = ds.googleSheetsIncludeObjectSheets !== false;
   const intervalMinutes = clampInt(ds.googleSheetsSyncIntervalMinutes, 1, 1440, 30);
+  const writeMode = normalizeGoogleSheetsWriteMode(ds.googleSheetsWriteMode);
   return {
     enabled,
     autoEnabled,
     includeObjectSheets,
+    writeMode,
     spreadsheetId,
     summarySheetName,
     intervalMinutes
@@ -351,7 +387,23 @@ export async function runGoogleSheetsSync(pool, options = {}) {
     const accessToken = await getGoogleAccessToken(env);
     const data = buildSheetsPayload(payload, settings);
     const allTitles = [data.summary.title, ...data.objectSheets.map((s) => s.title)];
-    await ensureSheetsExist(settings.spreadsheetId, accessToken, allTitles);
+    if (settings.writeMode === GOOGLE_SHEETS_WRITE_MODES.REWRITE) {
+      const desiredKeySet = new Set(allTitles.map((t) => normalizeSheetTitleKey(t)).filter(Boolean));
+      let sheetEntries = await getSpreadsheetSheetTitles(settings.spreadsheetId, accessToken);
+      const hasSummary = sheetEntries.some((s) => normalizeSheetTitleKey(s.title) === normalizeSheetTitleKey(data.summary.title));
+      if (!hasSummary) {
+        await ensureSheetsExist(settings.spreadsheetId, accessToken, [data.summary.title], sheetEntries);
+        sheetEntries = await getSpreadsheetSheetTitles(settings.spreadsheetId, accessToken);
+      }
+      const deleteIds = sheetEntries
+        .filter((s) => !desiredKeySet.has(normalizeSheetTitleKey(s.title)))
+        .map((s) => s.sheetId);
+      await deleteSheetsByIds(settings.spreadsheetId, accessToken, deleteIds);
+      const afterDeleteEntries = deleteIds.length ? await getSpreadsheetSheetTitles(settings.spreadsheetId, accessToken) : sheetEntries;
+      await ensureSheetsExist(settings.spreadsheetId, accessToken, allTitles, afterDeleteEntries);
+    } else {
+      await ensureSheetsExist(settings.spreadsheetId, accessToken, allTitles);
+    }
     await writeSheetValues(settings.spreadsheetId, accessToken, data.summary.title, data.summary.values);
     for (const sh of data.objectSheets) {
       await writeSheetValues(settings.spreadsheetId, accessToken, sh.title, sh.values);

@@ -2834,6 +2834,10 @@ function normalizeGoogleSheetsInterval(value) {
   return Math.min(1440, Math.max(1, Math.floor(n)));
 }
 
+function normalizeGoogleSheetsWriteMode(value) {
+  return String(value || "").trim() === "update" ? "update" : "rewrite";
+}
+
 function formatGoogleSheetsSyncStatusText() {
   const status = String(displaySettings.googleSheetsLastSyncStatus || "").trim();
   const atIso = String(displaySettings.googleSheetsLastSyncAt || "").trim();
@@ -3557,6 +3561,7 @@ let displaySettings = {
   googleSheetsSpreadsheetId: "",
   googleSheetsSummarySheetName: "Сводная",
   googleSheetsIncludeObjectSheets: true,
+  googleSheetsWriteMode: "rewrite",
   googleSheetsSyncIntervalMinutes: 30,
   googleSheetsLastSyncStatus: "",
   googleSheetsLastSyncAt: "",
@@ -13901,6 +13906,13 @@ function renderOtherSettingsPanel() {
     (o) => `<option value="${o.id}" ${o.id === tf ? "selected" : ""}>${escapeHtmlText(o.label)}</option>`
   ).join("");
   const dupPositionOptsHtml = buildDupPositionFilterOptionsHtml();
+  const googleSheetsWriteMode = normalizeGoogleSheetsWriteMode(displaySettings.googleSheetsWriteMode);
+  const googleSheetsWriteModeOptsHtml = [
+    { id: "rewrite", label: "Перезапись" },
+    { id: "update", label: "Обновление" }
+  ]
+    .map((opt) => `<option value="${opt.id}" ${googleSheetsWriteMode === opt.id ? "selected" : ""}>${escapeHtmlText(opt.label)}</option>`)
+    .join("");
 
   return `
     <section class="table-card">
@@ -14043,6 +14055,17 @@ function renderOtherSettingsPanel() {
               <input type="checkbox" id="googleSheetsIncludeObjectSheetsCheckbox" ${displaySettings.googleSheetsIncludeObjectSheets !== false ? "checked" : ""} />
               <span>Создавать отдельные листы по объектам</span>
             </label>
+            <div class="settings-field-label-row">
+              <label class="settings-field-label" for="googleSheetsWriteModeSelect">Режим записи</label>
+              <details class="settings-help-details">
+                <summary class="dup-info-btn" aria-label="Справка по режимам записи">i</summary>
+                <div class="settings-help-body">
+                  <p><strong>Перезапись</strong>: удаляет лишние листы, полностью очищает «Сводная» и объектные листы, затем загружает все текущие задачи заново.</p>
+                  <p><strong>Обновление</strong>: не удаляет лишние листы, но каждый задействованный лист очищает полностью и заполняет заново текущими задачами.</p>
+                </div>
+              </details>
+            </div>
+            <select id="googleSheetsWriteModeSelect" class="date-time-settings-select">${googleSheetsWriteModeOptsHtml}</select>
             <label class="settings-field-label" for="googleSheetsSyncIntervalInput">Интервал автосинхронизации (мин.)</label>
             <input id="googleSheetsSyncIntervalInput" type="number" min="1" max="1440" step="1" value="${normalizeGoogleSheetsInterval(displaySettings.googleSheetsSyncIntervalMinutes)}" />
             <div class="other-settings-actions">
@@ -14444,6 +14467,7 @@ function attachOtherSettingsHandlers() {
   const gsSpreadsheetEl = document.getElementById("googleSheetsSpreadsheetIdInput");
   const gsSummaryEl = document.getElementById("googleSheetsSummarySheetNameInput");
   const gsIncludeObjEl = document.getElementById("googleSheetsIncludeObjectSheetsCheckbox");
+  const gsWriteModeEl = document.getElementById("googleSheetsWriteModeSelect");
   const gsIntervalEl = document.getElementById("googleSheetsSyncIntervalInput");
   const gsSyncBtn = document.getElementById("googleSheetsSyncNowBtn");
 
@@ -14453,6 +14477,7 @@ function attachOtherSettingsHandlers() {
     if (gsSpreadsheetEl) displaySettings.googleSheetsSpreadsheetId = String(gsSpreadsheetEl.value || "").trim();
     if (gsSummaryEl) displaySettings.googleSheetsSummarySheetName = String(gsSummaryEl.value || "").trim() || "Сводная";
     if (gsIncludeObjEl) displaySettings.googleSheetsIncludeObjectSheets = Boolean(gsIncludeObjEl.checked);
+    if (gsWriteModeEl) displaySettings.googleSheetsWriteMode = normalizeGoogleSheetsWriteMode(gsWriteModeEl.value);
     if (gsIntervalEl) {
       displaySettings.googleSheetsSyncIntervalMinutes = normalizeGoogleSheetsInterval(gsIntervalEl.value);
       gsIntervalEl.value = String(displaySettings.googleSheetsSyncIntervalMinutes);
@@ -14464,6 +14489,7 @@ function attachOtherSettingsHandlers() {
   gsSpreadsheetEl?.addEventListener("blur", commitGoogleSheetsSettings);
   gsSummaryEl?.addEventListener("blur", commitGoogleSheetsSettings);
   gsIncludeObjEl?.addEventListener("change", commitGoogleSheetsSettings);
+  gsWriteModeEl?.addEventListener("change", commitGoogleSheetsSettings);
   gsIntervalEl?.addEventListener("change", commitGoogleSheetsSettings);
   gsIntervalEl?.addEventListener("blur", commitGoogleSheetsSettings);
 
@@ -14739,6 +14765,7 @@ function restoreDisplaySettings() {
     displaySettings.googleSheetsEnabled = Boolean(displaySettings.googleSheetsEnabled);
     displaySettings.googleSheetsAutoSyncEnabled = Boolean(displaySettings.googleSheetsAutoSyncEnabled);
     displaySettings.googleSheetsIncludeObjectSheets = displaySettings.googleSheetsIncludeObjectSheets !== false;
+    displaySettings.googleSheetsWriteMode = normalizeGoogleSheetsWriteMode(displaySettings.googleSheetsWriteMode);
     if (typeof displaySettings.googleSheetsSpreadsheetId !== "string") {
       displaySettings.googleSheetsSpreadsheetId = "";
     }
