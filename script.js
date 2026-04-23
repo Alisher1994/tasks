@@ -8922,8 +8922,9 @@ function attachReportCharts() {
   if (ctxDept && deptStack?.datasets?.length) {
     const dlDeptStacked = hasDl
       ? {
-          anchor: "center",
-          align: "center",
+          anchor: "end",
+          align: "top",
+          offset: 2,
           formatter: (v) => (Number(v) > 0 ? String(Math.round(Number(v))) : ""),
           color: "#1e293b",
           font: { weight: "600", size: 10 },
@@ -8942,25 +8943,30 @@ function attachReportCharts() {
         options: {
           ...common,
           ...REPORT_CHART_LABEL_SAFE_LAYOUT,
-          indexAxis: "y",
           datasets: {
             bar: {
-              maxBarThickness: 28,
-              categoryPercentage: 0.82,
+              maxBarThickness: 36,
+              categoryPercentage: 0.72,
               barPercentage: 0.9
             }
           },
           scales: {
             x: {
               stacked: true,
-              ...REPORT_HBAR_SCALE_X
+              ticks: {
+                autoSkip: nDept > 18,
+                maxRotation: 55,
+                minRotation: nDept > 10 ? 30 : 0,
+                font: { size: nDept > 35 ? 9 : 11 }
+              }
             },
             y: {
               stacked: true,
+              beginAtZero: true,
               ticks: {
-                autoSkip: false,
-                font: { size: nDept > 45 ? 8 : nDept > 25 ? 10 : 11 }
-              }
+                precision: 0
+              },
+              ...REPORT_VALUE_AXIS_GRACE
             }
           },
           plugins: {
