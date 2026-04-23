@@ -3149,6 +3149,42 @@ const EMPLOYEE_IMPORT_COLUMNS = [
   { key: "position", label: "Должность", aliases: ["Должность", "Роль", "Позиция"] },
   { key: "phone", label: "Телефон", aliases: ["Телефон", "Номер телефона", "Номер"] }
 ];
+const CATALOG_IMPORT_CONFIG = {
+  phases: {
+    title: "Импорт фаз",
+    entityNameGenitive: "фаз",
+    valueLabel: "Фаза",
+    valueIndex: 1,
+    sampleRows: [["Инициация"], ["Проработка"], ["Реализация"]],
+    templateFileName: "template_phases_import.xls"
+  },
+  phaseSections: {
+    title: "Импорт разделов",
+    entityNameGenitive: "разделов",
+    valueLabel: "Раздел",
+    valueIndex: 1,
+    sampleRows: [["СМР"], ["Маркетинг"], ["Рабочее проектирование"]],
+    templateFileName: "template_phase_sections_import.xls"
+  },
+  phaseSubsections: {
+    title: "Импорт подразделов",
+    entityNameGenitive: "подразделов",
+    valueLabel: "Подраздел",
+    valueIndex: 1,
+    sampleRows: [["Надземные конструкции"], ["ПНР"], ["Офис продаж"]],
+    templateFileName: "template_phase_subsections_import.xls"
+  },
+  delayReasons: {
+    title: "Импорт причин отставаний",
+    entityNameGenitive: "причин",
+    valueLabel: "Причина",
+    valueIndex: 1,
+    typeIndex: 2,
+    typeValue: "Пользовательский",
+    sampleRows: [["Срыв поставки материалов"], ["Ожидание согласования"], ["Неблагоприятная погода"]],
+    templateFileName: "template_delay_reasons_import.xls"
+  }
+};
 const SECTION_GROUPS = {
   reference: {
     id: "reference",
@@ -3953,6 +3989,7 @@ function attachTasksObjectPickerHandlers(section) {
 }
 
 function renderSectionHeaderIconButtons(section) {
+  const canImportCatalog = isCatalogImportableSectionId(section.id);
   return `
         <div class="table-header-right">
           <button type="button" class="icon-action-btn add-row-btn" id="addRowBtn" title="Добавить">
@@ -3983,6 +4020,10 @@ function renderSectionHeaderIconButtons(section) {
           </button>` : ""}
           ${section.id === "employees" ? `
           <button type="button" class="icon-action-btn import-employees-btn" id="openEmployeeImportModalBtn" title="Импорт сотрудников">
+            <i data-lucide="file-up" class="lucide-icon" aria-hidden="true"></i>
+          </button>` : ""}
+          ${canImportCatalog ? `
+          <button type="button" class="icon-action-btn import-catalog-btn" id="openCatalogImportModalBtn" title="Импорт значений">
             <i data-lucide="file-up" class="lucide-icon" aria-hidden="true"></i>
           </button>` : ""}
           ${section.id === "employees" ? `
@@ -9949,6 +9990,71 @@ function parseEmployeeImportPayload(rawText) {
   return { ok: true, rows: parsedRows, hasHeader };
 }
 
+function getCatalogImportConfig(sectionId) {
+  return CATALOG_IMPORT_CONFIG[String(sectionId || "").trim()] || null;
+}
+
+function isCatalogImportableSectionId(sectionId) {
+  return !!getCatalogImportConfig(sectionId);
+}
+
+function parseCatalogImportPayload(rawText, config, section) {
+  const matrix = parseTabularText(rawText);
+  if (!matrix.length) return { ok: false, message: "Вставьте данные из Excel (Ctrl+V)." };
+  const valueLabel = String(config?.valueLabel || section?.columns?.[config?.valueIndex || 1] || "Значение").trim();
+  const aliases = [valueLabel, String(section?.title || "").trim()]
+    .map((x) => normalizeTaskColumnLabel(x))
+    .filter(Boolean);
+  const firstRowNormalized = (matrix[0] || []).map((cell) => normalizeTaskColumnLabel(cell)).filter(Boolean);
+  const hasHeader = firstRowNormalized.some((cell) => aliases.includes(cell));
+  const dataRows = hasHeader ? matrix.slice(1) : matrix;
+  const values = dataRows
+    .map((row) => String(row?.[0] || "").replace(/\r\n?/g, " ").trim())
+    .filter((value) => value !== "");
+  if (!values.length) {
+    return { ok: false, message: `Не удалось найти строки для импорта: ${valueLabel.toLowerCase()}.` };
+  }
+  return { ok: true, rows: values, hasHeader };
+}
+
+function inspectImportedCatalogRows(values, section, config) {
+  const valueIndex = Number(config?.valueIndex);
+  if (!Number.isInteger(valueIndex) || valueIndex < 0) return [];
+  const existing = new Set((section?.rows || []).map((row) => String(row?.[valueIndex] || "").trim().toLowerCase()).filter(Boolean));
+  const seen = new Set();
+  return (values || []).map((raw) => {
+    const normalized = String(raw || "").replace(/\s+/g, " ").trim();
+    const key = normalized.toLowerCase();
+    const issues = [];
+    if (!normalized) {
+      issues.push("Пустое значение");
+    }
+    if (key && existing.has(key)) {
+      issues.push("Уже есть в таблице");
+    }
+    if (key && seen.has(key)) {
+      issues.push("Дубликат в импорте");
+    }
+    if (key) seen.add(key);
+    return {
+      raw,
+      normalized,
+      issues,
+      canImport: issues.length === 0
+    };
+  });
+}
+
+function createCatalogRowFromImport(value, section, config, rowId) {
+  const row = new Array(section.columns.length).fill("");
+  row[0] = String(rowId || "");
+  row[config.valueIndex] = String(value || "").trim();
+  if (Number.isInteger(config.typeIndex) && config.typeIndex >= 0 && config.typeIndex < row.length) {
+    row[config.typeIndex] = String(config.typeValue || "").trim();
+  }
+  return row;
+}
+
 function normalizeEmployeeImportTelegram(raw) {
   const value = String(raw || "").trim();
   if (!value) return "Не подключен";
@@ -13539,6 +13645,7 @@ function attachHeaderActionHandlers(section, filteredEntries) {
   const refreshSectionBtn = document.getElementById("refreshSectionBtn");
   const refreshEmployeeChatIdsBtn = document.getElementById("refreshEmployeeChatIdsBtn");
   const openEmployeeImportModalBtn = document.getElementById("openEmployeeImportModalBtn");
+  const openCatalogImportModalBtn = document.getElementById("openCatalogImportModalBtn");
   const googleSheetsSyncTasksBtn = document.getElementById("googleSheetsSyncTasksBtn");
   const sendOverdueTasksBtn = document.getElementById("sendOverdueTasksBtn");
   const openTaskImportModalBtn = document.getElementById("openTaskImportModalBtn");
@@ -13593,6 +13700,11 @@ function attachHeaderActionHandlers(section, filteredEntries) {
   if (openEmployeeImportModalBtn && section.id === "employees") {
     openEmployeeImportModalBtn.addEventListener("click", () => {
       openEmployeeImportModal(section);
+    });
+  }
+  if (openCatalogImportModalBtn && isCatalogImportableSectionId(section.id)) {
+    openCatalogImportModalBtn.addEventListener("click", () => {
+      openCatalogImportModal(section);
     });
   }
 
@@ -15951,6 +16063,141 @@ function openEmployeeImportModal(section) {
     const a = document.createElement("a");
     a.href = url;
     a.download = "template_employee_import.xls";
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  input?.addEventListener("input", parseFromInput);
+  cancelBtn?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  renderPreview();
+  input?.focus();
+}
+
+function openCatalogImportModal(section) {
+  const config = getCatalogImportConfig(section?.id);
+  if (!section || !config) return;
+  const templateHeadHtml = `<th>${escapeHtmlText(config.valueLabel)}</th>`;
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal table-import-modal">
+      <h3>${withIcon("file-up", escapeHtmlText(config.title))}</h3>
+      <p class="hint">Скопируйте значения из Excel и вставьте сюда через Ctrl+V. По одному значению в строке.</p>
+      <div class="task-import-template-wrap">
+        <div class="task-import-template-head">
+          <span>Шаблон колонок для импорта</span>
+          <button type="button" class="secondary task-import-download-template-btn" id="catalogImportDownloadTemplateBtn">Скачать шаблон</button>
+        </div>
+        <div class="task-import-template-table-wrap">
+          <table class="task-import-template-table">
+            <thead><tr>${templateHeadHtml}</tr></thead>
+          </table>
+        </div>
+      </div>
+      <textarea id="catalogImportPasteInput" class="task-import-paste-input" rows="7" placeholder="Вставьте таблицу из Excel..."></textarea>
+      <div class="task-import-preview-head">
+        <strong>Превью</strong>
+        <span id="catalogImportPreviewMeta" class="hint">Строк: 0</span>
+      </div>
+      <div id="catalogImportPreviewWrap" class="task-import-preview-wrap">
+        <p class="hint">Данные ещё не вставлены.</p>
+      </div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary catalog-import-cancel-btn">Отмена</button>
+        <button type="button" class="responsible-apply-btn catalog-import-save-btn" disabled>Сохранить</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  initLucideIcons();
+
+  const input = overlay.querySelector("#catalogImportPasteInput");
+  const previewWrap = overlay.querySelector("#catalogImportPreviewWrap");
+  const previewMeta = overlay.querySelector("#catalogImportPreviewMeta");
+  const saveBtn = overlay.querySelector(".catalog-import-save-btn");
+  const cancelBtn = overlay.querySelector(".catalog-import-cancel-btn");
+  const downloadTemplateBtn = overlay.querySelector("#catalogImportDownloadTemplateBtn");
+  const close = () => overlay.remove();
+
+  let inspectedRows = [];
+
+  const renderPreview = () => {
+    if (!previewWrap || !previewMeta || !saveBtn) return;
+    const canImportRows = inspectedRows.filter((x) => x.canImport);
+    const blockedRows = inspectedRows.length - canImportRows.length;
+    previewMeta.textContent = `Строк: ${inspectedRows.length} · к импорту: ${canImportRows.length}`;
+    if (!inspectedRows.length) {
+      previewWrap.innerHTML = '<p class="hint">Данные ещё не вставлены.</p>';
+      saveBtn.disabled = true;
+      return;
+    }
+    const body = inspectedRows
+      .map((item, index) => {
+        const raw = String(item.normalized || "—");
+        const safe = escapeHtmlText(raw);
+        const badge = item.issues.length
+          ? `<div class="task-import-missing-badge">${escapeHtmlText(item.issues.join("; "))}</div>`
+          : "";
+        const rowClass = item.issues.length ? "task-import-preview-row--missing" : "";
+        return `<tr class="${rowClass}"><td><div>${index + 1}</div>${badge}</td><td title="${escapeHtmlAttr(raw)}">${safe}</td></tr>`;
+      })
+      .join("");
+    previewWrap.innerHTML = `
+      <table class="task-import-preview-table">
+        <thead><tr><th>#</th><th>${escapeHtmlText(config.valueLabel)}</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+      ${blockedRows > 0 ? `<p class="task-import-preview-note">Не будут импортированы: ${blockedRows} строк(и). Исправьте значения и вставьте повторно.</p>` : ""}
+    `;
+    saveBtn.disabled = canImportRows.length === 0;
+  };
+
+  const parseFromInput = () => {
+    const res = parseCatalogImportPayload(input?.value || "", config, section);
+    if (!res.ok) {
+      inspectedRows = [];
+      renderPreview();
+      return;
+    }
+    inspectedRows = inspectImportedCatalogRows(res.rows, section, config);
+    renderPreview();
+  };
+
+  saveBtn?.addEventListener("click", () => {
+    const numericIds = section.rows.map((item) => Number(item[0])).filter((value) => Number.isFinite(value));
+    let nextId = (numericIds.length ? Math.max(...numericIds) : section.rows.length) + 1;
+    const rows = [];
+    inspectedRows.forEach((item) => {
+      if (!item.canImport) return;
+      rows.push(createCatalogRowFromImport(item.normalized, section, config, String(nextId)));
+      nextId += 1;
+    });
+    if (!rows.length) return;
+    rows.forEach((row) => section.rows.push(row));
+    saveSectionsData();
+    close();
+    renderTablePreserveScroll();
+    showStatusDialog({
+      title: config.title,
+      message: `Сохранено ${config.entityNameGenitive}: ${rows.length}.`,
+      type: "success"
+    });
+  });
+
+  downloadTemplateBtn?.addEventListener("click", () => {
+    const header = [config.valueLabel];
+    const rows = config.sampleRows || [];
+    const lines = [header, ...rows]
+      .map((cols) => cols.map((v) => String(v || "").replace(/\r\n?/g, " ").trim()).join("\t"))
+      .join("\n");
+    const blob = new Blob([`\uFEFF${lines}`], { type: "text/tab-separated-values;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = String(config.templateFileName || "template_catalog_import.xls");
     a.click();
     URL.revokeObjectURL(url);
   });
