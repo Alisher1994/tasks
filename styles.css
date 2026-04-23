@@ -3748,6 +3748,14 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   font-size: 12px;
 }
 
+.report-custom-stage {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+}
+
 .report-custom-add-btn {
   border: 1px solid #b8c4ef;
   border-radius: 9px;
@@ -3796,7 +3804,8 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 }
 
 .report-custom-empty {
-  min-height: 420px;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
