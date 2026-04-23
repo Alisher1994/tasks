@@ -3517,6 +3517,8 @@ let tasksBrowseObjectKey = null;
 let reportFiltersPanelOpen = false;
 /** Во время drag-and-drop плиток отчёта */
 let reportChartDragId = null;
+/** Во время drag-and-drop кастомных плиток отчёта */
+let reportCustomChartDragId = null;
 /** Вкладка аналитики: system | custom */
 let reportViewTab = "system";
 let reportSystemChartVisibilityCache = null;
@@ -4569,6 +4571,7 @@ function renderTable() {
       attachReportPhaseGroupLayoutHandlers();
       attachReportSystemChartVisibilityHandlers();
       attachReportCustomBuilderHandlers();
+      attachReportCustomChartDragHandlers();
       attachReportChartTileDragHandlers();
       attachReportExportAndShareHandlers();
       initLucideIcons();
@@ -5315,7 +5318,8 @@ function normalizeReportCustomChartsList(list) {
       const groupBy = validGroups.has(String(item?.groupBy || "").trim()) ? String(item.groupBy).trim() : "status";
       const dataMode = validModes.has(String(item?.dataMode || "").trim()) ? String(item.dataMode).trim() : "total";
       const name = String(item?.name || "").trim() || `Кастомный график ${idx + 1}`;
-      return { id, type, groupBy, dataMode, name };
+      const rowGroup = String(item?.rowGroup || "").trim().slice(0, 40);
+      return { id, type, groupBy, dataMode, name, rowGroup };
     })
     .slice(0, REPORT_CUSTOM_MAX_CHARTS);
 }
@@ -5427,6 +5431,16 @@ function reorderReportChartOrder(order, dragId, targetId) {
   if (insertAt === -1) return order;
   o.splice(insertAt, 0, dragId);
   return o;
+}
+
+function reorderCustomChartsById(list, dragId, targetId) {
+  const arr = Array.isArray(list) ? list.slice() : [];
+  const from = arr.findIndex((item) => String(item?.id || "") === String(dragId || ""));
+  const to = arr.findIndex((item) => String(item?.id || "") === String(targetId || ""));
+  if (from < 0 || to < 0 || from === to) return arr;
+  const [moved] = arr.splice(from, 1);
+  arr.splice(to, 0, moved);
+  return arr;
 }
 
 function renderReportChartTileFragment(id, opts = {}) {
@@ -5944,6 +5958,47 @@ function openReportCustomChartWizardModal(onSave) {
 function renderReportCustomChartsHtml() {
   const list = loadReportCustomCharts();
   const cols = getReportCustomGridColumns();
+  const tileHtml = (item) => {
+    const isDonutLike = item.type === "donut" || item.type === "pie";
+    const wrapClass = isDonutLike ? "report-canvas-wrap report-canvas-wrap--donut" : "report-canvas-wrap report-canvas-wrap--custom";
+    const rowGroup = String(item.rowGroup || "").trim();
+    const rowBadge = rowGroup ? `<span class="report-custom-group-badge">${escapeHtmlText(rowGroup)}</span>` : "";
+    const dragBtn = sharedReportMode
+      ? ""
+      : `<button type="button" class="report-custom-drag-handle" data-drag-custom-chart="${escapeHtmlAttr(item.id)}" title="Переместить диаграмму" aria-label="Перетащите для изменения порядка"><i data-lucide="move" class="lucide-icon" aria-hidden="true"></i></button>`;
+    const groupBtn = sharedReportMode
+      ? ""
+      : `<button type="button" class="report-custom-group-btn" data-set-custom-group="${escapeHtmlAttr(item.id)}" title="Настроить строковую группу" aria-label="Настроить строковую группу"><i data-lucide="rows-3" class="lucide-icon" aria-hidden="true"></i></button>`;
+    const removeBtn = sharedReportMode
+      ? ""
+      : `<button type="button" class="report-custom-remove-btn" data-remove-custom-chart="${escapeHtmlAttr(item.id)}" title="Удалить диаграмму" aria-label="Удалить диаграмму"><i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i></button>`;
+    return `
+      <div class="report-tile report-custom-tile" data-custom-chart-id="${escapeHtmlAttr(item.id)}">
+        ${dragBtn}
+        ${groupBtn}
+        ${removeBtn}
+        <h4>${escapeHtmlText(item.name)}${rowBadge}</h4>
+        <div class="${wrapClass}"><canvas id="reportCustomChart_${escapeHtmlAttr(item.id)}"></canvas></div>
+      </div>
+    `;
+  };
+
+  const ungrouped = [];
+  const groupedMap = new Map();
+  const groupedOrder = [];
+  list.forEach((item) => {
+    const key = String(item?.rowGroup || "").trim();
+    if (!key) {
+      ungrouped.push(item);
+      return;
+    }
+    if (!groupedMap.has(key)) {
+      groupedMap.set(key, []);
+      groupedOrder.push(key);
+    }
+    groupedMap.get(key).push(item);
+  });
+
   if (!list.length) {
     return `
       <div class="report-custom-empty">
@@ -5952,25 +6007,27 @@ function renderReportCustomChartsHtml() {
       </div>
     `;
   }
-  return `
-    <div class="report-custom-grid report-custom-grid--cols-${cols}">
-      ${list
-        .map(
-          (item) => {
-            const isDonutLike = item.type === "donut" || item.type === "pie";
-            const wrapClass = isDonutLike ? "report-canvas-wrap report-canvas-wrap--donut" : "report-canvas-wrap report-canvas-wrap--custom";
-            return `
-        <div class="report-tile report-custom-tile" data-custom-chart-id="${escapeHtmlAttr(item.id)}">
-          <button type="button" class="report-custom-remove-btn" data-remove-custom-chart="${escapeHtmlAttr(item.id)}" title="Удалить диаграмму" aria-label="Удалить диаграмму">
-            <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
-          </button>
-          <h4>${escapeHtmlText(item.name)}</h4>
-          <div class="${wrapClass}"><canvas id="reportCustomChart_${escapeHtmlAttr(item.id)}"></canvas></div>
+  const blocks = [];
+  if (ungrouped.length) {
+    blocks.push(`<div class="report-custom-grid report-custom-grid--cols-${cols}">${ungrouped.map((item) => tileHtml(item)).join("")}</div>`);
+  }
+  groupedOrder.forEach((groupName) => {
+    const items = groupedMap.get(groupName) || [];
+    if (!items.length) return;
+    blocks.push(`
+      <section class="report-custom-row-group">
+        <header class="report-custom-row-group-head">
+          <span>Группа: ${escapeHtmlText(groupName)}</span>
+        </header>
+        <div class="report-custom-grid report-custom-grid--cols-${cols}">
+          ${items.map((item) => tileHtml(item)).join("")}
         </div>
-      `;
-          }
-        )
-        .join("")}
+      </section>
+    `);
+  });
+  return `
+    <div class="report-custom-groups-wrap">
+      ${blocks.join("")}
     </div>
   `;
 }
@@ -6225,6 +6282,7 @@ function refreshReportView() {
     attachReportPhaseGroupLayoutHandlers();
     attachReportSystemChartVisibilityHandlers();
     attachReportCustomBuilderHandlers();
+    attachReportCustomChartDragHandlers();
     attachReportChartTileDragHandlers();
     attachReportExportAndShareHandlers();
     initLucideIcons();
@@ -8052,6 +8110,89 @@ function attachReportCustomBuilderHandlers() {
       const next = loadReportCustomCharts().filter((item) => String(item?.id || "").trim() !== id);
       saveReportCustomCharts(next);
       refreshReportView();
+    });
+  });
+  root.querySelectorAll("[data-set-custom-group]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = String(btn.getAttribute("data-set-custom-group") || "").trim();
+      if (!id) return;
+      const current = loadReportCustomCharts();
+      const idx = current.findIndex((item) => String(item?.id || "").trim() === id);
+      if (idx < 0) return;
+      const prev = String(current[idx]?.rowGroup || "").trim();
+      const nextValue = window.prompt("Введите название строковой группы (пусто — без группы):", prev);
+      if (nextValue === null) return;
+      const nextGroup = String(nextValue || "").trim().slice(0, 40);
+      if (nextGroup === prev) return;
+      const next = current.slice();
+      next[idx] = { ...next[idx], rowGroup: nextGroup };
+      saveReportCustomCharts(next);
+      refreshReportView();
+    });
+  });
+}
+
+function attachReportCustomChartDragHandlers() {
+  if (isSharedReportView() || reportViewTab !== "custom") return;
+  const root = tableContainer;
+  if (!root) return;
+  const tiles = Array.from(root.querySelectorAll(".report-custom-tile[data-custom-chart-id]"));
+  const handles = Array.from(root.querySelectorAll(".report-custom-drag-handle[data-drag-custom-chart]"));
+  if (!tiles.length || !handles.length) return;
+
+  const clearDragState = () => {
+    reportCustomChartDragId = null;
+    root.querySelectorAll(".report-custom-tile").forEach((tile) => {
+      tile.classList.remove("report-tile--dragging", "report-tile--drop-target");
+    });
+  };
+
+  handles.forEach((handle) => {
+    handle.setAttribute("draggable", "true");
+    handle.addEventListener("dragstart", (e) => {
+      const tile = handle.closest(".report-custom-tile[data-custom-chart-id]");
+      const id = String(tile?.getAttribute("data-custom-chart-id") || "").trim();
+      if (!tile || !id) {
+        e.preventDefault();
+        return;
+      }
+      reportCustomChartDragId = id;
+      e.dataTransfer?.setData("application/x-mbc-custom-chart", id);
+      e.dataTransfer?.setData("text/plain", id);
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      tile.classList.add("report-tile--dragging");
+    });
+    handle.addEventListener("dragend", clearDragState);
+  });
+
+  tiles.forEach((tile) => {
+    tile.addEventListener("dragover", (e) => {
+      if (!reportCustomChartDragId) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      root.querySelectorAll(".report-custom-tile.report-tile--drop-target").forEach((el) => el.classList.remove("report-tile--drop-target"));
+      const targetId = String(tile.getAttribute("data-custom-chart-id") || "").trim();
+      if (targetId && targetId !== reportCustomChartDragId) tile.classList.add("report-tile--drop-target");
+    });
+    tile.addEventListener("drop", (e) => {
+      if (!reportCustomChartDragId) return;
+      e.preventDefault();
+      const toId = String(tile.getAttribute("data-custom-chart-id") || "").trim();
+      const fromId = String(
+        e.dataTransfer?.getData("application/x-mbc-custom-chart")
+        || reportCustomChartDragId
+        || ""
+      ).trim();
+      clearDragState();
+      if (!fromId || !toId || fromId === toId) return;
+      const cur = loadReportCustomCharts();
+      const next = reorderCustomChartsById(cur, fromId, toId);
+      saveReportCustomCharts(next);
+      refreshReportView();
+    });
+    tile.addEventListener("dragleave", (e) => {
+      const rel = e.relatedTarget;
+      if (!rel || !tile.contains(rel)) tile.classList.remove("report-tile--drop-target");
     });
   });
 }

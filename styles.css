@@ -3839,6 +3839,30 @@ button.report-custom-layout-btn.is-active {
   gap: 14px;
 }
 
+.report-custom-groups-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.report-custom-row-group {
+  border: 1px dashed #d7deea;
+  border-radius: 10px;
+  padding: 10px;
+  background: linear-gradient(180deg, #f8fbff 0%, #fff 44px);
+}
+
+.report-custom-row-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .report-custom-grid--cols-3 {
   --report-custom-cols: 3;
   --report-custom-chart-h: 250px;
@@ -3861,6 +3885,10 @@ button.report-custom-layout-btn.is-active {
 
 .report-custom-tile {
   min-height: calc(var(--report-custom-chart-h) + 74px);
+}
+
+.report-custom-tile h4 {
+  padding-right: 118px;
 }
 
 .report-custom-grid .report-canvas-wrap--custom {
@@ -3888,6 +3916,62 @@ button.report-custom-layout-btn.is-active {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.report-custom-drag-handle {
+  position: absolute;
+  top: 8px;
+  right: 76px;
+  z-index: 3;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: grab;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.report-custom-group-btn {
+  position: absolute;
+  top: 8px;
+  right: 42px;
+  z-index: 3;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.report-custom-drag-handle:hover,
+.report-custom-group-btn:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: #64748b;
+}
+
+.report-custom-drag-handle:active {
+  cursor: grabbing;
+}
+
+.report-custom-group-badge {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(62, 64, 149, 0.1);
+  color: #3e4095;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
 }
 
 .report-custom-remove-btn:hover {
