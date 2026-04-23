@@ -3792,7 +3792,11 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   color: #334155;
   font-size: 12px;
   font-weight: 600;
-  padding: 6px 10px;
+  padding: 8px 12px;
+  min-height: 37px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
 
