@@ -7363,6 +7363,17 @@ function parseTaskClosedDateFallback(value) {
   return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
+function parseTaskStartFallback(row) {
+  const taskRow = Array.isArray(row) ? row : [];
+  const createdAt = parseRuDateTimeString(taskRow?.[TASK_COLUMNS.createdAt]);
+  if (createdAt) return { date: createdAt, source: "createdAt" };
+  const lastSentAt = parseRuDateTimeString(taskRow?.[TASK_COLUMNS.lastSentAt]);
+  if (lastSentAt) return { date: lastSentAt, source: "lastSentAt" };
+  const addedDate = parseRuDate(taskRow?.[TASK_COLUMNS.addedDate]);
+  if (addedDate) return { date: addedDate, source: "addedDate" };
+  return { date: null, source: "" };
+}
+
 function getTaskClosedAtExactValue(taskId) {
   const key = String(taskId || "").trim();
   if (!key) return "";
@@ -7438,16 +7449,23 @@ function buildExecutionTimeEntries(rows) {
     const multiState = taskId ? getTaskMultiAssigneeMap(taskId) || {} : {};
     const baseRead = getTaskReadStateParts(taskRow?.[TASK_COLUMNS.readState]);
     const baseReadAt = parseRuDateTimeString(baseRead.whenText);
+    const baseStartFallback = parseTaskStartFallback(taskRow);
     const baseClosedAt = parseRuDateTimeString(getTaskClosedAtExactValue(taskId)) || parseTaskClosedDateFallback(taskRow?.[TASK_COLUMNS.closedDate]);
     const pushEntry = (assigneeName, assigneeState = null) => {
       const normalizedStatus = normalizeTaskStatusValue(String(assigneeState?.status || taskRow?.[TASK_COLUMNS.status] || "").trim());
       if (normalizedStatus !== "Закрыт") return;
-      const readAt = parseRuDateTimeString(assigneeState?.readAt) || baseReadAt;
+      const fallbackStart = assigneeState?.readAt ? { date: null, source: "" } : baseStartFallback;
+      const readAt = parseRuDateTimeString(assigneeState?.readAt) || baseReadAt || fallbackStart.date;
       const closedAt = parseRuDateTimeString(assigneeState?.closedAt) || baseClosedAt;
       if (!(readAt instanceof Date) || Number.isNaN(readAt.getTime())) return;
       if (!(closedAt instanceof Date) || Number.isNaN(closedAt.getTime())) return;
       const durationMs = closedAt.getTime() - readAt.getTime();
       if (!Number.isFinite(durationMs) || durationMs < 0) return;
+      const startSource = parseRuDateTimeString(assigneeState?.readAt)
+        ? "readAt"
+        : baseReadAt
+          ? "readAt"
+          : fallbackStart.source;
       const responsible = normalizePersonName(assigneeName || taskRow?.[TASK_COLUMNS.assignedResponsible]) || "— не назначен —";
       out.push({
         taskId: String(taskRow?.[TASK_COLUMNS.number] || "").trim(),
@@ -7460,7 +7478,8 @@ function buildExecutionTimeEntries(rows) {
         priority: String(taskRow?.[TASK_COLUMNS.priority] || "").trim() || "(не указан)",
         readAt,
         closedAt,
-        durationMs
+        durationMs,
+        startSource
       });
     };
 
@@ -7505,6 +7524,8 @@ function buildExecutionTimeReportStats(rows) {
 
   return {
     totalClosed,
+    strictReadCount: entries.filter((item) => item.startSource === "readAt").length,
+    fallbackCount: entries.filter((item) => item.startSource !== "readAt").length,
     avgMs,
     medianMs,
     minMs,
@@ -7558,7 +7579,9 @@ function renderExecutionKpiPanel(stats) {
     },
     {
       title: "Закрыто в расчёте",
-      note: "Только задачи с readAt и closedAt",
+      note: stats.fallbackCount > 0
+        ? `Точных: ${stats.strictReadCount} · fallback: ${stats.fallbackCount}`
+        : "Только задачи с readAt и closedAt",
       value: `<div style="font-size:24px;font-weight:700;line-height:1.15;color:#1e293b;">${escapeHtmlText(String(stats.totalClosed || 0))}</div>`
     }
   ];
