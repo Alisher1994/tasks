@@ -2386,8 +2386,8 @@ body.app-booting .app-boot-loader {
 }
 
 .employee-admin-toggle-input:checked + .employee-admin-toggle-ui {
-  background: #2563eb;
-  border-color: #1d4ed8;
+  background: #3e4095;
+  border-color: #3e4095;
 }
 
 .employee-admin-toggle-input:checked + .employee-admin-toggle-ui::after {
