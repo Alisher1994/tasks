@@ -1,7 +1,13 @@
 import crypto from "crypto";
 
 const TASK_COLUMNS = {
-  object: 1
+  number: 0,
+  object: 1,
+  status: 2,
+  plan: 12,
+  dueDate: 14,
+  closedDate: 15,
+  assignedResponsible: 10
 };
 
 let autoSyncTimer = null;
@@ -134,12 +140,85 @@ function normalizeCell(v) {
   return String(v).replace(/\r\n?/g, "\n");
 }
 
+function normalizePersonName(rawValue) {
+  return String(rawValue || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseTaskAssigneeNames(value) {
+  const out = [];
+  const seen = new Set();
+  String(value || "")
+    .split(",")
+    .map((name) => normalizePersonName(name))
+    .filter(Boolean)
+    .forEach((name) => {
+      const key = name.toLocaleLowerCase("ru");
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(name);
+    });
+  return out;
+}
+
+function getTaskAssigneeStateEntry(map, assigneeName) {
+  if (!map || typeof map !== "object" || Array.isArray(map)) return null;
+  const exact = map[assigneeName];
+  if (exact && typeof exact === "object" && !Array.isArray(exact)) {
+    return exact;
+  }
+  const want = String(assigneeName || "").trim().toLocaleLowerCase("ru");
+  if (!want) return null;
+  for (const key of Object.keys(map)) {
+    if (String(key).startsWith("__")) continue;
+    if (String(key).trim().toLocaleLowerCase("ru") !== want) continue;
+    const state = map[key];
+    if (state && typeof state === "object" && !Array.isArray(state)) {
+      return state;
+    }
+  }
+  return null;
+}
+
+function buildRowsWithSubtasks(rawRows, taskMultiState) {
+  const rows = Array.isArray(rawRows) ? rawRows : [];
+  const multiState = taskMultiState && typeof taskMultiState === "object" && !Array.isArray(taskMultiState) ? taskMultiState : {};
+  const expanded = [];
+
+  rows.forEach((row) => {
+    const baseRow = Array.isArray(row) ? row.map(normalizeCell) : [];
+    const taskId = String(baseRow[TASK_COLUMNS.number] || "").trim();
+    const assignees = parseTaskAssigneeNames(baseRow[TASK_COLUMNS.assignedResponsible]);
+    if (assignees.length <= 1) {
+      expanded.push(baseRow);
+      return;
+    }
+
+    const map = multiState[taskId];
+    assignees.forEach((assigneeName, idx) => {
+      const next = baseRow.slice();
+      const st = getTaskAssigneeStateEntry(map, assigneeName);
+      next[TASK_COLUMNS.number] = `${taskId}.${idx + 1}`;
+      next[TASK_COLUMNS.assignedResponsible] = assigneeName;
+      if (String(st?.status || "").trim()) next[TASK_COLUMNS.status] = normalizeCell(st.status);
+      if (String(st?.comment || "").trim()) next[TASK_COLUMNS.plan] = normalizeCell(st.comment);
+      if (String(st?.dueDate || "").trim()) next[TASK_COLUMNS.dueDate] = normalizeCell(st.dueDate);
+      if (String(st?.closedAt || "").trim()) next[TASK_COLUMNS.closedDate] = normalizeCell(st.closedAt);
+      expanded.push(next);
+    });
+  });
+
+  return expanded;
+}
+
 function buildSheetsPayload(payload, settings) {
   const sections = Array.isArray(payload?.sections) ? payload.sections : [];
   const tasks = sections.find((s) => s?.id === "tasks");
   const columns = Array.isArray(tasks?.columns) ? tasks.columns.map((c) => normalizeCell(c)) : [];
-  const rows = Array.isArray(tasks?.rows) ? tasks.rows : [];
-  const summaryRows = [columns, ...rows.map((r) => (Array.isArray(r) ? r.map(normalizeCell) : []))];
+  const rowsRaw = Array.isArray(tasks?.rows) ? tasks.rows : [];
+  const rows = buildRowsWithSubtasks(rowsRaw, payload?.taskMultiState);
+  const summaryRows = [columns, ...rows];
 
   const includeByObject = settings.includeObjectSheets;
   const objectSheets = [];
