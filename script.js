@@ -8138,12 +8138,15 @@ function attachCustomReportCharts() {
         : item.type === "hbar" && dataMode === "by_status"
           ? {
               type: "bar",
-              data: { labels, datasets: statusSeries.map((ds) => ({ ...ds })) },
+              data: { labels, datasets: statusSeries.map((ds) => ({ ...ds, stack: "status" })) },
               options: {
                 ...common,
                 ...REPORT_HBAR_OPTIONS_THIN,
                 indexAxis: "y",
-                scales: { x: { ...REPORT_HBAR_SCALE_X }, y: { offset: true, ticks: { autoSkip: false } } },
+                scales: {
+                  x: { ...REPORT_HBAR_SCALE_X, stacked: true },
+                  y: { offset: true, stacked: true, ticks: { autoSkip: false } }
+                },
                 plugins: { legend: datasetLegendWithCount, datalabels: dlBarH }
               }
             }
