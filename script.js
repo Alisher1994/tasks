@@ -124,15 +124,19 @@ const TASK_COLUMNS = {
   mediaAfter: 17,
   readState: 18,
   lastSentAt: 19,
-  delayReason: 20
+  delayReason: 20,
+  createdBy: 21,
+  createdAt: 22
 };
-const TASK_ROW_LENGTH = TASK_COLUMNS.delayReason + 1;
+const TASK_ROW_LENGTH = TASK_COLUMNS.createdAt + 1;
 const TASK_DEFAULT_COLUMN_ORDER = [
   TASK_COLUMNS.number,
   TASK_COLUMNS.object,
   TASK_COLUMNS.status,
   TASK_COLUMNS.priority,
   TASK_COLUMNS.addedDate,
+  TASK_COLUMNS.createdBy,
+  TASK_COLUMNS.createdAt,
   TASK_COLUMNS.dueDate,
   TASK_COLUMNS.phase,
   TASK_COLUMNS.phaseSection,
@@ -168,7 +172,8 @@ const EMPLOYEE_COLUMNS = {
   phone: 4,
   telegram: 5,
   chatId: 6,
-  activity: 7
+  activity: 7,
+  adminAccess: 8
 };
 const EMPLOYEE_TELEGRAM_OPTIONS = ["Подключен", "Не подключен"];
 const SYSTEM_ROLES = [
@@ -2033,6 +2038,8 @@ function buildDemoTaskRowForPreview(status) {
   row[TASK_COLUMNS.readState] = "Не прочитано\n—";
   row[TASK_COLUMNS.lastSentAt] = "—";
   row[TASK_COLUMNS.delayReason] = "";
+  row[TASK_COLUMNS.createdBy] = "Администратор";
+  row[TASK_COLUMNS.createdAt] = "16.04.2026 09:00";
   return row;
 }
 
@@ -3269,7 +3276,9 @@ let sections = [
       "Медиа после (5)",
       "Ознакомление",
       "Дата последней отправки",
-      "Причина отставания"
+      "Причина отставания",
+      "Кем добавлена задача",
+      "Время занесения в систему"
     ],
     rows: [
       [
@@ -3293,7 +3302,9 @@ let sections = [
         "",
         "Не прочитано\n—",
         "—",
-        ""
+        "",
+        "Система",
+        "15.04.2026 09:00"
       ],
       [
         "2",
@@ -3316,7 +3327,9 @@ let sections = [
         "",
         "Не прочитано\n—",
         "—",
-        ""
+        "",
+        "Система",
+        "16.04.2026 09:00"
       ],
       [
         "3",
@@ -3339,18 +3352,20 @@ let sections = [
         "",
         "Не прочитано\n—",
         "",
-        ""
+        "",
+        "Система",
+        "12.04.2026 09:00"
       ]
     ]
   },
   {
     id: "employees",
     title: "Сотрудники",
-    columns: ["ID", "ФИО", "Отдел", "Должность", "Телефон", "Telegram", "Chat ID", "Активность"],
+    columns: ["ID", "ФИО", "Отдел", "Должность", "Телефон", "Telegram", "Chat ID", "Активность", "Админ доступ"],
     rows: [
-      ["1", "Ольга Смирнова", "Проектная группа", "Frontend", "+998 90 111 11 11", "Подключен", "901111111", "Активен"],
-      ["2", "Сергей Орлов", "ПТО", "Backend", "+998 90 222 22 22", "Не подключен", "", "Активен"],
-      ["3", "Елена Белова", "Плановый отдел", "QA", "+998 90 333 33 33", "Подключен", "903333333", "В отпуске"]
+      ["1", "Ольга Смирнова", "Проектная группа", "Frontend", "+998 90 111 11 11", "Подключен", "901111111", "Активен", "Нет"],
+      ["2", "Сергей Орлов", "ПТО", "Backend", "+998 90 222 22 22", "Не подключен", "", "Активен", "Нет"],
+      ["3", "Елена Белова", "Плановый отдел", "QA", "+998 90 333 33 33", "Подключен", "903333333", "В отпуске", "Нет"]
     ]
   },
   {
@@ -4838,6 +4853,7 @@ function renderTable() {
   attachHeaderActionHandlers(section, allFilteredEntries);
   attachMediaSlotHandlers(section);
   attachObjectPhotoHandlers(section);
+  attachEmployeeAdminAccessHandlers(section);
   if (section.id === "tasks") {
     attachTaskAccordionHandlers(section);
     attachTasksListFooterHandlers(section);
@@ -10389,6 +10405,7 @@ function parseTaskImportPayload(rawText) {
 
 function createTaskRowFromImport(values, taskId) {
   const row = new Array(TASK_ROW_LENGTH).fill("");
+  const sessionUserName = getSessionUserDisplayName();
   row[TASK_COLUMNS.number] = normalizeTaskIdValue(taskId);
   row[TASK_COLUMNS.object] = normalizeTaskImportCellValue(values.object);
   row[TASK_COLUMNS.status] = "Новый";
@@ -10409,6 +10426,8 @@ function createTaskRowFromImport(values, taskId) {
   row[TASK_COLUMNS.mediaAfter] = "";
   row[TASK_COLUMNS.readState] = composeTaskReadState(false, "—");
   row[TASK_COLUMNS.lastSentAt] = "—";
+  row[TASK_COLUMNS.createdBy] = sessionUserName;
+  row[TASK_COLUMNS.createdAt] = getNowDateTimeString();
   return row;
 }
 
@@ -10539,7 +10558,7 @@ function normalizeEmployeeImportTelegram(raw) {
 }
 
 function createEmployeeRowFromImport(values, employeeId) {
-  const row = new Array(EMPLOYEE_COLUMNS.activity + 1).fill("");
+  const row = new Array(EMPLOYEE_COLUMNS.adminAccess + 1).fill("");
   const fullName = normalizePersonName(values.fullName);
   const department = String(values.department || "").trim();
   const position = String(values.position || "").trim();
@@ -10552,6 +10571,7 @@ function createEmployeeRowFromImport(values, employeeId) {
   row[EMPLOYEE_COLUMNS.telegram] = normalizeEmployeeImportTelegram(values.telegram);
   row[EMPLOYEE_COLUMNS.chatId] = "";
   row[EMPLOYEE_COLUMNS.activity] = row[EMPLOYEE_COLUMNS.telegram] === "Подключен" ? "Активен" : "Не активен";
+  row[EMPLOYEE_COLUMNS.adminAccess] = "Нет";
   return row;
 }
 
@@ -10843,11 +10863,20 @@ function isReadonlyColumn(section, colIndex) {
   }
   if (
     section.id === "tasks" &&
-    (colIndex === TASK_COLUMNS.closedDate || colIndex === TASK_COLUMNS.readState || colIndex === TASK_COLUMNS.lastSentAt)
+    (
+      colIndex === TASK_COLUMNS.closedDate
+      || colIndex === TASK_COLUMNS.readState
+      || colIndex === TASK_COLUMNS.lastSentAt
+      || colIndex === TASK_COLUMNS.createdBy
+      || colIndex === TASK_COLUMNS.createdAt
+    )
   ) {
     return true;
   }
-  if (section.id === "employees" && (colIndex === EMPLOYEE_COLUMNS.chatId || colIndex === EMPLOYEE_COLUMNS.activity)) {
+  if (
+    section.id === "employees"
+    && (colIndex === EMPLOYEE_COLUMNS.chatId || colIndex === EMPLOYEE_COLUMNS.activity || colIndex === EMPLOYEE_COLUMNS.adminAccess)
+  ) {
     return true;
   }
   if (section.id === "roles" && colIndex === 2) {
@@ -11089,7 +11118,13 @@ function renderTaskAccordionReadonlyCell(taskRow, colIndex, assigneeName, assign
     if (!taskId || !assigneeName) return escapeHtmlText(shown);
     return `<span class="task-sub-due-edit" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(assigneeName)}" title="Сменить срок подзадачи">${escapeHtmlText(shown)}</span>`;
   }
-  if (colIndex === TASK_COLUMNS.addedDate || colIndex === TASK_COLUMNS.closedDate || colIndex === TASK_COLUMNS.lastSentAt) {
+  if (
+    colIndex === TASK_COLUMNS.addedDate
+    || colIndex === TASK_COLUMNS.closedDate
+    || colIndex === TASK_COLUMNS.lastSentAt
+    || colIndex === TASK_COLUMNS.createdBy
+    || colIndex === TASK_COLUMNS.createdAt
+  ) {
     return escapeHtmlText(String(parentValue || "").trim() || "—");
   }
   return escapeHtmlText(String(parentValue ?? "").trim() || "—");
@@ -11151,6 +11186,22 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
     const normalized = String(value || "").trim();
     const stateClass = normalized === "Подключен" ? "telegram-state-connected" : "telegram-state-disconnected";
     return `<span class="telegram-state ${stateClass}">${normalized || "Не подключен"}</span>`;
+  }
+  if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.adminAccess) {
+    const checked = isEmployeeAdminAccessEnabled(value);
+    return `
+      <label class="employee-admin-toggle" title="Доступ к настройкам">
+        <input
+          type="checkbox"
+          class="employee-admin-toggle-input"
+          data-row-index="${escapeHtmlAttr(String(rowIndexForPhoto))}"
+          ${checked ? "checked" : ""}
+          ${currentAuthRole !== "admin" ? "disabled" : ""}
+        />
+        <span class="employee-admin-toggle-ui" aria-hidden="true"></span>
+        <span class="employee-admin-toggle-text">${checked ? "Админ" : "Пользователь"}</span>
+      </label>
+    `;
   }
   if (section.id !== "tasks") {
     return value;
@@ -12630,6 +12681,15 @@ function applyEmployeeTelegramDerivedFields(row) {
   row[EMPLOYEE_COLUMNS.activity] = "Активен";
 }
 
+function isEmployeeAdminAccessEnabled(value) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  return ["да", "true", "1", "yes", "on", "admin", "админ"].includes(raw);
+}
+
+function toEmployeeAdminAccessStorageValue(value) {
+  return isEmployeeAdminAccessEnabled(value) ? "Да" : "Нет";
+}
+
 function getEmployeesForSelection() {
   const employeesSection = getSectionById("employees");
   if (!employeesSection) return [];
@@ -12674,6 +12734,25 @@ function ensureSystemDepartments() {
       const nextId = String(departmentsSection.rows.length + 1);
       departmentsSection.rows.push([nextId, department, "", "Системный"]);
     }
+  });
+}
+
+function attachEmployeeAdminAccessHandlers(section) {
+  if (section.id !== "employees") return;
+  document.querySelectorAll(".employee-admin-toggle-input").forEach((input) => {
+    input.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    input.addEventListener("change", () => {
+      if (!(input instanceof HTMLInputElement)) return;
+      const rowIndex = Number(input.dataset.rowIndex);
+      if (!Number.isFinite(rowIndex)) return;
+      const row = section.rows[rowIndex];
+      if (!row) return;
+      row[EMPLOYEE_COLUMNS.adminAccess] = input.checked ? "Да" : "Нет";
+      saveSectionsData();
+      renderTablePreserveScroll();
+    });
   });
 }
 
@@ -12863,6 +12942,7 @@ function syncEmployeesDerivedFields() {
       row[EMPLOYEE_COLUMNS.department] = defaultDepartment;
     }
     applyEmployeeTelegramDerivedFields(row);
+    row[EMPLOYEE_COLUMNS.adminAccess] = toEmployeeAdminAccessStorageValue(row[EMPLOYEE_COLUMNS.adminAccess]);
   });
   dedupeEmployeesInPlace(employeesSection);
 }
@@ -17180,11 +17260,14 @@ function addEmptyRow(section) {
   row[0] = section.id === "tasks" ? allocateNextTaskId() : String(nextId);
 
   if (section.id === "tasks") {
+    const sessionUserName = getSessionUserDisplayName();
     row[TASK_COLUMNS.status] = "Новый";
     row[TASK_COLUMNS.priority] = "Средний";
     row[TASK_COLUMNS.addedDate] = getTodayRuDate();
     row[TASK_COLUMNS.readState] = composeTaskReadState(false, "—");
     row[TASK_COLUMNS.lastSentAt] = "—";
+    row[TASK_COLUMNS.createdBy] = sessionUserName;
+    row[TASK_COLUMNS.createdAt] = getNowDateTimeString();
   }
   if (section.id === "employees") {
     row[EMPLOYEE_COLUMNS.department] = String(getSectionById("departments")?.rows?.[0]?.[1] || "");
@@ -17192,6 +17275,7 @@ function addEmptyRow(section) {
     row[EMPLOYEE_COLUMNS.telegram] = "Не подключен";
     row[EMPLOYEE_COLUMNS.chatId] = "";
     row[EMPLOYEE_COLUMNS.activity] = "Не активен";
+    row[EMPLOYEE_COLUMNS.adminAccess] = "Нет";
   }
   if (section.id === "roles") {
     row[2] = "Не системный";
@@ -17759,6 +17843,8 @@ function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
   setByIndex(TASK_COLUMNS.readState, pick(["Ознакомление"]), 18);
   setByIndex(TASK_COLUMNS.lastSentAt, pick(["Дата последней отправки"]), 19);
   setByIndex(TASK_COLUMNS.delayReason, pick(["Причина отставания"]), 20);
+  setByIndex(TASK_COLUMNS.createdBy, pick(["Кем добавлена задача", "Добавил", "Автор добавления"]));
+  setByIndex(TASK_COLUMNS.createdAt, pick(["Время занесения в систему", "Дата и время занесения", "Дата занесения"]));
   out[TASK_COLUMNS.status] = normalizeTaskStatusValue(out[TASK_COLUMNS.status]);
   out[TASK_COLUMNS.priority] = normalizeTaskPriorityValue(out[TASK_COLUMNS.priority]);
   return out;
@@ -17791,6 +17877,12 @@ function migrateRowForSection(baseSection, row, sourceColumns = null) {
     if (source.length === 20) {
       source.push("");
     }
+    if (source.length === 21) {
+      source.push("");
+    }
+    if (source.length === 22) {
+      source.push("");
+    }
 
     // Перестановка порядка колонок (старый -> новый):
     // old: [.., assignedResponsible, task, responsible, ...]
@@ -17814,6 +17906,12 @@ function migrateRowForSection(baseSection, row, sourceColumns = null) {
 
     if (source.length > TASK_COLUMNS.lastSentAt && !String(source[TASK_COLUMNS.lastSentAt] || "").trim()) {
       source[TASK_COLUMNS.lastSentAt] = "—";
+    }
+    if (!String(source[TASK_COLUMNS.createdBy] || "").trim()) {
+      source[TASK_COLUMNS.createdBy] = "—";
+    }
+    if (!String(source[TASK_COLUMNS.createdAt] || "").trim()) {
+      source[TASK_COLUMNS.createdAt] = "—";
     }
   }
 
@@ -17840,7 +17938,23 @@ function migrateRowForSection(baseSection, row, sourceColumns = null) {
   if (baseSection.id === "employees") {
     // Старый формат: ID, ФИО, Отдел, Роль, Активность.
     if (source.length === 5) {
-      return [source[0] || "", source[1] || "", source[2] || "", source[3] || "", DEFAULT_PHONE_PREFIX, "Не подключен", "", source[4] || ""];
+      return [
+        source[0] || "",
+        source[1] || "",
+        source[2] || "",
+        source[3] || "",
+        DEFAULT_PHONE_PREFIX,
+        "Не подключен",
+        "",
+        source[4] || "",
+        "Нет"
+      ];
+    }
+    if (source.length === 8) {
+      source.push("Нет");
+    }
+    if (source.length > EMPLOYEE_COLUMNS.adminAccess) {
+      source[EMPLOYEE_COLUMNS.adminAccess] = toEmployeeAdminAccessStorageValue(source[EMPLOYEE_COLUMNS.adminAccess]);
     }
   }
 

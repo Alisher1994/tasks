@@ -104,6 +104,37 @@ function findEmployeeByDisplayNameInPayload(payload, displayName) {
   return null;
 }
 
+function normalizeLabelKey(raw) {
+  return String(raw || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[^a-zа-я0-9]+/giu, "");
+}
+
+function resolveEmployeeAdminAccessColumnIndex(payload) {
+  const employees = getEmployeesSection(payload);
+  const cols = Array.isArray(employees?.columns) ? employees.columns : [];
+  const aliases = new Set([
+    "админдоступ",
+    "админ",
+    "доступадмина",
+    "рольдоступа",
+    "accessadmin",
+    "adminaccess"
+  ]);
+  for (let i = 0; i < cols.length; i += 1) {
+    if (aliases.has(normalizeLabelKey(cols[i]))) return i;
+  }
+  return 8;
+}
+
+function isEmployeeAdminAccessEnabled(payload, employeeRow) {
+  if (!Array.isArray(employeeRow)) return false;
+  const idx = resolveEmployeeAdminAccessColumnIndex(payload);
+  const raw = String(employeeRow[idx] || "").trim().toLowerCase();
+  return ["да", "true", "1", "yes", "on", "admin", "админ"].includes(raw);
+}
+
 function ensureObjectStore(payload, key) {
   if (!payload[key] || typeof payload[key] !== "object" || Array.isArray(payload[key])) {
     payload[key] = {};
@@ -608,7 +639,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      "SELECT id, password_hash, display_name, role FROM users WHERE phone = $1",
+      "SELECT id, phone, password_hash, display_name, role FROM users WHERE phone = $1",
       [phone]
     );
     if (rows.length > 0) {
@@ -617,8 +648,19 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       if (!ok) {
         return res.status(401).json({ error: "Неверный логин или пароль" });
       }
+      let effectiveRole = u.role;
+      try {
+        const { rows: stateRows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
+        const payload = stateRows[0]?.payload;
+        const byPhone = findEmployeeByPhoneInPayload(payload, normalizePhone(u.phone || phone));
+        if (isEmployeeAdminAccessEnabled(payload, byPhone)) {
+          effectiveRole = "admin";
+        }
+      } catch (_) {
+        // Если app_state временно недоступен — используем роль из users.
+      }
       const token = jwt.sign(
-        { sub: String(u.id), role: u.role, name: u.display_name },
+        { sub: String(u.id), role: effectiveRole, name: u.display_name },
         JWT_SECRET,
         { expiresIn: "30d" }
       );
@@ -633,8 +675,9 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       const expectedPass = last4DigitsPasswordFromPhone(phone);
       if (expectedPass && password === expectedPass) {
         const displayName = String(emp?.[1] || "").trim() || "Пользователь";
+        const role = isEmployeeAdminAccessEnabled(payload, emp) ? "admin" : "user";
         const token = jwt.sign(
-          { sub: `emp:${phone}`, role: "user", name: displayName },
+          { sub: `emp:${phone}`, role, name: displayName },
           JWT_SECRET,
           { expiresIn: "30d" }
         );
