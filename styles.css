@@ -3882,6 +3882,26 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   font-weight: 600;
 }
 
+.report-custom-row-group-clear-btn {
+  border: 1px solid #d7deea;
+  border-radius: 8px;
+  background: #fff;
+  color: #64748b;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.report-custom-row-group-clear-btn:hover {
+  border-color: #e5b4b4;
+  background: #fff5f5;
+  color: #b91c1c;
+}
+
 .report-custom-grid--cols-3 {
   --report-custom-cols: 3;
   --report-custom-chart-h: 250px;

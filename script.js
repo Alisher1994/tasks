@@ -6142,6 +6142,12 @@ function renderReportCustomChartsHtml() {
       <section class="report-custom-row-group">
         <header class="report-custom-row-group-head">
           <span>Группа: ${escapeHtmlText(groupName)}</span>
+          ${sharedReportMode
+            ? ""
+            : `<button type="button" class="report-custom-row-group-clear-btn" data-clear-custom-group="${escapeHtmlAttr(groupName)}" title="Удалить группу">
+                 <i data-lucide="x-circle" class="lucide-icon" aria-hidden="true"></i>
+                 <span>Удалить группу</span>
+               </button>`}
         </header>
         <div class="report-custom-grid report-custom-grid--cols-${cols}">
           ${items.map((item) => tileHtml(item)).join("")}
@@ -8299,6 +8305,20 @@ function attachReportCustomBuilderHandlers() {
       const id = String(btn.getAttribute("data-remove-custom-chart") || "").trim();
       const next = loadReportCustomCharts().filter((item) => String(item?.id || "").trim() !== id);
       saveReportCustomCharts(next);
+      refreshReportView();
+    });
+  });
+  root.querySelectorAll("[data-clear-custom-group]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const groupName = String(btn.getAttribute("data-clear-custom-group") || "").trim();
+      if (!groupName) return;
+      const next = loadReportCustomCharts().map((item) => {
+        const key = String(item?.rowGroup || "").trim();
+        if (key !== groupName) return item;
+        return { ...item, rowGroup: "" };
+      });
+      saveReportCustomCharts(next);
+      reportCustomSelectedChartIds = new Set();
       refreshReportView();
     });
   });
