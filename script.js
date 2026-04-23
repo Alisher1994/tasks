@@ -10199,6 +10199,24 @@ async function resolveStoredMediaFromFile(file) {
   };
 }
 
+async function resolveStoredObjectPhotoFromFile(file) {
+  const uploadedUrl = await uploadTaskMediaToServer(file).catch(() => null);
+  if (uploadedUrl) {
+    return {
+      stored: uploadedUrl,
+      preview: { name: file.name, type: file.type, url: uploadedUrl }
+    };
+  }
+  const dataUrl = await readFileAsDataUrl(file);
+  if (!dataUrl.startsWith("data:")) {
+    throw new Error("Не удалось прочитать изображение");
+  }
+  return {
+    stored: dataUrl,
+    preview: { name: file.name, type: file.type, url: dataUrl }
+  };
+}
+
 async function resolveStoredAttachmentFromFile(file) {
   const uploadedUrl = await uploadTaskMediaToServer(file).catch(() => null);
   if (uploadedUrl) {
@@ -10395,33 +10413,29 @@ function attachObjectPhotoHandlers(section) {
       const rowIndex = Number(cell?.dataset.rowIndex);
       const colIndex = Number(cell?.dataset.colIndex);
       if (!Number.isFinite(rowIndex) || colIndex !== OBJECT_COLUMNS.photo) return;
-      pickFile((file) => {
+      pickFile(async (file) => {
         if (!file) return;
         if (!file.type.startsWith("image/")) {
           window.alert("Выберите файл изображения (JPEG, PNG, WebP и т.д.).");
           return;
         }
+        const resolved = await resolveStoredObjectPhotoFromFile(file).catch((err) => {
+          window.alert(`Не удалось сохранить фото объекта: ${String(err?.message || err)}`);
+          return null;
+        });
+        if (!resolved) return;
         const row = section.rows[rowIndex];
         const oid = String(row[OBJECT_COLUMNS.id] ?? rowIndex);
         const pkey = `obj-ph-${oid}`;
         const prev = objectPhotoPreviewStore[pkey];
         if (prev?.url && String(prev.url).startsWith("blob:")) URL.revokeObjectURL(prev.url);
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = typeof reader.result === "string" ? reader.result : "";
-          if (!dataUrl.startsWith("data:")) return;
-          row[colIndex] = file.name;
-          objectPhotoPreviewStore[pkey] = {
-            name: file.name,
-            type: file.type,
-            url: dataUrl
-          };
-          saveObjectPhotoThumbsToStorage();
-          saveSectionsData();
-          renderTablePreserveScroll();
+        row[colIndex] = resolved.stored;
+        objectPhotoPreviewStore[pkey] = {
+          ...resolved.preview
         };
-        reader.onerror = () => window.alert("Не удалось прочитать файл.");
-        reader.readAsDataURL(file);
+        saveObjectPhotoThumbsToStorage();
+        saveSectionsData();
+        renderTablePreserveScroll();
       }, "image/*");
     });
   });
