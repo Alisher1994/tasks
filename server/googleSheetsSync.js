@@ -80,6 +80,13 @@ function normalizeSheetTitle(raw, fallback = "Без объекта") {
   return base.slice(0, 100).trim() || fallback;
 }
 
+function normalizeSheetTitleKey(raw) {
+  return normalizeSheetTitle(raw)
+    .normalize("NFKC")
+    .toLocaleLowerCase("ru")
+    .trim();
+}
+
 function makeUniqueSheetTitle(baseTitle, used) {
   const base = normalizeSheetTitle(baseTitle);
   if (!used.has(base)) {
@@ -179,15 +186,41 @@ async function getSpreadsheetSheetTitles(spreadsheetId, accessToken) {
 async function ensureSheetsExist(spreadsheetId, accessToken, titles) {
   if (!titles.length) return;
   const existing = await getSpreadsheetSheetTitles(spreadsheetId, accessToken);
-  const existingSet = new Set(existing);
-  const missing = titles.filter((t) => !existingSet.has(t));
+  const existingKeySet = new Set(existing.map((t) => normalizeSheetTitleKey(t)).filter(Boolean));
+  const queue = [];
+  const queuedKeySet = new Set();
+  for (const title of titles) {
+    const key = normalizeSheetTitleKey(title);
+    if (!key || existingKeySet.has(key) || queuedKeySet.has(key)) continue;
+    queue.push(normalizeSheetTitle(title));
+    queuedKeySet.add(key);
+  }
+  const missing = queue;
   if (!missing.length) return;
-  await sheetsApi(spreadsheetId, accessToken, ":batchUpdate", {
-    method: "POST",
-    body: {
-      requests: missing.map((title) => ({ addSheet: { properties: { title } } }))
+  try {
+    await sheetsApi(spreadsheetId, accessToken, ":batchUpdate", {
+      method: "POST",
+      body: {
+        requests: missing.map((title) => ({ addSheet: { properties: { title } } }))
+      }
+    });
+  } catch (error) {
+    const msg = String(error?.message || error || "");
+    if (!/already exists/i.test(msg)) throw error;
+    for (const title of missing) {
+      try {
+        await sheetsApi(spreadsheetId, accessToken, ":batchUpdate", {
+          method: "POST",
+          body: {
+            requests: [{ addSheet: { properties: { title } } }]
+          }
+        });
+      } catch (singleError) {
+        const singleMsg = String(singleError?.message || singleError || "");
+        if (!/already exists/i.test(singleMsg)) throw singleError;
+      }
     }
-  });
+  }
 }
 
 async function writeSheetValues(spreadsheetId, accessToken, title, values) {
