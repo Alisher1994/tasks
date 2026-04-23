@@ -7339,7 +7339,8 @@ function buildTaskReportStats(rows) {
 }
 
 function parseRuDateTimeString(value) {
-  const s = String(value || "").trim();
+  const raw = String(value || "").trim();
+  const s = raw.replace(/\s*,\s*/g, " ").replace(/\s+/g, " ").trim();
   if (!s || s === "—") return null;
   const match = /^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(s);
   if (!match) return null;
