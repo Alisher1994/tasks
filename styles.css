@@ -4078,18 +4078,30 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   border: 1px solid #dbe3f0;
   border-radius: 12px;
   background: #fff;
-  box-shadow: 0 8px 22px -16px rgba(15, 23, 42, 0.35);
-  padding: 10px;
+  box-shadow:
+    0 10px 26px -18px rgba(15, 23, 42, 0.35),
+    0 2px 8px rgba(148, 163, 184, 0.16);
+  padding: 10px 12px;
   display: grid;
-  grid-template-columns: auto minmax(220px, 320px) auto auto;
+  grid-template-columns: 90px minmax(180px, 260px) auto auto;
   gap: 8px;
-  align-items: end;
+  align-items: center;
 }
 
 .report-custom-reset-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.report-custom-selection-dock .report-custom-group-batch-count {
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+}
+
+.report-custom-selection-dock .report-custom-group-name-wrap {
+  align-self: stretch;
 }
 
 .report-custom-layout-overlay {
@@ -4105,6 +4117,8 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 
 .report-custom-layout-modal {
   width: min(860px, 96vw);
+  max-height: min(86vh, 760px);
+  overflow-y: auto;
   background: #fff;
   border: 1px solid #dbe3f0;
   border-radius: 14px;
@@ -4138,12 +4152,13 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 }
 
 .report-custom-layout-card {
+  min-height: 92px;
   border: 1px solid #d9e1ee;
   border-radius: 12px;
   background: #fff;
-  padding: 10px;
+  padding: 12px;
   display: grid;
-  gap: 8px;
+  gap: 10px;
   text-align: left;
   cursor: pointer;
 }
@@ -4202,7 +4217,7 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 
 .report-custom-grid-preview-chart {
   position: relative;
-  height: 18px;
+  height: 20px;
   border-radius: 6px;
   border: 1px solid #d7deea;
   background: linear-gradient(180deg, #f8fbff 0%, #fff 100%);
@@ -4281,6 +4296,29 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.report-dashboard-card::-webkit-scrollbar,
+.report-custom-layout-modal::-webkit-scrollbar {
+  width: 10px;
+}
+
+.report-dashboard-card::-webkit-scrollbar-track,
+.report-custom-layout-modal::-webkit-scrollbar-track {
+  background: #eef3fb;
+  border-radius: 8px;
+}
+
+.report-dashboard-card::-webkit-scrollbar-thumb,
+.report-custom-layout-modal::-webkit-scrollbar-thumb {
+  background: #c7d3e8;
+  border-radius: 8px;
+  border: 2px solid #eef3fb;
+}
+
+.report-dashboard-card::-webkit-scrollbar-thumb:hover,
+.report-custom-layout-modal::-webkit-scrollbar-thumb:hover {
+  background: #b6c5df;
 }
 
 .report-custom-remove-btn:hover {
