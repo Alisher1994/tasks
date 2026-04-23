@@ -5606,10 +5606,19 @@ function renderReportChartsGridHtml() {
 
 function renderReportTabsSwitchHtml() {
   const tab = reportViewTab === "custom" ? "custom" : "system";
+  const showAdd = !sharedReportMode && tab === "custom";
   return `
-    <div class="report-tabs-row" role="tablist" aria-label="Тип аналитики">
-      <button type="button" class="report-tab-btn ${tab === "system" ? "active" : ""}" data-report-tab="system" role="tab" aria-selected="${tab === "system" ? "true" : "false"}">Системные</button>
-      <button type="button" class="report-tab-btn ${tab === "custom" ? "active" : ""}" data-report-tab="custom" role="tab" aria-selected="${tab === "custom" ? "true" : "false"}">Кастомный отчет</button>
+    <div class="report-tabs-topbar">
+      <div class="report-tabs-row" role="tablist" aria-label="Тип аналитики">
+        <button type="button" class="report-tab-btn ${tab === "system" ? "active" : ""}" data-report-tab="system" role="tab" aria-selected="${tab === "system" ? "true" : "false"}">Системные</button>
+        <button type="button" class="report-tab-btn ${tab === "custom" ? "active" : ""}" data-report-tab="custom" role="tab" aria-selected="${tab === "custom" ? "true" : "false"}">Кастомный отчет</button>
+      </div>
+      ${showAdd
+        ? `<button type="button" class="report-custom-add-btn report-custom-add-btn--top" id="reportCustomAddBtn">
+            <i data-lucide="plus" class="lucide-icon" aria-hidden="true"></i>
+            <span>Добавить диаграмму</span>
+          </button>`
+        : ""}
     </div>
   `;
 }
@@ -5648,12 +5657,7 @@ function renderReportSystemHiddenControlsHtml() {
 
 function renderReportCustomBuilderHtml() {
   if (sharedReportMode) return "";
-  const list = loadReportCustomCharts();
-  const selectedSet = syncReportCustomSelection(list);
-  const selectedCount = selectedSet.size;
   const gridCols = getReportCustomGridColumns();
-  const hasSelection = selectedCount > 0;
-  const groupNameValue = escapeHtmlAttr(reportCustomGroupDraftName);
   return `
     <div class="report-custom-builder">
       <div class="report-custom-builder-left">
@@ -5666,17 +5670,34 @@ function renderReportCustomBuilderHtml() {
             ${gridCols} колонки
           </button>
         </div>
-        <div class="report-custom-group-batch-bar${hasSelection ? "" : " is-hidden"}" id="reportCustomGroupBatchBar">
-          <span class="report-custom-group-batch-count">Выбрано: <b>${selectedCount}</b></span>
-          <label class="report-custom-group-name-wrap">
-            <span>Группа</span>
-            <input type="text" id="reportCustomGroupNameInput" class="report-custom-input report-custom-group-name-input" maxlength="40" value="${groupNameValue}" placeholder="Например: Финблок" />
-          </label>
-          <button type="button" class="report-custom-add-btn" id="reportCustomGroupApplyBtn" ${hasSelection ? "" : "disabled"}>Сгруппировать</button>
-          <button type="button" class="secondary" id="reportCustomUngroupBtn" ${hasSelection ? "" : "disabled"}>Снять группу</button>
-        </div>
       </div>
-      <button type="button" class="report-custom-add-btn" id="reportCustomAddBtn">Добавить диаграмму</button>
+    </div>
+  `;
+}
+
+function renderReportCustomSelectionDockHtml() {
+  if (sharedReportMode) return "";
+  const selected = syncReportCustomSelection(loadReportCustomCharts());
+  const selectedCount = selected.size;
+  const hasSelection = selectedCount > 0;
+  const groupNameValue = escapeHtmlAttr(reportCustomGroupDraftName);
+  return `
+    <div class="report-custom-selection-dock${hasSelection ? "" : " is-hidden"}" id="reportCustomSelectionDock">
+      <div class="report-custom-selection-dock-inner">
+        <span class="report-custom-group-batch-count">Выбрано: <b id="reportCustomSelectionCount">${selectedCount}</b></span>
+        <label class="report-custom-group-name-wrap">
+          <span>Группа</span>
+          <input type="text" id="reportCustomGroupNameInput" class="report-custom-input report-custom-group-name-input" maxlength="40" value="${groupNameValue}" placeholder="Например: Финблок" />
+        </label>
+        <button type="button" class="report-custom-add-btn" id="reportCustomGroupApplyBtn" ${hasSelection ? "" : "disabled"}>
+          <i data-lucide="rows-3" class="lucide-icon" aria-hidden="true"></i>
+          <span>Сгруппировать</span>
+        </button>
+        <button type="button" class="secondary report-custom-reset-btn" id="reportCustomUngroupBtn" ${hasSelection ? "" : "disabled"}>
+          <i data-lucide="rotate-ccw" class="lucide-icon" aria-hidden="true"></i>
+          <span>Сброс</span>
+        </button>
+      </div>
     </div>
   `;
 }
@@ -8140,6 +8161,7 @@ function renderReportsPanel() {
           <div class="report-custom-stage">
             ${renderReportCustomBuilderHtml()}
             ${renderReportCustomChartsHtml()}
+            ${renderReportCustomSelectionDockHtml()}
           </div>
         `}
     </section>
@@ -8191,11 +8213,11 @@ function attachReportCustomBuilderHandlers() {
   if (!root) return;
   const syncBatchUi = () => {
     const count = reportCustomSelectedChartIds.size;
-    const batchBar = root.querySelector("#reportCustomGroupBatchBar");
-    const countNode = batchBar?.querySelector("b");
+    const dock = root.querySelector("#reportCustomSelectionDock");
+    const countNode = root.querySelector("#reportCustomSelectionCount");
     const applyBtn = root.querySelector("#reportCustomGroupApplyBtn");
     const ungroupBtn = root.querySelector("#reportCustomUngroupBtn");
-    if (batchBar) batchBar.classList.toggle("is-hidden", count <= 0);
+    if (dock) dock.classList.toggle("is-hidden", count <= 0);
     if (countNode) countNode.textContent = String(count);
     if (applyBtn) applyBtn.disabled = count <= 0;
     if (ungroupBtn) ungroupBtn.disabled = count <= 0;
@@ -8258,6 +8280,7 @@ function attachReportCustomBuilderHandlers() {
     });
     saveReportCustomCharts(next);
     reportCustomSelectedChartIds = new Set();
+    reportCustomGroupDraftName = "";
     refreshReportView();
   });
   const addBtn = root.querySelector("#reportCustomAddBtn");

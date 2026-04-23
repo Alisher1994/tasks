@@ -3395,6 +3395,13 @@ body.login-mode #appSection {
   flex-wrap: wrap;
 }
 
+.report-tabs-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .report-tabs-row {
   display: inline-flex;
   align-self: flex-start;
@@ -3839,6 +3846,12 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   background: #e4eaff;
 }
 
+.report-custom-add-btn--top {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .report-custom-grid {
   display: grid;
   --report-custom-cols: 3;
@@ -3961,6 +3974,9 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
 }
 
 .report-custom-select-checkbox {
@@ -4021,6 +4037,59 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   font-size: 11px;
   font-weight: 600;
   vertical-align: middle;
+}
+
+.report-custom-remove-btn,
+.report-custom-drag-handle {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.report-custom-tile:hover .report-custom-remove-btn,
+.report-custom-tile:hover .report-custom-drag-handle,
+.report-custom-tile:hover .report-custom-select-toggle,
+.report-custom-tile:focus-within .report-custom-remove-btn,
+.report-custom-tile:focus-within .report-custom-drag-handle,
+.report-custom-tile:focus-within .report-custom-select-toggle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.report-custom-tile--selected .report-custom-select-toggle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.report-custom-selection-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  margin-top: 4px;
+  padding-top: 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, #fff 22px);
+}
+
+.report-custom-selection-dock.is-hidden {
+  display: none;
+}
+
+.report-custom-selection-dock-inner {
+  border: 1px solid #dbe3f0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 22px -16px rgba(15, 23, 42, 0.35);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: auto minmax(220px, 320px) auto auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.report-custom-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .report-custom-layout-overlay {
@@ -4232,6 +4301,10 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 }
 
 @media (max-width: 1100px) {
+  .report-tabs-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
   .report-custom-builder {
     flex-direction: column;
     align-items: stretch;
@@ -4247,6 +4320,10 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
   .report-custom-grid {
     grid-template-columns: 1fr;
     --report-custom-chart-h: 250px;
+  }
+  .report-custom-selection-dock-inner {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
   .report-custom-layout-modal-grid {
     grid-template-columns: 1fr;
