@@ -733,8 +733,8 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   border: 1px solid #c7d1dc;
   border-radius: 8px;
   padding: 8px 10px;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.4;
   font-family: inherit;
   background: #fff;
   color: #1f2a37;
@@ -757,13 +757,13 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   align-items: center;
   gap: 6px;
   max-width: 100%;
-  padding: 3px 8px;
+  padding: 2px 7px;
   margin: 1px 2px;
   border-radius: 6px;
   border: 1px solid #b8c4ef;
   background: #eef2ff;
   color: #2f3f8f;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.25;
   vertical-align: baseline;
   cursor: grab;
