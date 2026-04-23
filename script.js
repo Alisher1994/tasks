@@ -3523,6 +3523,8 @@ let reportCustomChartDragId = null;
 let reportCustomSelectedChartIds = new Set();
 /** Черновик названия группы в панели кастомной аналитики */
 let reportCustomGroupDraftName = "";
+/** Глобальный обработчик Esc для снятия выделения кастомных диаграмм */
+let reportCustomSelectionEscHandler = null;
 /** Вкладка аналитики: system | custom */
 let reportViewTab = "system";
 let reportSystemChartVisibilityCache = null;
@@ -5460,7 +5462,11 @@ function syncReportCustomSelection(list = loadReportCustomCharts()) {
 
 function buildCustomGridPreviewHtml(cols) {
   const n = Math.max(3, Math.min(6, Number(cols) || 3));
-  const cells = Array.from({ length: n * 2 }, (_, idx) => `<span class="report-custom-grid-preview-cell report-custom-grid-preview-cell--${(idx % 5) + 1}"></span>`).join("");
+  const kinds = ["bar", "line", "donut", "area", "hbar", "pie"];
+  const cells = Array.from({ length: n * 2 }, (_, idx) => {
+    const kind = kinds[idx % kinds.length];
+    return `<span class="report-custom-grid-preview-chart report-custom-grid-preview-chart--${kind}"></span>`;
+  }).join("");
   return `<div class="report-custom-grid-preview report-custom-grid-preview--cols-${n}">${cells}</div>`;
 }
 
@@ -5660,7 +5666,7 @@ function renderReportCustomBuilderHtml() {
             ${gridCols} колонки
           </button>
         </div>
-        <div class="report-custom-group-batch-bar">
+        <div class="report-custom-group-batch-bar${hasSelection ? "" : " is-hidden"}" id="reportCustomGroupBatchBar">
           <span class="report-custom-group-batch-count">Выбрано: <b>${selectedCount}</b></span>
           <label class="report-custom-group-name-wrap">
             <span>Группа</span>
@@ -8183,6 +8189,18 @@ function attachReportCustomBuilderHandlers() {
   if (isSharedReportView() || reportViewTab !== "custom") return;
   const root = tableContainer;
   if (!root) return;
+  const syncBatchUi = () => {
+    const count = reportCustomSelectedChartIds.size;
+    const batchBar = root.querySelector("#reportCustomGroupBatchBar");
+    const countNode = batchBar?.querySelector("b");
+    const applyBtn = root.querySelector("#reportCustomGroupApplyBtn");
+    const ungroupBtn = root.querySelector("#reportCustomUngroupBtn");
+    if (batchBar) batchBar.classList.toggle("is-hidden", count <= 0);
+    if (countNode) countNode.textContent = String(count);
+    if (applyBtn) applyBtn.disabled = count <= 0;
+    if (ungroupBtn) ungroupBtn.disabled = count <= 0;
+  };
+
   const gridLayoutBtn = root.querySelector("#reportCustomGridLayoutBtn");
   gridLayoutBtn?.addEventListener("click", () => {
     openReportCustomGridLayoutModal();
@@ -8197,7 +8215,9 @@ function attachReportCustomBuilderHandlers() {
       if (!id) return;
       if (checkbox.checked) reportCustomSelectedChartIds.add(id);
       else reportCustomSelectedChartIds.delete(id);
-      refreshReportView();
+      const tile = checkbox.closest(".report-custom-tile");
+      if (tile) tile.classList.toggle("report-custom-tile--selected", checkbox.checked);
+      syncBatchUi();
     });
   });
   const applyGroupBtn = root.querySelector("#reportCustomGroupApplyBtn");
@@ -8260,6 +8280,26 @@ function attachReportCustomBuilderHandlers() {
       refreshReportView();
     });
   });
+
+  if (reportCustomSelectionEscHandler) {
+    document.removeEventListener("keydown", reportCustomSelectionEscHandler);
+  }
+  reportCustomSelectionEscHandler = (event) => {
+    if (event.key !== "Escape") return;
+    if (activeSectionId !== "report" || reportViewTab !== "custom" || sharedReportMode) return;
+    if (!reportCustomSelectedChartIds.size) return;
+    reportCustomSelectedChartIds = new Set();
+    root.querySelectorAll("[data-select-custom-chart]").forEach((checkbox) => {
+      checkbox.checked = false;
+    });
+    root.querySelectorAll(".report-custom-tile.report-custom-tile--selected").forEach((tile) => {
+      tile.classList.remove("report-custom-tile--selected");
+    });
+    syncBatchUi();
+    event.preventDefault();
+  };
+  document.addEventListener("keydown", reportCustomSelectionEscHandler);
+  syncBatchUi();
 }
 
 function attachReportCustomChartDragHandlers() {
