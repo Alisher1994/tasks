@@ -3402,6 +3402,12 @@ body.login-mode #appSection {
   gap: 10px;
 }
 
+.report-tabs-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .report-tabs-row {
   display: inline-flex;
   align-self: flex-start;

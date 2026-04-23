@@ -5614,10 +5614,15 @@ function renderReportTabsSwitchHtml() {
         <button type="button" class="report-tab-btn ${tab === "custom" ? "active" : ""}" data-report-tab="custom" role="tab" aria-selected="${tab === "custom" ? "true" : "false"}">Кастомный отчет</button>
       </div>
       ${showAdd
-        ? `<button type="button" class="report-custom-add-btn report-custom-add-btn--top" id="reportCustomAddBtn">
-            <i data-lucide="plus" class="lucide-icon" aria-hidden="true"></i>
-            <span>Добавить диаграмму</span>
-          </button>`
+        ? `<div class="report-tabs-actions">
+            <button type="button" class="report-custom-add-btn report-custom-add-btn--top" id="reportCustomAddBtn">
+              <i data-lucide="plus" class="lucide-icon" aria-hidden="true"></i>
+              <span>Добавить диаграмму</span>
+            </button>
+            <button type="button" class="report-custom-layout-open-btn" id="reportCustomGridLayoutBtn" title="Сетка (${getReportCustomGridColumns()} колонки)">
+              Сетка
+            </button>
+          </div>`
         : ""}
     </div>
   `;
@@ -5656,23 +5661,7 @@ function renderReportSystemHiddenControlsHtml() {
 }
 
 function renderReportCustomBuilderHtml() {
-  if (sharedReportMode) return "";
-  const gridCols = getReportCustomGridColumns();
-  return `
-    <div class="report-custom-builder">
-      <div class="report-custom-builder-left">
-        <div class="report-custom-builder-note">
-          Добавление диаграммы через мастер: шаги выбора типа, данных и финальный просмотр перед сохранением.
-        </div>
-        <div class="report-custom-layout-bar">
-          <span class="report-custom-layout-label">Сетка:</span>
-          <button type="button" class="report-custom-layout-open-btn" id="reportCustomGridLayoutBtn" title="Открыть выбор сетки">
-            ${gridCols} колонки
-          </button>
-        </div>
-      </div>
-    </div>
-  `;
+  return "";
 }
 
 function renderReportCustomSelectionDockHtml() {
