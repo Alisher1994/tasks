@@ -3519,6 +3519,10 @@ let reportFiltersPanelOpen = false;
 let reportChartDragId = null;
 /** Во время drag-and-drop кастомных плиток отчёта */
 let reportCustomChartDragId = null;
+/** Выделенные кастомные диаграммы для массовой группировки */
+let reportCustomSelectedChartIds = new Set();
+/** Черновик названия группы в панели кастомной аналитики */
+let reportCustomGroupDraftName = "";
 /** Вкладка аналитики: system | custom */
 let reportViewTab = "system";
 let reportSystemChartVisibilityCache = null;
@@ -5443,6 +5447,85 @@ function reorderCustomChartsById(list, dragId, targetId) {
   return arr;
 }
 
+function syncReportCustomSelection(list = loadReportCustomCharts()) {
+  const allowed = new Set((Array.isArray(list) ? list : []).map((item) => String(item?.id || "").trim()).filter(Boolean));
+  const next = new Set();
+  reportCustomSelectedChartIds.forEach((id) => {
+    const key = String(id || "").trim();
+    if (allowed.has(key)) next.add(key);
+  });
+  reportCustomSelectedChartIds = next;
+  return next;
+}
+
+function buildCustomGridPreviewHtml(cols) {
+  const n = Math.max(3, Math.min(6, Number(cols) || 3));
+  const cells = Array.from({ length: n * 2 }, (_, idx) => `<span class="report-custom-grid-preview-cell report-custom-grid-preview-cell--${(idx % 5) + 1}"></span>`).join("");
+  return `<div class="report-custom-grid-preview report-custom-grid-preview--cols-${n}">${cells}</div>`;
+}
+
+function openReportCustomGridLayoutModal() {
+  if (sharedReportMode) return;
+  const current = getReportCustomGridColumns();
+  let selected = current;
+  const overlay = document.createElement("div");
+  overlay.className = "report-custom-layout-overlay";
+  overlay.innerHTML = `
+    <div class="report-custom-layout-modal" role="dialog" aria-modal="true" aria-label="Сетка кастомной аналитики">
+      <div class="report-custom-layout-modal-head">
+        <h4>Сетка диаграмм</h4>
+        <button type="button" class="icon-action-btn report-custom-layout-close" title="Закрыть">
+          <i data-lucide="x" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+      </div>
+      <p class="report-custom-layout-modal-hint">Выберите плотность сетки. Справа на карточках графики будут уменьшаться пропорционально.</p>
+      <div class="report-custom-layout-modal-grid">
+        ${[3, 4, 5, 6]
+          .map((cols) => `
+            <button type="button" class="report-custom-layout-card${cols === current ? " is-active" : ""}" data-layout-cols="${cols}">
+              <div class="report-custom-layout-card-top">
+                <strong>${cols} колонки</strong>
+              </div>
+              ${buildCustomGridPreviewHtml(cols)}
+            </button>
+          `)
+          .join("")}
+      </div>
+      <div class="report-custom-layout-modal-actions">
+        <button type="button" class="secondary report-custom-layout-cancel">Отмена</button>
+        <button type="button" class="report-custom-add-btn report-custom-layout-apply">Применить</button>
+      </div>
+    </div>
+  `;
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKeydown);
+  };
+  const onKeydown = (event) => {
+    if (event.key === "Escape") close();
+  };
+  overlay.querySelectorAll("[data-layout-cols]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selected = Number(btn.getAttribute("data-layout-cols")) || current;
+      overlay.querySelectorAll(".report-custom-layout-card").forEach((card) => card.classList.remove("is-active"));
+      btn.classList.add("is-active");
+    });
+  });
+  overlay.querySelector(".report-custom-layout-apply")?.addEventListener("click", () => {
+    saveReportCustomGridColumns(selected);
+    close();
+    refreshReportView();
+  });
+  overlay.querySelector(".report-custom-layout-cancel")?.addEventListener("click", close);
+  overlay.querySelector(".report-custom-layout-close")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  document.addEventListener("keydown", onKeydown);
+  document.body.appendChild(overlay);
+  initLucideIcons();
+}
+
 function renderReportChartTileFragment(id, opts = {}) {
   const meta = REPORT_CHART_TILE_META[id];
   if (!meta) return "";
@@ -5559,13 +5642,12 @@ function renderReportSystemHiddenControlsHtml() {
 
 function renderReportCustomBuilderHtml() {
   if (sharedReportMode) return "";
+  const list = loadReportCustomCharts();
+  const selectedSet = syncReportCustomSelection(list);
+  const selectedCount = selectedSet.size;
   const gridCols = getReportCustomGridColumns();
-  const gridButtons = [3, 4, 5, 6]
-    .map((cols) => {
-      const active = cols === gridCols ? " is-active" : "";
-      return `<button type="button" class="report-custom-layout-btn${active}" data-report-custom-grid-cols="${cols}" title="Сетка ${cols} колонки">${cols}</button>`;
-    })
-    .join("");
+  const hasSelection = selectedCount > 0;
+  const groupNameValue = escapeHtmlAttr(reportCustomGroupDraftName);
   return `
     <div class="report-custom-builder">
       <div class="report-custom-builder-left">
@@ -5574,9 +5656,18 @@ function renderReportCustomBuilderHtml() {
         </div>
         <div class="report-custom-layout-bar">
           <span class="report-custom-layout-label">Сетка:</span>
-          <div class="report-custom-layout-btns" role="group" aria-label="Сетка кастомной аналитики">
-            ${gridButtons}
-          </div>
+          <button type="button" class="report-custom-layout-open-btn" id="reportCustomGridLayoutBtn" title="Открыть выбор сетки">
+            ${gridCols} колонки
+          </button>
+        </div>
+        <div class="report-custom-group-batch-bar">
+          <span class="report-custom-group-batch-count">Выбрано: <b>${selectedCount}</b></span>
+          <label class="report-custom-group-name-wrap">
+            <span>Группа</span>
+            <input type="text" id="reportCustomGroupNameInput" class="report-custom-input report-custom-group-name-input" maxlength="40" value="${groupNameValue}" placeholder="Например: Финблок" />
+          </label>
+          <button type="button" class="report-custom-add-btn" id="reportCustomGroupApplyBtn" ${hasSelection ? "" : "disabled"}>Сгруппировать</button>
+          <button type="button" class="secondary" id="reportCustomUngroupBtn" ${hasSelection ? "" : "disabled"}>Снять группу</button>
         </div>
       </div>
       <button type="button" class="report-custom-add-btn" id="reportCustomAddBtn">Добавить диаграмму</button>
@@ -5957,6 +6048,7 @@ function openReportCustomChartWizardModal(onSave) {
 
 function renderReportCustomChartsHtml() {
   const list = loadReportCustomCharts();
+  const selectedSet = syncReportCustomSelection(list);
   const cols = getReportCustomGridColumns();
   const tileHtml = (item) => {
     const isDonutLike = item.type === "donut" || item.type === "pie";
@@ -5966,16 +6058,22 @@ function renderReportCustomChartsHtml() {
     const dragBtn = sharedReportMode
       ? ""
       : `<button type="button" class="report-custom-drag-handle" data-drag-custom-chart="${escapeHtmlAttr(item.id)}" title="Переместить диаграмму" aria-label="Перетащите для изменения порядка"><i data-lucide="move" class="lucide-icon" aria-hidden="true"></i></button>`;
-    const groupBtn = sharedReportMode
+    const isChecked = selectedSet.has(String(item.id || "").trim());
+    const selectCtrl = sharedReportMode
       ? ""
-      : `<button type="button" class="report-custom-group-btn" data-set-custom-group="${escapeHtmlAttr(item.id)}" title="Настроить строковую группу" aria-label="Настроить строковую группу"><i data-lucide="rows-3" class="lucide-icon" aria-hidden="true"></i></button>`;
+      : `
+        <label class="report-custom-select-toggle" title="Выбрать для группировки">
+          <input type="checkbox" class="report-custom-select-checkbox" data-select-custom-chart="${escapeHtmlAttr(item.id)}" ${isChecked ? "checked" : ""} />
+          <span class="report-custom-select-ui" aria-hidden="true"></span>
+        </label>
+      `;
     const removeBtn = sharedReportMode
       ? ""
       : `<button type="button" class="report-custom-remove-btn" data-remove-custom-chart="${escapeHtmlAttr(item.id)}" title="Удалить диаграмму" aria-label="Удалить диаграмму"><i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i></button>`;
     return `
-      <div class="report-tile report-custom-tile" data-custom-chart-id="${escapeHtmlAttr(item.id)}">
+      <div class="report-tile report-custom-tile ${isChecked ? "report-custom-tile--selected" : ""}" data-custom-chart-id="${escapeHtmlAttr(item.id)}">
+        ${selectCtrl}
         ${dragBtn}
-        ${groupBtn}
         ${removeBtn}
         <h4>${escapeHtmlText(item.name)}${rowBadge}</h4>
         <div class="${wrapClass}"><canvas id="reportCustomChart_${escapeHtmlAttr(item.id)}"></canvas></div>
@@ -8085,12 +8183,62 @@ function attachReportCustomBuilderHandlers() {
   if (isSharedReportView() || reportViewTab !== "custom") return;
   const root = tableContainer;
   if (!root) return;
-  root.querySelectorAll("[data-report-custom-grid-cols]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const cols = Number(btn.getAttribute("data-report-custom-grid-cols"));
-      saveReportCustomGridColumns(cols);
+  const gridLayoutBtn = root.querySelector("#reportCustomGridLayoutBtn");
+  gridLayoutBtn?.addEventListener("click", () => {
+    openReportCustomGridLayoutModal();
+  });
+  const groupNameInput = root.querySelector("#reportCustomGroupNameInput");
+  groupNameInput?.addEventListener("input", () => {
+    reportCustomGroupDraftName = String(groupNameInput.value || "").trim();
+  });
+  root.querySelectorAll("[data-select-custom-chart]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const id = String(checkbox.getAttribute("data-select-custom-chart") || "").trim();
+      if (!id) return;
+      if (checkbox.checked) reportCustomSelectedChartIds.add(id);
+      else reportCustomSelectedChartIds.delete(id);
       refreshReportView();
     });
+  });
+  const applyGroupBtn = root.querySelector("#reportCustomGroupApplyBtn");
+  applyGroupBtn?.addEventListener("click", () => {
+    const name = String(reportCustomGroupDraftName || "").trim().slice(0, 40);
+    if (!name) {
+      showToast("Введите название группы.");
+      return;
+    }
+    const selected = Array.from(syncReportCustomSelection(loadReportCustomCharts()));
+    if (!selected.length) {
+      showToast("Сначала отметьте диаграммы чекбоксами.");
+      return;
+    }
+    const selectedSet = new Set(selected);
+    const next = loadReportCustomCharts().map((item) => {
+      const id = String(item?.id || "").trim();
+      if (!selectedSet.has(id)) return item;
+      return { ...item, rowGroup: name };
+    });
+    saveReportCustomCharts(next);
+    reportCustomSelectedChartIds = new Set();
+    reportCustomGroupDraftName = "";
+    refreshReportView();
+  });
+  const ungroupBtn = root.querySelector("#reportCustomUngroupBtn");
+  ungroupBtn?.addEventListener("click", () => {
+    const selected = Array.from(syncReportCustomSelection(loadReportCustomCharts()));
+    if (!selected.length) {
+      showToast("Сначала отметьте диаграммы чекбоксами.");
+      return;
+    }
+    const selectedSet = new Set(selected);
+    const next = loadReportCustomCharts().map((item) => {
+      const id = String(item?.id || "").trim();
+      if (!selectedSet.has(id)) return item;
+      return { ...item, rowGroup: "" };
+    });
+    saveReportCustomCharts(next);
+    reportCustomSelectedChartIds = new Set();
+    refreshReportView();
   });
   const addBtn = root.querySelector("#reportCustomAddBtn");
   addBtn?.addEventListener("click", () => {
@@ -8108,24 +8256,6 @@ function attachReportCustomBuilderHandlers() {
     btn.addEventListener("click", () => {
       const id = String(btn.getAttribute("data-remove-custom-chart") || "").trim();
       const next = loadReportCustomCharts().filter((item) => String(item?.id || "").trim() !== id);
-      saveReportCustomCharts(next);
-      refreshReportView();
-    });
-  });
-  root.querySelectorAll("[data-set-custom-group]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = String(btn.getAttribute("data-set-custom-group") || "").trim();
-      if (!id) return;
-      const current = loadReportCustomCharts();
-      const idx = current.findIndex((item) => String(item?.id || "").trim() === id);
-      if (idx < 0) return;
-      const prev = String(current[idx]?.rowGroup || "").trim();
-      const nextValue = window.prompt("Введите название строковой группы (пусто — без группы):", prev);
-      if (nextValue === null) return;
-      const nextGroup = String(nextValue || "").trim().slice(0, 40);
-      if (nextGroup === prev) return;
-      const next = current.slice();
-      next[idx] = { ...next[idx], rowGroup: nextGroup };
       saveReportCustomCharts(next);
       refreshReportView();
     });
