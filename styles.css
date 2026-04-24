@@ -172,7 +172,7 @@ body.login-mode.login-intro-done .auth-card::after {
 
 .login-logo-shine {
   display: block;
-  width: min(240px, 100%);
+  width: min(204px, 86%);
   margin: 0 auto 22px;
   position: relative;
   overflow: hidden;
@@ -184,16 +184,29 @@ body.login-mode.login-intro-done .auth-card::after {
   height: auto;
 }
 
+.login-logo-shine::before,
 .login-logo-shine::after {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.2) 40%, rgba(255, 255, 255, 0.95) 50%, rgba(255, 255, 255, 0.18) 60%, transparent 70%);
-  transform: translateX(-140%) skewX(-18deg);
   -webkit-mask: url("horizontal-v1.svg") center / contain no-repeat;
   mask: url("horizontal-v1.svg") center / contain no-repeat;
-  animation: login-logo-gloss 4.8s ease-in-out 1.5s infinite;
+  opacity: 0;
+}
+
+.login-logo-shine::before {
+  background: linear-gradient(108deg, transparent 32%, rgba(255, 255, 255, 0.18) 42%, rgba(255, 255, 255, 0.56) 50%, rgba(255, 255, 255, 0.1) 59%, transparent 69%);
+  transform: translateX(-160%) skewX(-20deg);
+  filter: blur(1.6px);
+  animation: login-logo-gloss-soft 5.8s ease-in-out 1.2s infinite;
+}
+
+.login-logo-shine::after {
+  background: linear-gradient(108deg, transparent 36%, rgba(255, 255, 255, 0.2) 44%, rgba(255, 255, 255, 0.98) 49%, rgba(255, 255, 255, 0.16) 55%, transparent 64%);
+  transform: translateX(-170%) skewX(-20deg);
+  mix-blend-mode: screen;
+  animation: login-logo-gloss-sharp 5.8s cubic-bezier(0.23, 0.01, 0.26, 1) 1.2s infinite;
 }
 
 body.login-mode.login-intro-done .login-logo-shine {
@@ -418,6 +431,41 @@ body.login-mode.login-intro-done .auth-step--phone {
   justify-content: center;
   gap: 8px;
   box-shadow: 0 12px 30px -22px rgba(15, 23, 42, 0.65);
+  overflow: hidden;
+}
+
+.border-trace-host {
+  position: relative;
+  isolation: isolate;
+}
+
+.login-support-btn.border-trace-host {
+  position: fixed;
+}
+
+.border-trace-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  padding: 1px;
+  background: conic-gradient(
+    from 0deg,
+    rgba(209, 174, 108, 0) 0deg 302deg,
+    rgba(209, 174, 108, 0.16) 320deg,
+    rgba(209, 174, 108, 0.98) 333deg,
+    rgba(209, 174, 108, 0.14) 348deg,
+    rgba(209, 174, 108, 0) 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+.border-trace-active > .border-trace-layer {
+  animation: border-trace-spin 1.02s linear 2, border-trace-fade 2.22s ease both;
 }
 
 .login-support-btn:hover {
@@ -2261,25 +2309,88 @@ body.app-booting .app-boot-loader {
   }
 }
 
-@keyframes login-logo-gloss {
+@keyframes login-logo-gloss-soft {
   0%,
-  58% {
-    transform: translateX(-140%) skewX(-18deg);
+  53% {
+    transform: translateX(-160%) skewX(-20deg);
     opacity: 0;
   }
-  66% {
+  60% {
+    opacity: 0.7;
+  }
+  69% {
+    transform: translateX(140%) skewX(-20deg);
+    opacity: 0;
+  }
+  74% {
+    transform: translateX(-160%) skewX(-20deg);
+    opacity: 0;
+  }
+  79% {
+    opacity: 0.56;
+  }
+  87%,
+  100% {
+    transform: translateX(140%) skewX(-20deg);
+    opacity: 0;
+  }
+}
+
+@keyframes login-logo-gloss-sharp {
+  0%,
+  55% {
+    transform: translateX(-170%) skewX(-20deg);
+    opacity: 0;
+  }
+  61% {
     opacity: 0.95;
   }
-  82%,
+  70% {
+    transform: translateX(148%) skewX(-20deg);
+    opacity: 0;
+  }
+  74% {
+    transform: translateX(-170%) skewX(-20deg);
+    opacity: 0;
+  }
+  80% {
+    opacity: 0.86;
+  }
+  89%,
   100% {
-    transform: translateX(140%) skewX(-18deg);
+    transform: translateX(148%) skewX(-20deg);
     opacity: 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .login-logo-shine::before,
   .login-logo-shine::after {
     animation: none;
+    opacity: 0;
+  }
+
+  .border-trace-active > .border-trace-layer {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+@keyframes border-trace-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes border-trace-fade {
+  0%,
+  85% {
+    opacity: 1;
+  }
+  100% {
     opacity: 0;
   }
 }

@@ -806,7 +806,7 @@ function startLoginMotionCanvas() {
   let nodes = [];
   const colors = ["#3e4095", "#5661d6", "#7d7fe2", "#d1ae6c"];
   const buildNodes = () => {
-    const spacing = width < 700 ? 72 : 92;
+    const spacing = width < 700 ? 56 : 74;
     const cols = Math.max(5, Math.ceil(width / spacing) + 2);
     const rows = Math.max(5, Math.ceil(height / spacing) + 2);
     const xGap = width / Math.max(1, cols - 1);
@@ -826,10 +826,10 @@ function startLoginMotionCanvas() {
           vx: 0,
           vy: 0,
           phase: Math.random() * Math.PI * 2,
-          drift: 2 + Math.random() * 5,
-          size: 1.35 + Math.random() * 1.9,
+          drift: 3 + Math.random() * 8,
+          size: 1.2 + Math.random() * 2.1,
           color: colors[(row + col) % colors.length],
-          alpha: 0.28 + Math.random() * 0.34
+          alpha: 0.26 + Math.random() * 0.42
         });
       }
     }
@@ -859,39 +859,51 @@ function startLoginMotionCanvas() {
       raf = requestAnimationFrame(draw);
       return;
     }
-    if (ts - lastFrame < 32) {
+    if (ts - lastFrame < 16) {
       raf = requestAnimationFrame(draw);
       return;
     }
     lastFrame = ts;
     ctx.clearRect(0, 0, width, height);
     const time = ts * 0.001;
-    pointer.x += (pointer.tx - pointer.x) * 0.12;
-    pointer.y += (pointer.ty - pointer.y) * 0.12;
+    pointer.x += (pointer.tx - pointer.x) * 0.17;
+    pointer.y += (pointer.ty - pointer.y) * 0.17;
     ctx.save();
     ctx.globalCompositeOperation = "source-over";
-    const linkDistance = width < 700 ? 92 : 118;
-    const pullRadius = Math.min(320, Math.max(190, width * 0.22));
+    const linkDistance = width < 700 ? 84 : 108;
+    const pullRadius = Math.min(360, Math.max(210, width * 0.26));
+    if (pointer.active && !reduceMotion) {
+      const pulseRadius = pullRadius * 0.78;
+      const pulse = ctx.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, pulseRadius);
+      pulse.addColorStop(0, "rgba(209, 174, 108, 0.22)");
+      pulse.addColorStop(0.55, "rgba(126, 140, 230, 0.09)");
+      pulse.addColorStop(1, "rgba(62, 64, 149, 0)");
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = pulse;
+      ctx.beginPath();
+      ctx.arc(pointer.x, pointer.y, pulseRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
     nodes.forEach((node) => {
-      const idleX = Math.cos(time * 0.7 + node.phase) * node.drift;
-      const idleY = Math.sin(time * 0.62 + node.phase * 1.17) * node.drift;
+      const idleX = Math.cos(time * 0.94 + node.phase) * node.drift;
+      const idleY = Math.sin(time * 0.86 + node.phase * 1.17) * node.drift;
       const targetX = node.homeX + idleX;
       const targetY = node.homeY + idleY;
-      node.vx += (targetX - node.x) * 0.012;
-      node.vy += (targetY - node.y) * 0.012;
+      node.vx += (targetX - node.x) * 0.02;
+      node.vy += (targetY - node.y) * 0.02;
 
       if (pointer.active && !reduceMotion) {
         const dx = pointer.x - node.x;
         const dy = pointer.y - node.y;
         const dist = Math.max(1, Math.hypot(dx, dy));
         if (dist < pullRadius) {
-          const force = (1 - dist / pullRadius) ** 2;
-          node.vx += (dx / dist) * force * 1.42;
-          node.vy += (dy / dist) * force * 1.42;
+          const force = (1 - dist / pullRadius) ** 2.2;
+          node.vx += (dx / dist) * force * 2.25;
+          node.vy += (dy / dist) * force * 2.25;
         }
       }
-      node.vx *= 0.88;
-      node.vy *= 0.88;
+      node.vx *= 0.84;
+      node.vy *= 0.84;
       node.x += node.vx;
       node.y += node.vy;
     });
@@ -904,8 +916,8 @@ function startLoginMotionCanvas() {
         const dy = b.y - a.y;
         const dist = Math.hypot(dx, dy);
         if (dist > linkDistance) continue;
-        ctx.globalAlpha = (1 - dist / linkDistance) * 0.16;
-        ctx.strokeStyle = "#8b8dc9";
+        ctx.globalAlpha = (1 - dist / linkDistance) * 0.22;
+        ctx.strokeStyle = "rgba(139, 141, 201, 0.9)";
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
@@ -918,10 +930,10 @@ function startLoginMotionCanvas() {
       const pointerBoost = pointer.active
         ? Math.max(0, 1 - Math.hypot(pointer.x - node.x, pointer.y - node.y) / pullRadius)
         : 0;
-      ctx.globalAlpha = Math.min(0.86, node.alpha + pointerBoost * 0.42);
+      ctx.globalAlpha = Math.min(0.94, node.alpha + pointerBoost * 0.5);
       ctx.fillStyle = node.color;
       ctx.beginPath();
-      ctx.arc(node.x, node.y, node.size + pointerBoost * 1.6, 0, Math.PI * 2);
+      ctx.arc(node.x, node.y, node.size + pointerBoost * 2.2, 0, Math.PI * 2);
       ctx.fill();
     });
     ctx.restore();
@@ -943,6 +955,74 @@ function startLoginMotionCanvas() {
 
 function stopLoginMotionCanvas() {
   if (typeof loginMotionCanvasCleanup === "function") loginMotionCanvasCleanup();
+}
+
+function randomIntInRange(min, max) {
+  const a = Number(min);
+  const b = Number(max);
+  return Math.floor(a + Math.random() * (b - a + 1));
+}
+
+function ensureBorderTraceLayer(host) {
+  if (!host) return null;
+  host.classList.add("border-trace-host");
+  let layer = host.querySelector(":scope > .border-trace-layer");
+  if (!layer) {
+    layer = document.createElement("span");
+    layer.className = "border-trace-layer";
+    layer.setAttribute("aria-hidden", "true");
+    host.appendChild(layer);
+  }
+  return layer;
+}
+
+function clearLoginBorderTraceTimers() {
+  Object.values(loginBorderTraceTimers).forEach((timerPack) => {
+    if (!timerPack) return;
+    if (timerPack.next) clearTimeout(timerPack.next);
+    if (timerPack.end) clearTimeout(timerPack.end);
+  });
+  loginBorderTraceTimers = {};
+  loginSection?.classList.remove("border-trace-active");
+  loginSupportBtn?.classList.remove("border-trace-active");
+}
+
+function startLoginBorderTraceLoops() {
+  clearLoginBorderTraceTimers();
+  ensureBorderTraceLayer(loginSection);
+  ensureBorderTraceLayer(loginSupportBtn);
+  const runBurst = (key) => {
+    if (!document.body.classList.contains("login-mode")) return;
+    const target = key === "card" ? loginSection : loginSupportBtn;
+    const otherKey = key === "card" ? "support" : "card";
+    if (!target || target.classList.contains("hidden")) {
+      scheduleNext(key, randomIntInRange(1800, 3200));
+      return;
+    }
+    const now = Date.now();
+    if (now - loginBorderTraceLastStartAt[otherKey] < 1800) {
+      scheduleNext(key, randomIntInRange(700, 1200));
+      return;
+    }
+    loginBorderTraceLastStartAt[key] = now;
+    target.classList.remove("border-trace-active");
+    void target.offsetWidth;
+    target.classList.add("border-trace-active");
+    const timerPack = loginBorderTraceTimers[key] || {};
+    timerPack.end = setTimeout(() => {
+      target.classList.remove("border-trace-active");
+    }, 2260);
+    loginBorderTraceTimers[key] = timerPack;
+    scheduleNext(key, randomIntInRange(5000, 10000));
+  };
+  const scheduleNext = (key, delayMs) => {
+    const timerPack = loginBorderTraceTimers[key] || {};
+    if (timerPack.next) clearTimeout(timerPack.next);
+    timerPack.next = setTimeout(() => runBurst(key), Math.max(220, Number(delayMs) || 0));
+    loginBorderTraceTimers[key] = timerPack;
+  };
+  scheduleNext("card", randomIntInRange(1400, 2600));
+  scheduleNext("support", randomIntInRange(3200, 4700));
 }
 
 function updateLoginProgressiveFields() {
@@ -3922,6 +4002,8 @@ let reportCustomChartDragId = null;
 let loginIntroShown = false;
 let loginMotionCanvasCleanup = null;
 let loginSubmitInFlight = false;
+let loginBorderTraceTimers = {};
+let loginBorderTraceLastStartAt = { card: 0, support: 0 };
 /** Выделенные кастомные диаграммы для массовой группировки */
 let reportCustomSelectedChartIds = new Set();
 /** Черновик названия группы в панели кастомной аналитики */
@@ -18146,6 +18228,7 @@ function attachFilterHandlers(section) {
 function showApp(userName) {
   authExpiredNoticeShown = false;
   stopLoginMotionCanvas();
+  clearLoginBorderTraceTimers();
   document.body.classList.remove("login-intro-done");
   document.body.classList.remove("login-intro-active");
   document.documentElement.classList.remove("login-intro-active-root");
@@ -18173,6 +18256,7 @@ function showApp(userName) {
 
 function showLogin() {
   startLoginMotionCanvas();
+  startLoginBorderTraceLoops();
   setLoginSubmitting(false);
   document.body.classList.add("login-mode");
   document.body.classList.remove("shared-report-mode");
@@ -19248,6 +19332,7 @@ initLucideIcons();
 document.body.classList.add("login-mode");
 updateLoginPhoneFlag();
 startLoginMotionCanvas();
+startLoginBorderTraceLoops();
 window.addEventListener("resize", () => {
   updateTableStickyHeaderOffsets();
 });
@@ -19257,6 +19342,7 @@ if (initialShareIdBoot) {
   loginSection.classList.add("hidden");
   appSection.classList.add("hidden");
   document.body.classList.remove("login-mode");
+  clearLoginBorderTraceTimers();
   mountReportShareGate(initialShareIdBoot);
 } else {
   (async () => {
