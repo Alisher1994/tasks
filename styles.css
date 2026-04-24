@@ -3946,26 +3946,26 @@ body.login-mode #appSection {
 
 .report-status-summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(112px, 136px));
-  gap: 12px;
-  justify-content: start;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .report-status-summary-card {
-  aspect-ratio: 1 / 1;
+  min-height: 116px;
   border: 1px solid #dce4ee;
   border-radius: 14px;
-  padding: 14px;
-  display: grid;
-  align-content: space-between;
-  gap: 8px;
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
   background: linear-gradient(135deg, #fff 0%, #f8fafc 100%);
   box-shadow: 0 10px 24px -22px rgba(15, 23, 42, 0.55);
 }
 
 .report-status-summary-card strong {
   display: block;
-  font-size: 28px;
+  margin-left: auto;
+  font-size: 34px;
   line-height: 1;
   color: #172033;
   font-variant-numeric: tabular-nums;
@@ -3978,17 +3978,17 @@ body.login-mode #appSection {
 }
 
 .report-status-summary-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 11px;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .report-status-summary-icon .lucide-icon {
-  width: 18px;
-  height: 18px;
+  width: 21px;
+  height: 21px;
   stroke-width: 2.3;
 }
 
@@ -5022,6 +5022,9 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 }
 
 @media (max-width: 700px) {
+  .report-status-summary-grid {
+    grid-template-columns: 1fr;
+  }
   .report-grid--kpi {
     grid-template-columns: 1fr;
   }

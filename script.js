@@ -801,8 +801,9 @@ function startLoginMotionCanvas() {
   let height = 0;
   let dpr = 1;
   let raf = 0;
+  let lastFrame = 0;
   const colors = ["#3e4095", "#5b6ce1", "#7c61d8", "#d1ae6c"];
-  const particles = Array.from({ length: 68 }, (_, i) => ({
+  const particles = Array.from({ length: 38 }, (_, i) => ({
     x: Math.random(),
     y: Math.random(),
     vx: (Math.random() - 0.5) * 0.22,
@@ -816,7 +817,7 @@ function startLoginMotionCanvas() {
   }));
   const resize = () => {
     const rect = canvas.getBoundingClientRect();
-    dpr = Math.min(2, window.devicePixelRatio || 1);
+    dpr = Math.min(1.35, window.devicePixelRatio || 1);
     width = Math.max(1, Math.floor(rect.width));
     height = Math.max(1, Math.floor(rect.height));
     canvas.width = Math.floor(width * dpr);
@@ -831,7 +832,16 @@ function startLoginMotionCanvas() {
   const leave = () => {
     pointer.active = false;
   };
-  const draw = () => {
+  const draw = (ts = 0) => {
+    if (document.hidden) {
+      raf = requestAnimationFrame(draw);
+      return;
+    }
+    if (ts - lastFrame < 32) {
+      raf = requestAnimationFrame(draw);
+      return;
+    }
+    lastFrame = ts;
     ctx.clearRect(0, 0, width, height);
     ctx.save();
     ctx.globalCompositeOperation = "multiply";
@@ -843,7 +853,7 @@ function startLoginMotionCanvas() {
         const dy = y - pointer.y;
         const dist = Math.max(1, Math.hypot(dx, dy));
         if (dist < 210) {
-          const force = (1 - dist / 210) * 13;
+          const force = (1 - dist / 210) * 10;
           x += (dx / dist) * force;
           y += (dy / dist) * force;
           p.rot += (dx / dist) * 0.012;
@@ -940,8 +950,8 @@ function showLoginGreeting(userName, onDone) {
         overlay.classList.add("is-leaving");
       });
     });
-  }, 2550);
-  window.setTimeout(() => overlay.remove(), 3400);
+  }, 1150);
+  window.setTimeout(() => overlay.remove(), 1900);
 }
 
 function setLoginSubmitting(isSubmitting) {
