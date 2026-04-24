@@ -973,6 +973,13 @@ function ensureBorderTraceLayer(host) {
     layer.setAttribute("aria-hidden", "true");
     host.appendChild(layer);
   }
+  let mask = host.querySelector(":scope > .border-trace-inner-mask");
+  if (!mask) {
+    mask = document.createElement("span");
+    mask.className = "border-trace-inner-mask";
+    mask.setAttribute("aria-hidden", "true");
+    host.appendChild(mask);
+  }
   return layer;
 }
 
