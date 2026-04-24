@@ -170,14 +170,33 @@ body.login-mode.login-intro-done .auth-card::after {
   animation: login-border-draw-reverse 1.2s ease 0.32s both;
 }
 
-.login-logo {
+.login-logo-shine {
   display: block;
   width: min(240px, 100%);
-  height: auto;
   margin: 0 auto 22px;
+  position: relative;
+  overflow: hidden;
 }
 
-body.login-mode.login-intro-done .login-logo {
+.login-logo {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.login-logo-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.2) 40%, rgba(255, 255, 255, 0.95) 50%, rgba(255, 255, 255, 0.18) 60%, transparent 70%);
+  transform: translateX(-140%) skewX(-18deg);
+  -webkit-mask: url("horizontal-v1.svg") center / contain no-repeat;
+  mask: url("horizontal-v1.svg") center / contain no-repeat;
+  animation: login-logo-gloss 4.8s ease-in-out 1.5s infinite;
+}
+
+body.login-mode.login-intro-done .login-logo-shine {
   animation: login-logo-rise 680ms ease 180ms both;
 }
 
@@ -2239,6 +2258,29 @@ body.app-booting .app-boot-loader {
     opacity: 1;
     transform: translateY(0) scale(1);
     filter: blur(0);
+  }
+}
+
+@keyframes login-logo-gloss {
+  0%,
+  58% {
+    transform: translateX(-140%) skewX(-18deg);
+    opacity: 0;
+  }
+  66% {
+    opacity: 0.95;
+  }
+  82%,
+  100% {
+    transform: translateX(140%) skewX(-18deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-logo-shine::after {
+    animation: none;
+    opacity: 0;
   }
 }
 

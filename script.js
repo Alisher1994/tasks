@@ -796,25 +796,44 @@ function startLoginMotionCanvas() {
   const canvas = loginMotionCanvas;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-  const pointer = { x: 0, y: 0, active: false };
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+  const pointer = { x: 0, y: 0, tx: 0, ty: 0, active: false };
   let width = 0;
   let height = 0;
   let dpr = 1;
   let raf = 0;
   let lastFrame = 0;
-  const colors = ["#3e4095", "#5b6ce1", "#7c61d8", "#d1ae6c"];
-  const particles = Array.from({ length: 38 }, (_, i) => ({
-    x: Math.random(),
-    y: Math.random(),
-    vx: (Math.random() - 0.5) * 0.22,
-    vy: (Math.random() - 0.5) * 0.18,
-    len: 7 + Math.random() * 14,
-    size: 1.4 + Math.random() * 2.4,
-    rot: Math.random() * Math.PI,
-    spin: (Math.random() - 0.5) * 0.018,
-    color: colors[i % colors.length],
-    alpha: 0.38 + Math.random() * 0.42
-  }));
+  let nodes = [];
+  const colors = ["#3e4095", "#5661d6", "#7d7fe2", "#d1ae6c"];
+  const buildNodes = () => {
+    const spacing = width < 700 ? 72 : 92;
+    const cols = Math.max(5, Math.ceil(width / spacing) + 2);
+    const rows = Math.max(5, Math.ceil(height / spacing) + 2);
+    const xGap = width / Math.max(1, cols - 1);
+    const yGap = height / Math.max(1, rows - 1);
+    nodes = [];
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < cols; col += 1) {
+        const jitterX = (Math.random() - 0.5) * xGap * 0.44;
+        const jitterY = (Math.random() - 0.5) * yGap * 0.44;
+        const homeX = col * xGap + jitterX;
+        const homeY = row * yGap + jitterY;
+        nodes.push({
+          homeX,
+          homeY,
+          x: homeX,
+          y: homeY,
+          vx: 0,
+          vy: 0,
+          phase: Math.random() * Math.PI * 2,
+          drift: 2 + Math.random() * 5,
+          size: 1.35 + Math.random() * 1.9,
+          color: colors[(row + col) % colors.length],
+          alpha: 0.28 + Math.random() * 0.34
+        });
+      }
+    }
+  };
   const resize = () => {
     const rect = canvas.getBoundingClientRect();
     dpr = Math.min(1.35, window.devicePixelRatio || 1);
@@ -823,10 +842,13 @@ function startLoginMotionCanvas() {
     canvas.width = Math.floor(width * dpr);
     canvas.height = Math.floor(height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    pointer.x = pointer.tx = width * 0.5;
+    pointer.y = pointer.ty = height * 0.5;
+    buildNodes();
   };
   const move = (event) => {
-    pointer.x = event.clientX;
-    pointer.y = event.clientY;
+    pointer.tx = event.clientX;
+    pointer.ty = event.clientY;
     pointer.active = true;
   };
   const leave = () => {
@@ -843,42 +865,64 @@ function startLoginMotionCanvas() {
     }
     lastFrame = ts;
     ctx.clearRect(0, 0, width, height);
+    const time = ts * 0.001;
+    pointer.x += (pointer.tx - pointer.x) * 0.12;
+    pointer.y += (pointer.ty - pointer.y) * 0.12;
     ctx.save();
-    ctx.globalCompositeOperation = "multiply";
-    particles.forEach((p) => {
-      let x = p.x * width;
-      let y = p.y * height;
-      if (pointer.active) {
-        const dx = x - pointer.x;
-        const dy = y - pointer.y;
+    ctx.globalCompositeOperation = "source-over";
+    const linkDistance = width < 700 ? 92 : 118;
+    const pullRadius = Math.min(320, Math.max(190, width * 0.22));
+    nodes.forEach((node) => {
+      const idleX = Math.cos(time * 0.7 + node.phase) * node.drift;
+      const idleY = Math.sin(time * 0.62 + node.phase * 1.17) * node.drift;
+      const targetX = node.homeX + idleX;
+      const targetY = node.homeY + idleY;
+      node.vx += (targetX - node.x) * 0.012;
+      node.vy += (targetY - node.y) * 0.012;
+
+      if (pointer.active && !reduceMotion) {
+        const dx = pointer.x - node.x;
+        const dy = pointer.y - node.y;
         const dist = Math.max(1, Math.hypot(dx, dy));
-        if (dist < 210) {
-          const force = (1 - dist / 210) * 10;
-          x += (dx / dist) * force;
-          y += (dy / dist) * force;
-          p.rot += (dx / dist) * 0.012;
+        if (dist < pullRadius) {
+          const force = (1 - dist / pullRadius) ** 2;
+          node.vx += (dx / dist) * force * 1.42;
+          node.vy += (dy / dist) * force * 1.42;
         }
       }
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(p.rot);
-      ctx.globalAlpha = p.alpha;
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      if (typeof ctx.roundRect === "function") {
-        ctx.roundRect(-p.len / 2, -p.size / 2, p.len, p.size, p.size);
-      } else {
-        ctx.rect(-p.len / 2, -p.size / 2, p.len, p.size);
+      node.vx *= 0.88;
+      node.vy *= 0.88;
+      node.x += node.vx;
+      node.y += node.vy;
+    });
+
+    for (let i = 0; i < nodes.length; i += 1) {
+      const a = nodes[i];
+      for (let j = i + 1; j < nodes.length; j += 1) {
+        const b = nodes[j];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > linkDistance) continue;
+        ctx.globalAlpha = (1 - dist / linkDistance) * 0.16;
+        ctx.strokeStyle = "#8b8dc9";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
       }
+    }
+
+    nodes.forEach((node) => {
+      const pointerBoost = pointer.active
+        ? Math.max(0, 1 - Math.hypot(pointer.x - node.x, pointer.y - node.y) / pullRadius)
+        : 0;
+      ctx.globalAlpha = Math.min(0.86, node.alpha + pointerBoost * 0.42);
+      ctx.fillStyle = node.color;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, node.size + pointerBoost * 1.6, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
-      p.x += p.vx / Math.max(width, 1);
-      p.y += p.vy / Math.max(height, 1);
-      p.rot += p.spin;
-      if (p.x < -0.04) p.x = 1.04;
-      if (p.x > 1.04) p.x = -0.04;
-      if (p.y < -0.04) p.y = 1.04;
-      if (p.y > 1.04) p.y = -0.04;
     });
     ctx.restore();
     raf = requestAnimationFrame(draw);
