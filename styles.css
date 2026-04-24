@@ -3648,7 +3648,7 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 }
 
 .report-grid--kpi .report-tile {
-  min-height: 220px;
+  min-height: 0;
 }
 
 .report-grid--kpi {
@@ -3714,6 +3714,11 @@ button.report-phase-layout-btn.report-phase-layout-btn--active {
 
 .report-grid--kpi .report-canvas-wrap.report-canvas-tall {
   min-height: 220px;
+}
+
+.report-grid--kpi .report-canvas-wrap--kpi-hbar {
+  flex: 0 0 auto;
+  min-height: 0;
 }
 
 .report-tile-wide {

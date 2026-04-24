@@ -7607,32 +7607,32 @@ function renderExecutionKpiPanel(stats) {
       </div>
       <div class="report-tile">
         <h4>По приоритету <span class="report-tile-note">(среднее)</span></h4>
-        <div class="report-canvas-wrap report-canvas-tall"><canvas id="reportExecutionChartPriority"></canvas></div>
+        <div class="report-canvas-wrap report-canvas-wrap--kpi-hbar" id="reportExecutionChartPriorityWrap"><canvas id="reportExecutionChartPriority"></canvas></div>
       </div>
       <div class="report-tile report-tile-wide">
         <h4>По сотрудникам <span class="report-tile-note">(среднее, топ)</span></h4>
-        <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartResponsibleWrap"><canvas id="reportExecutionChartResponsible"></canvas></div>
+        <div class="report-canvas-wrap report-canvas-scroll report-canvas-wrap--kpi-hbar" id="reportExecutionChartResponsibleWrap"><canvas id="reportExecutionChartResponsible"></canvas></div>
       </div>
       <div class="report-tile report-tile-wide">
         <h4>По отделам <span class="report-tile-note">(среднее)</span></h4>
-        <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartDepartmentWrap"><canvas id="reportExecutionChartDepartment"></canvas></div>
+        <div class="report-canvas-wrap report-canvas-scroll report-canvas-wrap--kpi-hbar" id="reportExecutionChartDepartmentWrap"><canvas id="reportExecutionChartDepartment"></canvas></div>
       </div>
       <div class="report-tile report-tile-wide">
         <h4>По объектам <span class="report-tile-note">(среднее)</span></h4>
-        <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartObjectWrap"><canvas id="reportExecutionChartObject"></canvas></div>
+        <div class="report-canvas-wrap report-canvas-scroll report-canvas-wrap--kpi-hbar" id="reportExecutionChartObjectWrap"><canvas id="reportExecutionChartObject"></canvas></div>
       </div>
       <div class="report-phase-group-row report-kpi-phase-row">
         <div class="report-tile">
           <h4>По фазам <span class="report-tile-note">(среднее)</span></h4>
-          <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartPhaseWrap"><canvas id="reportExecutionChartPhase"></canvas></div>
+          <div class="report-canvas-wrap report-canvas-scroll report-canvas-wrap--kpi-hbar" id="reportExecutionChartPhaseWrap"><canvas id="reportExecutionChartPhase"></canvas></div>
         </div>
         <div class="report-tile">
           <h4>По разделам <span class="report-tile-note">(среднее)</span></h4>
-          <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartSectionWrap"><canvas id="reportExecutionChartSection"></canvas></div>
+          <div class="report-canvas-wrap report-canvas-scroll report-canvas-wrap--kpi-hbar" id="reportExecutionChartSectionWrap"><canvas id="reportExecutionChartSection"></canvas></div>
         </div>
         <div class="report-tile">
           <h4>По подразделам <span class="report-tile-note">(среднее)</span></h4>
-          <div class="report-canvas-wrap report-canvas-scroll" id="reportExecutionChartSubsectionWrap"><canvas id="reportExecutionChartSubsection"></canvas></div>
+          <div class="report-canvas-wrap report-canvas-scroll report-canvas-wrap--kpi-hbar" id="reportExecutionChartSubsectionWrap"><canvas id="reportExecutionChartSubsection"></canvas></div>
         </div>
       </div>
     </div>
@@ -9151,13 +9151,13 @@ function attachExecutionReportCharts() {
 
   const buildGradient = (chart, color) => reportBarGradientHorizontal(chart, color);
   const buildDurationBarChart = (canvasId, wrapId, items, color) => {
-    const wrap = wrapId ? document.getElementById(wrapId) : null;
     const labelsCount = items.length || 1;
-    if (wrap) {
-      setReportScrollableChartHeight(wrap, labelsCount, { maxPx: 1100, minPx: 240, rowPx: 24 });
-    }
     const ctx = document.getElementById(canvasId);
     if (!ctx) return;
+    const wrap = wrapId ? document.getElementById(wrapId) : ctx.closest(".report-canvas-wrap");
+    if (wrap) {
+      setReportScrollableChartHeight(wrap, labelsCount, { maxPx: 1100, minPx: 118, rowPx: 34, paddingPx: 74 });
+    }
     const labels = items.length ? items.map((item) => item.label) : ["Нет данных"];
     const data = items.length ? items.map((item) => item.avgMs) : [0];
     const counts = items.length ? items.map((item) => item.count) : [0];
@@ -9271,7 +9271,7 @@ function attachExecutionReportCharts() {
     );
   }
 
-  buildDurationBarChart("reportExecutionChartPriority", null, stats.byPriority, "#5b86e5");
+  buildDurationBarChart("reportExecutionChartPriority", "reportExecutionChartPriorityWrap", stats.byPriority, "#5b86e5");
   buildDurationBarChart("reportExecutionChartResponsible", "reportExecutionChartResponsibleWrap", stats.byResponsible, "#d97706");
   buildDurationBarChart("reportExecutionChartDepartment", "reportExecutionChartDepartmentWrap", stats.byDepartment, "#3b82f6");
   buildDurationBarChart("reportExecutionChartObject", "reportExecutionChartObjectWrap", stats.byObject, "#16a34a");
