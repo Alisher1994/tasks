@@ -957,81 +957,6 @@ function stopLoginMotionCanvas() {
   if (typeof loginMotionCanvasCleanup === "function") loginMotionCanvasCleanup();
 }
 
-function randomIntInRange(min, max) {
-  const a = Number(min);
-  const b = Number(max);
-  return Math.floor(a + Math.random() * (b - a + 1));
-}
-
-function ensureBorderTraceLayer(host) {
-  if (!host) return null;
-  host.classList.add("border-trace-host");
-  let layer = host.querySelector(":scope > .border-trace-layer");
-  if (!layer) {
-    layer = document.createElement("span");
-    layer.className = "border-trace-layer";
-    layer.setAttribute("aria-hidden", "true");
-    host.appendChild(layer);
-  }
-  let mask = host.querySelector(":scope > .border-trace-inner-mask");
-  if (!mask) {
-    mask = document.createElement("span");
-    mask.className = "border-trace-inner-mask";
-    mask.setAttribute("aria-hidden", "true");
-    host.appendChild(mask);
-  }
-  return layer;
-}
-
-function clearLoginBorderTraceTimers() {
-  Object.values(loginBorderTraceTimers).forEach((timerPack) => {
-    if (!timerPack) return;
-    if (timerPack.next) clearTimeout(timerPack.next);
-    if (timerPack.end) clearTimeout(timerPack.end);
-  });
-  loginBorderTraceTimers = {};
-  loginSection?.classList.remove("border-trace-active");
-  loginSupportBtn?.classList.remove("border-trace-active");
-}
-
-function startLoginBorderTraceLoops() {
-  clearLoginBorderTraceTimers();
-  ensureBorderTraceLayer(loginSection);
-  ensureBorderTraceLayer(loginSupportBtn);
-  const runBurst = (key) => {
-    if (!document.body.classList.contains("login-mode")) return;
-    const target = key === "card" ? loginSection : loginSupportBtn;
-    const otherKey = key === "card" ? "support" : "card";
-    if (!target || target.classList.contains("hidden")) {
-      scheduleNext(key, randomIntInRange(1800, 3200));
-      return;
-    }
-    const now = Date.now();
-    if (now - loginBorderTraceLastStartAt[otherKey] < 1800) {
-      scheduleNext(key, randomIntInRange(700, 1200));
-      return;
-    }
-    loginBorderTraceLastStartAt[key] = now;
-    target.classList.remove("border-trace-active");
-    void target.offsetWidth;
-    target.classList.add("border-trace-active");
-    const timerPack = loginBorderTraceTimers[key] || {};
-    timerPack.end = setTimeout(() => {
-      target.classList.remove("border-trace-active");
-    }, 2260);
-    loginBorderTraceTimers[key] = timerPack;
-    scheduleNext(key, randomIntInRange(5000, 10000));
-  };
-  const scheduleNext = (key, delayMs) => {
-    const timerPack = loginBorderTraceTimers[key] || {};
-    if (timerPack.next) clearTimeout(timerPack.next);
-    timerPack.next = setTimeout(() => runBurst(key), Math.max(220, Number(delayMs) || 0));
-    loginBorderTraceTimers[key] = timerPack;
-  };
-  scheduleNext("card", randomIntInRange(1400, 2600));
-  scheduleNext("support", randomIntInRange(3200, 4700));
-}
-
 function updateLoginProgressiveFields() {
   if (!loginForm || !phoneInput || !passwordInput || !loginBtn) return;
   const normalizedPhone = normalizeUzPhone(phoneInput.value);
@@ -4009,8 +3934,6 @@ let reportCustomChartDragId = null;
 let loginIntroShown = false;
 let loginMotionCanvasCleanup = null;
 let loginSubmitInFlight = false;
-let loginBorderTraceTimers = {};
-let loginBorderTraceLastStartAt = { card: 0, support: 0 };
 /** Выделенные кастомные диаграммы для массовой группировки */
 let reportCustomSelectedChartIds = new Set();
 /** Черновик названия группы в панели кастомной аналитики */
@@ -18235,7 +18158,6 @@ function attachFilterHandlers(section) {
 function showApp(userName) {
   authExpiredNoticeShown = false;
   stopLoginMotionCanvas();
-  clearLoginBorderTraceTimers();
   document.body.classList.remove("login-intro-done");
   document.body.classList.remove("login-intro-active");
   document.documentElement.classList.remove("login-intro-active-root");
@@ -18263,7 +18185,6 @@ function showApp(userName) {
 
 function showLogin() {
   startLoginMotionCanvas();
-  startLoginBorderTraceLoops();
   setLoginSubmitting(false);
   document.body.classList.add("login-mode");
   document.body.classList.remove("shared-report-mode");
@@ -19339,7 +19260,6 @@ initLucideIcons();
 document.body.classList.add("login-mode");
 updateLoginPhoneFlag();
 startLoginMotionCanvas();
-startLoginBorderTraceLoops();
 window.addEventListener("resize", () => {
   updateTableStickyHeaderOffsets();
 });
@@ -19349,7 +19269,6 @@ if (initialShareIdBoot) {
   loginSection.classList.add("hidden");
   appSection.classList.add("hidden");
   document.body.classList.remove("login-mode");
-  clearLoginBorderTraceTimers();
   mountReportShareGate(initialShareIdBoot);
 } else {
   (async () => {
