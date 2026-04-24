@@ -64,6 +64,7 @@ body.app-booting {
 }
 
 html.login-intro-active-root,
+html:has(body.login-intro-active),
 body.login-intro-active,
 body.login-intro-done {
   overflow: hidden;
@@ -71,6 +72,7 @@ body.login-intro-done {
 }
 
 html.login-intro-active-root::-webkit-scrollbar,
+html:has(body.login-intro-active)::-webkit-scrollbar,
 body.login-intro-active::-webkit-scrollbar,
 body.login-intro-done::-webkit-scrollbar {
   width: 0;
@@ -87,8 +89,8 @@ body.app-boot-closing .page {
 
 .login-video-preloader {
   position: fixed;
-  inset: 0;
-  z-index: 4200;
+  inset: -2px;
+  z-index: 9000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -96,6 +98,7 @@ body.app-boot-closing .page {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+  overflow: hidden;
   transition: opacity 620ms ease, visibility 0s linear 620ms;
 }
 
@@ -104,6 +107,9 @@ body.app-boot-closing .page {
   height: 100%;
   object-fit: cover;
   opacity: 0.94;
+  transform: translateZ(0) scale(1.002);
+  backface-visibility: hidden;
+  will-change: transform, opacity;
 }
 
 .login-video-preloader__shade {
@@ -173,20 +179,30 @@ body.login-mode.login-intro-done .auth-card::before {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  padding: 1px;
-  background: conic-gradient(from -90deg, transparent 0deg, transparent 45deg, #3e4095 130deg, #d1ae6c 215deg, #3e4095 320deg, transparent 360deg);
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
+  border: 1px solid transparent;
+  border-top-color: #3e4095;
+  border-right-color: #3e4095;
   pointer-events: none;
   animation: login-border-draw 1.2s ease both;
+}
+
+body.login-mode.login-intro-done .auth-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid transparent;
+  border-bottom-color: #d1ae6c;
+  border-left-color: #d1ae6c;
+  pointer-events: none;
+  animation: login-border-draw-reverse 1.2s ease 0.32s both;
 }
 
 .login-logo {
   display: block;
   width: min(240px, 100%);
   height: auto;
-  margin: 0 auto 10px;
+  margin: 0 auto 22px;
 }
 
 body.login-mode.login-intro-done .login-logo {
@@ -371,8 +387,12 @@ body.login-mode.login-intro-done .auth-step--phone {
 }
 
 .login-support-btn {
-  width: 100%;
-  margin-top: 12px;
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 20;
+  width: auto;
+  margin-top: 0;
   border: 1px solid #dbe2ea;
   background: #ffffff;
   color: #475569;
@@ -380,6 +400,7 @@ body.login-mode.login-intro-done .auth-step--phone {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  box-shadow: 0 12px 30px -22px rgba(15, 23, 42, 0.65);
 }
 
 .login-support-btn:hover {
@@ -390,6 +411,10 @@ body.login-mode.login-intro-done .auth-step--phone {
 
 body.login-mode.login-intro-done .login-support-btn {
   animation: login-field-rise 520ms ease 620ms both;
+}
+
+body:not(.login-mode) .login-support-btn {
+  display: none;
 }
 
 label {
@@ -498,6 +523,55 @@ button:hover {
   text-decoration: underline;
 }
 
+.login-support-contact-row {
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--brand);
+}
+
+.login-support-contact-row > .lucide-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.login-support-contact-row a {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0;
+}
+
+.login-support-copy-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin-left: auto;
+  border: 1px solid #dbe2ea;
+  background: #fff;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: translateX(4px);
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease, color 160ms ease, background 160ms ease;
+}
+
+.login-support-contact-row:hover .login-support-copy-btn,
+.login-support-copy-btn:focus-visible {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.login-support-copy-btn:hover,
+.login-support-copy-btn.is-copied {
+  background: var(--brand-surface);
+  color: var(--brand);
+}
+
 .login-greeting-overlay {
   position: fixed;
   inset: 0;
@@ -506,8 +580,7 @@ button:hover {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(242, 245, 249, 0.4);
-  backdrop-filter: blur(3px);
+  background: #ffffff;
   opacity: 0;
   pointer-events: none;
   transition: opacity 360ms ease;
@@ -527,7 +600,7 @@ button:hover {
   display: grid;
   justify-items: center;
   gap: 10px;
-  box-shadow: 0 22px 60px -34px rgba(15, 23, 42, 0.65);
+  box-shadow: none;
   transform: translateY(14px) scale(0.98);
   transition: transform 420ms cubic-bezier(0.2, 0.78, 0.2, 1), opacity 360ms ease;
 }
@@ -2142,12 +2215,19 @@ body.app-booting .app-boot-loader {
 
 @keyframes login-border-draw {
   from {
-    opacity: 0;
-    transform: rotate(-24deg) scale(0.98);
+    clip-path: inset(0 0 100% 100%);
   }
   to {
-    opacity: 1;
-    transform: rotate(0deg) scale(1);
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes login-border-draw-reverse {
+  from {
+    clip-path: inset(100% 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
   }
 }
 

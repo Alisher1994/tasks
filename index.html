@@ -14,12 +14,12 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
   <script src="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.js"></script>
 </head>
-<body class="app-booting">
+<body class="login-intro-active">
   <div id="turboTopLoader" class="turbo-top-loader" aria-hidden="true">
     <div id="turboTopLoaderBar" class="turbo-top-loader__bar"></div>
   </div>
   <div id="loginVideoPreloader" class="login-video-preloader" aria-hidden="true">
-    <video class="login-video-preloader__media" src="about.mp4" autoplay muted playsinline preload="auto"></video>
+    <video class="login-video-preloader__media" src="about.mp4" autoplay muted playsinline preload="auto" disablepictureinpicture></video>
     <div class="login-video-preloader__shade"></div>
   </div>
   <div id="appBootLoader" class="app-boot-loader" aria-live="polite">
@@ -36,7 +36,7 @@
       <img src="horizontal-v1.svg" alt="Логотип" class="login-logo" />
       <form id="loginForm" class="auth-form">
         <div class="auth-step auth-step--phone is-visible">
-          <label for="phone">Номер телефона</label>
+          <label for="phone">Введите номер телефона</label>
           <div class="phone-input-wrap">
             <button id="loginPhoneCountryBtn" type="button" class="phone-input-flag-btn" title="Выбрать страну" aria-label="Выбрать страну">
               <img id="loginPhoneFlag" class="phone-input-flag" alt="" src="" />
@@ -58,11 +58,11 @@
         <button id="loginBtn" type="submit" class="with-icon auth-login-submit"></button>
         <p id="loginError" class="error hidden">Неверный логин или пароль</p>
       </form>
-      <button id="loginSupportBtn" type="button" class="login-support-btn">
-        <i data-lucide="headphones" class="lucide-icon" aria-hidden="true"></i>
-        <span>Служба поддержки</span>
-      </button>
     </section>
+    <button id="loginSupportBtn" type="button" class="login-support-btn">
+      <i data-lucide="headphones" class="lucide-icon" aria-hidden="true"></i>
+      <span>Служба поддержки</span>
+    </button>
 
     <section id="appSection" class="hidden">
       <div class="app-layout">

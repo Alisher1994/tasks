@@ -799,6 +799,10 @@ function playLoginIntroOnce() {
   };
   if (video) {
     try {
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      video.load?.();
       video.currentTime = 0;
       video.play?.().catch?.(() => {});
       video.addEventListener("ended", finish, { once: true });
@@ -831,8 +835,16 @@ function updateLoginProgressiveFields() {
 
 function getGreetingText(userName) {
   const h = new Date().getHours();
-  const greeting = h >= 18 || h < 5 ? "Добрый вечер" : "Добрый день";
-  const name = String(userName || "").trim() || "Пользователь";
+  const greeting = h >= 5 && h < 12
+    ? "Доброе утро"
+    : h >= 12 && h < 18
+      ? "Добрый день"
+      : h >= 18 && h < 23
+        ? "Добрый вечер"
+        : "Доброй ночи";
+  const phoneName = findEmployeeFullNameByPhone(getSessionPhone());
+  const rawName = String(userName || "").trim();
+  const name = phoneName || (rawName && !isGenericSystemUserName(rawName) ? rawName : "") || (normalizeUzPhone(getSessionPhone()) === normalizeUzPhone(AUTH_PHONE) ? "Алишер" : "Пользователь");
   return `${greeting}, ${name}.`;
 }
 
@@ -851,11 +863,33 @@ function showLoginGreeting(userName, onDone) {
   window.setTimeout(() => {
     overlay.classList.remove("is-visible");
     overlay.classList.add("is-leaving");
-  }, 1450);
+  }, 2550);
   window.setTimeout(() => {
     overlay.remove();
     if (typeof onDone === "function") onDone();
-  }, 2050);
+  }, 3300);
+}
+
+function copyTextToClipboard(text) {
+  const value = String(text || "");
+  if (!value) return;
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(value).catch(() => {});
+    return;
+  }
+  const ta = document.createElement("textarea");
+  ta.value = value;
+  ta.setAttribute("readonly", "");
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand("copy");
+  } catch (_) {
+    /* noop */
+  }
+  ta.remove();
 }
 
 function openLoginSupportModal() {
@@ -869,8 +903,17 @@ function openLoginSupportModal() {
         <div>
           <div class="login-support-contact-title">Администратор системы</div>
           <strong>Алишер</strong>
-          <a href="tel:+998994067406">+998 99 406 74 06</a>
-          <a href="https://t.me/alishermusayev94" target="_blank" rel="noopener">Telegram: @alishermusayev94</a>
+          <div class="login-support-contact-row">
+            <i data-lucide="phone" class="lucide-icon" aria-hidden="true"></i>
+            <a href="tel:+998994067406">+998 99 406 74 06</a>
+            <button type="button" class="login-support-copy-btn" data-copy-support-phone="+998994067406" title="Скопировать телефон" aria-label="Скопировать телефон">
+              <i data-lucide="copy" class="lucide-icon" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div class="login-support-contact-row">
+            <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
+            <a href="https://t.me/alishermusayev94" target="_blank" rel="noopener">Telegram: @alishermusayev94</a>
+          </div>
         </div>
       </div>
       <div class="responsible-modal-actions">
@@ -880,6 +923,11 @@ function openLoginSupportModal() {
   `;
   const close = () => overlay.remove();
   overlay.querySelector(".login-support-close")?.addEventListener("click", close);
+  overlay.querySelector("[data-copy-support-phone]")?.addEventListener("click", (event) => {
+    copyTextToClipboard(event.currentTarget?.getAttribute("data-copy-support-phone") || "+998994067406");
+    event.currentTarget?.classList.add("is-copied");
+    window.setTimeout(() => event.currentTarget?.classList.remove("is-copied"), 900);
+  });
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
   });
