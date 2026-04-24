@@ -16,7 +16,7 @@ const loginPhoneFlag = document.getElementById("loginPhoneFlag");
 const loginPhoneCountryBtn = document.getElementById("loginPhoneCountryBtn");
 const turboTopLoader = document.getElementById("turboTopLoader");
 const turboTopLoaderBar = document.getElementById("turboTopLoaderBar");
-const loginVideoPreloader = document.getElementById("loginVideoPreloader");
+const loginMotionCanvas = document.getElementById("loginMotionCanvas");
 
 const AUTH_PHONE = "+998994067406";
 const AUTH_PASSWORD = "7406";
@@ -773,7 +773,7 @@ function hideBootLoaderAfterRender() {
 }
 
 function playLoginIntroOnce() {
-  if (loginIntroShown || !loginVideoPreloader) {
+  if (loginIntroShown) {
     document.body.classList.add("login-intro-done");
     document.body.classList.remove("login-intro-active");
     document.documentElement.classList.remove("login-intro-active-root");
@@ -784,39 +784,111 @@ function playLoginIntroOnce() {
   document.documentElement.classList.add("login-intro-active-root");
   document.body.classList.add("login-intro-active");
   document.body.classList.remove("login-intro-done");
-  const video = loginVideoPreloader.querySelector("video");
-  let finished = false;
-  let fallbackTimer = null;
-  const finish = () => {
-    if (finished) return;
-    finished = true;
-    clearTimeout(fallbackTimer);
-    window.setTimeout(() => {
-      document.body.classList.add("login-intro-done");
-      document.body.classList.remove("login-intro-active");
-      document.documentElement.classList.remove("login-intro-active-root");
-    }, 850);
+  window.setTimeout(() => {
+    document.body.classList.add("login-intro-done");
+    document.body.classList.remove("login-intro-active");
+    document.documentElement.classList.remove("login-intro-active-root");
+  }, 520);
+}
+
+function startLoginMotionCanvas() {
+  if (!loginMotionCanvas || loginMotionCanvasCleanup) return;
+  const canvas = loginMotionCanvas;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const pointer = { x: 0, y: 0, active: false };
+  let width = 0;
+  let height = 0;
+  let dpr = 1;
+  let raf = 0;
+  const colors = ["#3e4095", "#5b6ce1", "#7c61d8", "#d1ae6c"];
+  const particles = Array.from({ length: 68 }, (_, i) => ({
+    x: Math.random(),
+    y: Math.random(),
+    vx: (Math.random() - 0.5) * 0.22,
+    vy: (Math.random() - 0.5) * 0.18,
+    len: 7 + Math.random() * 14,
+    size: 1.4 + Math.random() * 2.4,
+    rot: Math.random() * Math.PI,
+    spin: (Math.random() - 0.5) * 0.018,
+    color: colors[i % colors.length],
+    alpha: 0.38 + Math.random() * 0.42
+  }));
+  const resize = () => {
+    const rect = canvas.getBoundingClientRect();
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    width = Math.max(1, Math.floor(rect.width));
+    height = Math.max(1, Math.floor(rect.height));
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   };
-  if (video) {
-    try {
-      video.muted = true;
-      video.playsInline = true;
-      video.preload = "auto";
-      video.load?.();
-      video.currentTime = 0;
-      video.play?.().catch?.(() => {});
-      video.addEventListener("ended", finish, { once: true });
-      video.addEventListener("error", finish, { once: true });
-      const durationMs = Number.isFinite(video.duration) && video.duration > 0
-        ? Math.min(12000, Math.max(2600, video.duration * 1000 + 300))
-        : 6200;
-      fallbackTimer = window.setTimeout(finish, durationMs);
-    } catch (_) {
-      finish();
-    }
-  } else {
-    fallbackTimer = window.setTimeout(finish, 2200);
-  }
+  const move = (event) => {
+    pointer.x = event.clientX;
+    pointer.y = event.clientY;
+    pointer.active = true;
+  };
+  const leave = () => {
+    pointer.active = false;
+  };
+  const draw = () => {
+    ctx.clearRect(0, 0, width, height);
+    ctx.save();
+    ctx.globalCompositeOperation = "multiply";
+    particles.forEach((p) => {
+      let x = p.x * width;
+      let y = p.y * height;
+      if (pointer.active) {
+        const dx = x - pointer.x;
+        const dy = y - pointer.y;
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        if (dist < 210) {
+          const force = (1 - dist / 210) * 13;
+          x += (dx / dist) * force;
+          y += (dy / dist) * force;
+          p.rot += (dx / dist) * 0.012;
+        }
+      }
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(p.rot);
+      ctx.globalAlpha = p.alpha;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(-p.len / 2, -p.size / 2, p.len, p.size, p.size);
+      } else {
+        ctx.rect(-p.len / 2, -p.size / 2, p.len, p.size);
+      }
+      ctx.fill();
+      ctx.restore();
+      p.x += p.vx / Math.max(width, 1);
+      p.y += p.vy / Math.max(height, 1);
+      p.rot += p.spin;
+      if (p.x < -0.04) p.x = 1.04;
+      if (p.x > 1.04) p.x = -0.04;
+      if (p.y < -0.04) p.y = 1.04;
+      if (p.y > 1.04) p.y = -0.04;
+    });
+    ctx.restore();
+    raf = requestAnimationFrame(draw);
+  };
+  resize();
+  window.addEventListener("resize", resize);
+  window.addEventListener("pointermove", move, { passive: true });
+  window.addEventListener("pointerleave", leave, { passive: true });
+  raf = requestAnimationFrame(draw);
+  loginMotionCanvasCleanup = () => {
+    cancelAnimationFrame(raf);
+    window.removeEventListener("resize", resize);
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerleave", leave);
+    loginMotionCanvasCleanup = null;
+  };
+}
+
+function stopLoginMotionCanvas() {
+  if (typeof loginMotionCanvasCleanup === "function") loginMotionCanvasCleanup();
 }
 
 function updateLoginProgressiveFields() {
@@ -3776,6 +3848,7 @@ let reportChartDragId = null;
 /** Во время drag-and-drop кастомных плиток отчёта */
 let reportCustomChartDragId = null;
 let loginIntroShown = false;
+let loginMotionCanvasCleanup = null;
 /** Выделенные кастомные диаграммы для массовой группировки */
 let reportCustomSelectedChartIds = new Set();
 /** Черновик названия группы в панели кастомной аналитики */
@@ -17987,6 +18060,7 @@ function attachFilterHandlers(section) {
 
 function showApp(userName) {
   authExpiredNoticeShown = false;
+  stopLoginMotionCanvas();
   document.body.classList.remove("login-intro-done");
   document.body.classList.remove("login-intro-active");
   document.documentElement.classList.remove("login-intro-active-root");
@@ -18013,6 +18087,7 @@ function showApp(userName) {
 }
 
 function showLogin() {
+  startLoginMotionCanvas();
   document.body.classList.add("login-mode");
   document.body.classList.remove("shared-report-mode");
   sharedReportMode = false;
@@ -19082,6 +19157,7 @@ sidebarBrandToggle?.setAttribute("aria-expanded", String(!isSidebarCollapsed));
 initLucideIcons();
 document.body.classList.add("login-mode");
 updateLoginPhoneFlag();
+startLoginMotionCanvas();
 window.addEventListener("resize", () => {
   updateTableStickyHeaderOffsets();
 });
