@@ -3898,6 +3898,7 @@ let currentAuthRole = "user";
 let displaySettings = {
   highlightClosed: false,
   highlightNeedDecision: false,
+  hideClosedTasks: false,
   telegramBotToken: "",
   /** @type {string} username бота без @ — подставляется после setWebhook / getMe */
   telegramBotUsername: "",
@@ -11701,6 +11702,9 @@ function getFilteredRows(section, sectionFilters) {
 
     const taskId = normalizeTaskIdValue(row[TASK_COLUMNS.number]);
     const isPendingImported = pendingImportedIds?.has(taskId) === true;
+    if (displaySettings.hideClosedTasks === true && normalizeTaskStatusValue(row[TASK_COLUMNS.status]) === "Закрыт") {
+      return false;
+    }
     const statusTabMatch = activeStatusTab === "all"
       || (activeStatusTab === TASKS_UNSENT_TAB_ID ? isPendingImported : row[TASK_COLUMNS.status] === activeStatusTab);
     if (!statusTabMatch) return false;
@@ -15337,6 +15341,10 @@ function renderOtherSettingsPanel() {
           </div>
           <div class="other-settings-block other-settings-block--tasks-list">
             <h4>Список задач</h4>
+            <label class="settings-option settings-option--compact">
+              <input class="other-settings-checkbox" type="checkbox" data-setting="hideClosedTasks" ${displaySettings.hideClosedTasks === true ? "checked" : ""} />
+              <span>Скрывать закрытые задачи</span>
+            </label>
             <div class="tasks-list-settings-compact">
               <div class="tasks-setting-block">
                 <div class="tasks-setting-block-title">Экран</div>
@@ -15767,6 +15775,9 @@ function attachOtherSettingsHandlers() {
       if (!settingName) return;
       displaySettings[settingName] = checkbox.checked;
       saveDisplaySettings();
+      if (settingName === "hideClosedTasks") {
+        resetTasksListPagingWindow();
+      }
     });
   });
 
@@ -16121,6 +16132,7 @@ function restoreDisplaySettings() {
     displaySettings.dateDisplayFormat = normalizeDateDisplayFormatId(displaySettings.dateDisplayFormat);
     displaySettings.timeDisplayFormat = normalizeTimeDisplayFormatId(displaySettings.timeDisplayFormat);
     displaySettings.timeShowSeconds = Boolean(displaySettings.timeShowSeconds);
+    displaySettings.hideClosedTasks = Boolean(displaySettings.hideClosedTasks);
     displaySettings.overdueNotificationsEnabled = Boolean(displaySettings.overdueNotificationsEnabled);
     displaySettings.overdueNotificationsTime = normalizeOverdueNotifyTimeValue(displaySettings.overdueNotificationsTime);
     if (!Array.isArray(displaySettings.telegramGlobalDuplicateRecipientIds)) {
