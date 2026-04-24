@@ -15,6 +15,7 @@ const loginPhoneFlag = document.getElementById("loginPhoneFlag");
 const loginPhoneCountryBtn = document.getElementById("loginPhoneCountryBtn");
 const turboTopLoader = document.getElementById("turboTopLoader");
 const turboTopLoaderBar = document.getElementById("turboTopLoaderBar");
+const loginVideoPreloader = document.getElementById("loginVideoPreloader");
 
 const AUTH_PHONE = "+998994067406";
 const AUTH_PASSWORD = "7406";
@@ -768,6 +769,26 @@ function hideBootLoaderAfterRender() {
       setAppBootLoading(false);
     });
   });
+}
+
+function playLoginIntroOnce() {
+  if (loginIntroShown || !loginVideoPreloader) return;
+  loginIntroShown = true;
+  document.body.classList.add("login-intro-active");
+  document.body.classList.remove("login-intro-done");
+  const video = loginVideoPreloader.querySelector("video");
+  if (video) {
+    try {
+      video.currentTime = 0;
+      video.play?.().catch?.(() => {});
+    } catch (_) {
+      /* noop */
+    }
+  }
+  window.setTimeout(() => {
+    document.body.classList.add("login-intro-done");
+    document.body.classList.remove("login-intro-active");
+  }, 1700);
 }
 
 function setTurboLoaderProgress(progress) {
@@ -3605,6 +3626,7 @@ let reportFiltersPanelOpen = false;
 let reportChartDragId = null;
 /** Во время drag-and-drop кастомных плиток отчёта */
 let reportCustomChartDragId = null;
+let loginIntroShown = false;
 /** Выделенные кастомные диаграммы для массовой группировки */
 let reportCustomSelectedChartIds = new Set();
 /** Черновик названия группы в панели кастомной аналитики */
@@ -5227,7 +5249,7 @@ function applyReportPhaseTrioWrapHeights(phLen, psecLen, psubLen) {
   const wrapSec = document.getElementById("reportChartPhaseSectionWrap");
   const wrapSub = document.getElementById("reportChartPhaseSubsectionWrap");
   // Для stacked-графиков нужна большая высота: место под легенду + читабельные подписи категорий.
-  const opts = { maxPx: 1100, minPx: 210, rowPx: 24, paddingPx: 108 };
+  const opts = { maxPx: 1100, minPx: 126, rowPx: 28, paddingPx: 78 };
   if (loadReportPhaseGroupLayout() === "row") {
     const nMax = Math.max(phLen, psecLen, psubLen, 1);
     const h = Math.round(getReportPhaseHBarWrapHeightPx(nMax, opts));
@@ -5277,8 +5299,8 @@ const REPORT_HBAR_OPTIONS_THIN = {
     padding: {
       right: 36,
       left: 2,
-      top: 4,
-      bottom: 4
+      top: 2,
+      bottom: 2
     }
   }
 };
@@ -5300,6 +5322,17 @@ const REPORT_CHART_LABEL_SAFE_LAYOUT = {
       right: 36,
       bottom: 10,
       left: 8
+    }
+  }
+};
+
+const REPORT_DONUT_LABEL_SAFE_LAYOUT = {
+  layout: {
+    padding: {
+      top: 24,
+      right: 44,
+      bottom: 34,
+      left: 20
     }
   }
 };
@@ -5327,6 +5360,10 @@ function buildUserScopedStorageKey(baseKey) {
 
 function getDefaultReportSystemChartVisibility() {
   return Object.fromEntries(Object.keys(REPORT_CHART_TILE_META).map((id) => [id, true]));
+}
+
+function getReportStatusCount(stats, status) {
+  return Number(stats?.statusCounts?.[status] || 0);
 }
 
 function loadReportViewTab() {
@@ -5749,6 +5786,26 @@ function renderReportSystemHiddenControlsHtml() {
     })
     .join("");
   return `<div class="report-hidden-charts-bar"><span>Скрытые:</span>${chips}</div>`;
+}
+
+function renderReportStatusSummaryCards(stats) {
+  const cards = [
+    { status: "Новый", label: "Новые", icon: "sparkles", className: "is-new" },
+    { status: "В процессе", label: "В процессе", icon: "loader-2", className: "is-progress" },
+    { status: "Закрыт", label: "Закрыто", icon: "check-circle-2", className: "is-closed" }
+  ];
+  return `
+    <div class="report-status-summary-grid" aria-label="Сводка по статусам">
+      ${cards
+        .map((card) => `
+          <div class="report-status-summary-card ${escapeHtmlAttr(card.className)}">
+            <span class="report-status-summary-icon"><i data-lucide="${escapeHtmlAttr(card.icon)}" class="lucide-icon" aria-hidden="true"></i></span>
+            <span class="report-status-summary-label">${escapeHtmlText(card.label)}</span>
+            <strong>${escapeHtmlText(String(getReportStatusCount(stats, card.status)))}</strong>
+          </div>
+        `)
+        .join("")}
+    </div>`;
 }
 
 function renderReportCustomBuilderHtml() {
@@ -6352,8 +6409,11 @@ function attachReportChartTileDragHandlers() {
     const cur = loadReportChartOrder();
     const next = reorderReportChartOrder(cur, fromId, toId);
     saveReportChartOrder(next);
+    const fromTile = grid.querySelector(`.report-tile[data-report-chart="${CSS.escape(fromId)}"]`);
+    if (fromTile && tile && fromTile !== tile && tile.parentNode) {
+      tile.parentNode.insertBefore(fromTile, tile);
+    }
     clearDragState();
-    refreshReportView();
   });
 
   grid.addEventListener("dragleave", (e) => {
@@ -8529,8 +8589,8 @@ function renderReportsPanel() {
       </div>
       ${reportViewTab === "system"
         ? `
-          ${renderReportWeekTasksTable()}
           ${stats.total === 0 ? '<p class="hint report-empty-hint">Нет задач по текущему фильтру — измените условия или добавьте записи в «Задачи».</p>' : ""}
+          ${renderReportStatusSummaryCards(stats)}
           ${renderReportSystemHiddenControlsHtml()}
           <div class="report-phase-layout-bar${sharedReportMode ? " hidden" : ""}">
             <span class="report-phase-layout-label">Топ фаз · Разделы · Подразделы</span>
@@ -8543,6 +8603,7 @@ function renderReportsPanel() {
             ${renderReportChartsGridHtml()}
           </div>
           ${stats.total > 0 ? renderResponsibleStatusTable(rsRows) : ""}
+          ${renderReportWeekTasksTable()}
         `
         : reportViewTab === "kpi"
         ? `
@@ -8786,7 +8847,10 @@ function attachReportCustomChartDragHandlers() {
       const cur = loadReportCustomCharts();
       const next = reorderCustomChartsById(cur, fromId, toId);
       saveReportCustomCharts(next);
-      refreshReportView();
+      const fromTile = root.querySelector(`.report-custom-tile[data-custom-chart-id="${CSS.escape(fromId)}"]`);
+      if (fromTile && tile && fromTile !== tile && tile.parentNode) {
+        tile.parentNode.insertBefore(fromTile, tile);
+      }
     });
     tile.addEventListener("dragleave", (e) => {
       const rel = e.relatedTarget;
@@ -8928,7 +8992,7 @@ function attachCustomReportCharts() {
         textAlign: "center",
         anchor: "end",
         align: "end",
-        offset: 4,
+        offset: 2,
         clamp: true,
         clip: false
       }
@@ -9375,7 +9439,7 @@ function attachReportCharts() {
         textAlign: "center",
         anchor: "end",
         align: "end",
-        offset: 4,
+        offset: 2,
         clamp: true,
         clip: false
       }
@@ -9499,10 +9563,8 @@ function attachReportCharts() {
         },
         options: {
           ...common,
+          ...REPORT_DONUT_LABEL_SAFE_LAYOUT,
           cutout: "52%",
-          layout: {
-            padding: { left: 14, right: 40, top: 16, bottom: 16 }
-          },
           plugins: {
             reportDonutCenterTotal: {
               subtitle: "задач"
@@ -9636,7 +9698,7 @@ function attachReportCharts() {
 
   const ov = s.overdueTop.length ? s.overdueTop : [["—", 0]];
   const wrapOv = document.getElementById("reportChartOverdueWrap");
-  setReportScrollableChartHeight(wrapOv, ov.length, { maxPx: 900, minPx: 240 });
+  setReportScrollableChartHeight(wrapOv, ov.length, { maxPx: 900, minPx: 128, rowPx: 30, paddingPx: 76 });
   const ctxOverdue = document.getElementById("reportChartOverdue");
   if (ctxOverdue) {
     const nOv = ov.length;
@@ -9767,6 +9829,7 @@ function attachReportCharts() {
         },
         options: {
           ...common,
+          ...REPORT_DONUT_LABEL_SAFE_LAYOUT,
           cutout: "52%",
           plugins: {
             reportDonutCenterTotal: {
@@ -9785,7 +9848,7 @@ function attachReportCharts() {
   const wrapDelayReason = document.getElementById("reportChartDelayReasonWrap");
   const delayReasonStack = s.delayReasonStacked;
   const nDelayReason = delayReasonStack?.labels?.length || 1;
-  setReportScrollableChartHeight(wrapDelayReason, nDelayReason, { maxPx: 900, minPx: 240, rowPx: 24 });
+  setReportScrollableChartHeight(wrapDelayReason, nDelayReason, { maxPx: 900, minPx: 128, rowPx: 30, paddingPx: 76 });
   const ctxDelayReason = document.getElementById("reportChartDelayReason");
   renderStatusStackedHBar(ctxDelayReason, delayReasonStack, nDelayReason, (n) => (n > 45 ? 8 : n > 25 ? 10 : 11));
 
@@ -9809,6 +9872,7 @@ function attachReportCharts() {
         },
         options: {
           ...common,
+          ...REPORT_DONUT_LABEL_SAFE_LAYOUT,
           cutout: "52%",
           plugins: {
             reportDonutCenterTotal: {
@@ -9844,6 +9908,7 @@ function attachReportCharts() {
         },
         options: {
           ...common,
+          ...REPORT_DONUT_LABEL_SAFE_LAYOUT,
           cutout: "52%",
           plugins: {
             reportDonutCenterTotal: {
@@ -9876,7 +9941,7 @@ function attachReportCharts() {
   const objectStack = s.objectStacked;
   const wrapObj = document.getElementById("reportChartObjectWrap");
   const nObj = objectStack?.labels?.length || 1;
-  setReportScrollableChartHeight(wrapObj, nObj, { maxPx: 1200, minPx: 280, rowPx: 24 });
+  setReportScrollableChartHeight(wrapObj, nObj, { maxPx: 1200, minPx: 142, rowPx: 30, paddingPx: 78 });
   const ctx5 = document.getElementById("reportChartObject");
   renderStatusStackedHBar(ctx5, objectStack, nObj, (n) => (n > 45 ? 8 : n > 25 ? 10 : 11));
 
@@ -9884,7 +9949,7 @@ function attachReportCharts() {
   const wrapDept = document.getElementById("reportChartDepartmentWrap");
   const nDept = deptStack?.labels?.length || 1;
   if (wrapDept) {
-    setReportScrollableChartHeight(wrapDept, nDept, { maxPx: 1200, minPx: 260, rowPx: 24 });
+    setReportScrollableChartHeight(wrapDept, nDept, { maxPx: 1200, minPx: 160, rowPx: 28, paddingPx: 86 });
   }
   const ctxDept = document.getElementById("reportChartDepartment");
   if (ctxDept && deptStack?.datasets?.length) {
@@ -9952,7 +10017,7 @@ function attachReportCharts() {
   const wrapResp = document.getElementById("reportChartResponsibleWrap");
   const nResp = respStack?.labels?.length || 1;
   if (wrapResp) {
-    setReportScrollableChartHeight(wrapResp, nResp, { maxPx: 900, minPx: 240, rowPx: 24 });
+    setReportScrollableChartHeight(wrapResp, nResp, { maxPx: 900, minPx: 128, rowPx: 30, paddingPx: 76 });
   }
   const ctx6 = document.getElementById("reportChartResponsible");
   if (ctx6 && respStack?.datasets?.length) {
@@ -10029,6 +10094,7 @@ function attachReportCharts() {
         },
         options: {
           ...common,
+          ...REPORT_DONUT_LABEL_SAFE_LAYOUT,
           cutout: "52%",
           plugins: {
             reportDonutCenterTotal: {
@@ -10063,6 +10129,7 @@ function attachReportCharts() {
         },
         options: {
           ...common,
+          ...REPORT_DONUT_LABEL_SAFE_LAYOUT,
           cutout: "52%",
           plugins: {
             reportDonutCenterTotal: {
@@ -17771,6 +17838,8 @@ function attachFilterHandlers(section) {
 
 function showApp(userName) {
   authExpiredNoticeShown = false;
+  document.body.classList.add("login-intro-done");
+  document.body.classList.remove("login-intro-active");
   document.body.classList.remove("login-mode");
   document.body.classList.remove("shared-report-mode");
   sharedReportMode = false;
@@ -17826,6 +17895,7 @@ function showLogin() {
   reportSystemChartVisibilityCache = null;
   reportCustomChartsCache = null;
   reportViewTab = "system";
+  playLoginIntroOnce();
   hideBootLoaderAfterRender();
 }
 
