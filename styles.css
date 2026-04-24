@@ -260,6 +260,17 @@ body.login-mode.login-intro-done .auth-step--phone {
   pointer-events: auto;
 }
 
+.auth-form--submitting .auth-login-submit {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: none;
+}
+
+.auth-form--submitting input,
+.auth-form--submitting button:not(.auth-login-submit) {
+  cursor: wait;
+}
+
 .phone-input-wrap {
   position: relative;
 }
@@ -356,6 +367,21 @@ body.login-mode.login-intro-done .auth-step--phone {
   justify-self: center;
   width: 100%;
   justify-content: center;
+}
+
+#loginBtn:disabled {
+  cursor: wait;
+  opacity: 0.92;
+}
+
+.login-btn-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.42);
+  border-top-color: #fff;
+  border-radius: 50%;
+  display: inline-block;
+  animation: login-btn-spin 720ms linear infinite;
 }
 
 .login-support-btn {
@@ -2224,6 +2250,12 @@ body.app-booting .app-boot-loader {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes login-btn-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

@@ -933,13 +933,31 @@ function showLoginGreeting(userName, onDone) {
   document.body.appendChild(overlay);
   requestAnimationFrame(() => overlay.classList.add("is-visible"));
   window.setTimeout(() => {
-    overlay.classList.remove("is-visible");
-    overlay.classList.add("is-leaving");
-  }, 2550);
-  window.setTimeout(() => {
-    overlay.remove();
     if (typeof onDone === "function") onDone();
-  }, 3300);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        overlay.classList.remove("is-visible");
+        overlay.classList.add("is-leaving");
+      });
+    });
+  }, 2550);
+  window.setTimeout(() => overlay.remove(), 3400);
+}
+
+function setLoginSubmitting(isSubmitting) {
+  loginSubmitInFlight = Boolean(isSubmitting);
+  if (loginForm) loginForm.classList.toggle("auth-form--submitting", loginSubmitInFlight);
+  if (loginBtn) {
+    loginBtn.disabled = loginSubmitInFlight;
+    loginBtn.setAttribute("aria-busy", loginSubmitInFlight ? "true" : "false");
+    loginBtn.innerHTML = loginSubmitInFlight
+      ? `<span class="login-btn-spinner" aria-hidden="true"></span><span>Входим...</span>`
+      : withLucideIcon("log-in", "Войти");
+  }
+  if (phoneInput) phoneInput.disabled = loginSubmitInFlight;
+  if (passwordInput) passwordInput.disabled = loginSubmitInFlight;
+  if (loginPhoneCountryBtn) loginPhoneCountryBtn.disabled = loginSubmitInFlight;
+  if (togglePasswordBtn) togglePasswordBtn.disabled = loginSubmitInFlight;
 }
 
 function copyTextToClipboard(text) {
@@ -3849,6 +3867,7 @@ let reportChartDragId = null;
 let reportCustomChartDragId = null;
 let loginIntroShown = false;
 let loginMotionCanvasCleanup = null;
+let loginSubmitInFlight = false;
 /** Выделенные кастомные диаграммы для массовой группировки */
 let reportCustomSelectedChartIds = new Set();
 /** Черновик названия группы в панели кастомной аналитики */
@@ -18088,6 +18107,7 @@ function showApp(userName) {
 
 function showLogin() {
   startLoginMotionCanvas();
+  setLoginSubmitting(false);
   document.body.classList.add("login-mode");
   document.body.classList.remove("shared-report-mode");
   sharedReportMode = false;
@@ -19042,6 +19062,7 @@ function restoreSession() {
 
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (loginSubmitInFlight) return;
   const formData = new FormData(loginForm);
   const phone = normalizeUzPhone(String(formData.get("phone") || ""));
   const password = String(formData.get("password") || "");
@@ -19051,6 +19072,8 @@ loginForm.addEventListener("submit", async (event) => {
     return;
   }
   loginError.textContent = "Неверный логин или пароль";
+  loginError.classList.add("hidden");
+  setLoginSubmitting(true);
 
   if (isHostedRuntime()) {
     try {
@@ -19091,6 +19114,7 @@ loginForm.addEventListener("submit", async (event) => {
     return;
   }
 
+  setLoginSubmitting(false);
   loginError.classList.remove("hidden");
 });
 
