@@ -35,25 +35,33 @@
     <section id="loginSection" class="card auth-card">
       <img src="horizontal-v1.svg" alt="Логотип" class="login-logo" />
       <form id="loginForm" class="auth-form">
-        <label for="phone">Номер телефона</label>
-        <div class="phone-input-wrap">
-          <button id="loginPhoneCountryBtn" type="button" class="phone-input-flag-btn" title="Выбрать страну" aria-label="Выбрать страну">
-            <img id="loginPhoneFlag" class="phone-input-flag" alt="" src="" />
-          </button>
-          <input id="phone" name="phone" type="tel" placeholder="+998991234567" value="+" inputmode="tel" maxlength="16" pattern="^\+[0-9]{8,15}$" autocomplete="tel" required />
+        <div class="auth-step auth-step--phone is-visible">
+          <label for="phone">Номер телефона</label>
+          <div class="phone-input-wrap">
+            <button id="loginPhoneCountryBtn" type="button" class="phone-input-flag-btn" title="Выбрать страну" aria-label="Выбрать страну">
+              <img id="loginPhoneFlag" class="phone-input-flag" alt="" src="" />
+            </button>
+            <input id="phone" name="phone" type="tel" placeholder="+998991234567" value="+" inputmode="tel" maxlength="16" pattern="^\+[0-9]{8,15}$" autocomplete="tel" required />
+          </div>
         </div>
 
-        <label for="password">Пароль</label>
-        <div class="password-field">
-          <input id="password" name="password" type="password" placeholder="Введите пароль" required />
-          <button id="togglePasswordBtn" type="button" class="password-toggle-btn" title="Показать пароль" aria-label="Показать пароль">
-            <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
-          </button>
+        <div class="auth-step auth-step--password">
+          <label for="password">Пароль</label>
+          <div class="password-field">
+            <input id="password" name="password" type="password" placeholder="Введите пароль" required />
+            <button id="togglePasswordBtn" type="button" class="password-toggle-btn" title="Показать пароль" aria-label="Показать пароль">
+              <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
+            </button>
+          </div>
         </div>
 
-        <button id="loginBtn" type="submit" class="with-icon"></button>
+        <button id="loginBtn" type="submit" class="with-icon auth-login-submit"></button>
         <p id="loginError" class="error hidden">Неверный логин или пароль</p>
       </form>
+      <button id="loginSupportBtn" type="button" class="login-support-btn">
+        <i data-lucide="headphones" class="lucide-icon" aria-hidden="true"></i>
+        <span>Служба поддержки</span>
+      </button>
     </section>
 
     <section id="appSection" class="hidden">

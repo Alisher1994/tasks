@@ -8,6 +8,7 @@ const tableContainer = document.getElementById("tableContainer");
 const logoutBtn = document.getElementById("logoutBtn");
 const currentUser = document.getElementById("currentUser");
 const loginBtn = document.getElementById("loginBtn");
+const loginSupportBtn = document.getElementById("loginSupportBtn");
 const sidebarBrandToggle = document.getElementById("sidebarBrandToggle");
 const passwordInput = document.getElementById("password");
 const togglePasswordBtn = document.getElementById("togglePasswordBtn");
@@ -772,23 +773,123 @@ function hideBootLoaderAfterRender() {
 }
 
 function playLoginIntroOnce() {
-  if (loginIntroShown || !loginVideoPreloader) return;
+  if (loginIntroShown || !loginVideoPreloader) {
+    document.body.classList.add("login-intro-done");
+    document.body.classList.remove("login-intro-active");
+    document.documentElement.classList.remove("login-intro-active-root");
+    return;
+  }
   loginIntroShown = true;
+  setAppBootLoading(false);
+  document.documentElement.classList.add("login-intro-active-root");
   document.body.classList.add("login-intro-active");
   document.body.classList.remove("login-intro-done");
   const video = loginVideoPreloader.querySelector("video");
+  let finished = false;
+  let fallbackTimer = null;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(fallbackTimer);
+    window.setTimeout(() => {
+      document.body.classList.add("login-intro-done");
+      document.body.classList.remove("login-intro-active");
+      document.documentElement.classList.remove("login-intro-active-root");
+    }, 850);
+  };
   if (video) {
     try {
       video.currentTime = 0;
       video.play?.().catch?.(() => {});
+      video.addEventListener("ended", finish, { once: true });
+      video.addEventListener("error", finish, { once: true });
+      const durationMs = Number.isFinite(video.duration) && video.duration > 0
+        ? Math.min(12000, Math.max(2600, video.duration * 1000 + 300))
+        : 6200;
+      fallbackTimer = window.setTimeout(finish, durationMs);
     } catch (_) {
-      /* noop */
+      finish();
     }
+  } else {
+    fallbackTimer = window.setTimeout(finish, 2200);
   }
+}
+
+function updateLoginProgressiveFields() {
+  if (!loginForm || !phoneInput || !passwordInput || !loginBtn) return;
+  const normalizedPhone = normalizeUzPhone(phoneInput.value);
+  const phoneRule = getPhoneRuleByDial(detectDialCodeByPhone(normalizedPhone));
+  const phoneDigits = normalizedPhone.replace(/\D/g, "");
+  const phoneReady = phoneDigits.length >= phoneRule.max && isPhoneLengthValid(normalizedPhone);
+  const passwordReady = String(passwordInput.value || "").trim().length > 0;
+  loginForm.classList.toggle("auth-form--phone-ready", phoneReady);
+  loginForm.classList.toggle("auth-form--password-ready", phoneReady && passwordReady);
+  if (phoneReady && document.activeElement === phoneInput) {
+    requestAnimationFrame(() => passwordInput.focus());
+  }
+}
+
+function getGreetingText(userName) {
+  const h = new Date().getHours();
+  const greeting = h >= 18 || h < 5 ? "Добрый вечер" : "Добрый день";
+  const name = String(userName || "").trim() || "Пользователь";
+  return `${greeting}, ${name}.`;
+}
+
+function showLoginGreeting(userName, onDone) {
+  const overlay = document.createElement("div");
+  overlay.className = "login-greeting-overlay";
+  overlay.innerHTML = `
+    <div class="login-greeting-card" role="status" aria-live="polite">
+      <img src="mb new logo 1.svg" alt="" class="login-greeting-logo" aria-hidden="true" />
+      <div class="login-greeting-title">${escapeHtmlText(getGreetingText(userName))}</div>
+      <div class="login-greeting-subtitle">Загружаем рабочее пространство</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add("is-visible"));
   window.setTimeout(() => {
-    document.body.classList.add("login-intro-done");
-    document.body.classList.remove("login-intro-active");
-  }, 1700);
+    overlay.classList.remove("is-visible");
+    overlay.classList.add("is-leaving");
+  }, 1450);
+  window.setTimeout(() => {
+    overlay.remove();
+    if (typeof onDone === "function") onDone();
+  }, 2050);
+}
+
+function openLoginSupportModal() {
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay login-support-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal login-support-modal" role="dialog" aria-modal="true" aria-label="Служба поддержки">
+      <h3>Служба поддержки</h3>
+      <div class="login-support-contact-card">
+        <span class="login-support-contact-icon"><i data-lucide="user-round-cog" class="lucide-icon" aria-hidden="true"></i></span>
+        <div>
+          <div class="login-support-contact-title">Администратор системы</div>
+          <strong>Алишер</strong>
+          <a href="tel:+998994067406">+998 99 406 74 06</a>
+          <a href="https://t.me/alishermusayev94" target="_blank" rel="noopener">Telegram: @alishermusayev94</a>
+        </div>
+      </div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary login-support-close">Закрыть</button>
+      </div>
+    </div>
+  `;
+  const close = () => overlay.remove();
+  overlay.querySelector(".login-support-close")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  document.addEventListener("keydown", function onKey(event) {
+    if (event.key !== "Escape") return;
+    document.removeEventListener("keydown", onKey);
+    close();
+  });
+  document.body.appendChild(overlay);
+  initLucideIcons();
 }
 
 function setTurboLoaderProgress(progress) {
@@ -17838,8 +17939,9 @@ function attachFilterHandlers(section) {
 
 function showApp(userName) {
   authExpiredNoticeShown = false;
-  document.body.classList.add("login-intro-done");
+  document.body.classList.remove("login-intro-done");
   document.body.classList.remove("login-intro-active");
+  document.documentElement.classList.remove("login-intro-active-root");
   document.body.classList.remove("login-mode");
   document.body.classList.remove("shared-report-mode");
   sharedReportMode = false;
@@ -17877,6 +17979,7 @@ function showLogin() {
   }
   if (passwordInput) {
     passwordInput.type = "password";
+    passwordInput.value = "";
   }
   if (togglePasswordBtn) {
     togglePasswordBtn.title = "Показать пароль";
@@ -17895,6 +17998,7 @@ function showLogin() {
   reportSystemChartVisibilityCache = null;
   reportCustomChartsCache = null;
   reportViewTab = "system";
+  updateLoginProgressiveFields();
   playLoginIntroOnce();
   hideBootLoaderAfterRender();
 }
@@ -18841,8 +18945,10 @@ loginForm.addEventListener("submit", async (event) => {
         saveSession(userName);
         saveSessionPhone(phone);
         await pullRemoteAppState();
-        showApp(userName);
-        scheduleServerSync();
+        showLoginGreeting(userName, () => {
+          showApp(userName);
+          scheduleServerSync();
+        });
         return;
       }
     } catch (_) {
@@ -18858,7 +18964,7 @@ loginForm.addEventListener("submit", async (event) => {
     currentAuthRole = "admin";
     saveSession(userName);
     saveSessionPhone(phone);
-    showApp(userName);
+    showLoginGreeting(userName, () => showApp(userName));
     return;
   }
 
@@ -18885,11 +18991,17 @@ phoneInput?.addEventListener("focus", () => {
   setCaretAfterDialCode(phoneInput);
 });
 phoneInput?.addEventListener("blur", enforceUzPhonePrefix);
+phoneInput?.addEventListener("input", updateLoginProgressiveFields);
+passwordInput?.addEventListener("input", updateLoginProgressiveFields);
 if (phoneInput instanceof HTMLInputElement) {
   attachStrictPhoneInputBehavior(
     phoneInput,
-    updateLoginPhoneFlag,
     () => {
+      updateLoginPhoneFlag();
+      updateLoginProgressiveFields();
+    },
+    () => {
+      updateLoginProgressiveFields();
       if (passwordInput instanceof HTMLInputElement) {
         requestAnimationFrame(() => passwordInput.focus());
       }
@@ -18897,6 +19009,7 @@ if (phoneInput instanceof HTMLInputElement) {
   );
 }
 loginPhoneCountryBtn?.addEventListener("click", openLoginCountryPickerModal);
+loginSupportBtn?.addEventListener("click", openLoginSupportModal);
 
 loginBtn.innerHTML = withLucideIcon("log-in", "Войти");
 logoutBtn.innerHTML = withLucideIcon("log-out", "Выйти");
