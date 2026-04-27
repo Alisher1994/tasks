@@ -11491,8 +11491,8 @@ function normalizeEmployeeImportTelegram(raw) {
 function createEmployeeRowFromImport(values, employeeId) {
   const row = new Array(EMPLOYEE_COLUMNS.adminAccess + 1).fill("");
   const fullName = normalizePersonName(values.fullName);
-  const department = String(values.department || "").trim();
-  const position = String(values.position || "").trim();
+  const department = getCatalogCanonicalValue("departments", values.department);
+  const position = getCatalogCanonicalValue("roles", values.position);
   const phone = formatUzPhoneDisplay(normalizeUzPhone(values.phone || DEFAULT_PHONE_PREFIX));
   row[EMPLOYEE_COLUMNS.id] = String(employeeId || "");
   row[EMPLOYEE_COLUMNS.fullName] = fullName;
@@ -11512,19 +11512,25 @@ function inspectImportedEmployeeRows(rows, employeesSection) {
       .map((row) => normalizePersonName(row?.[EMPLOYEE_COLUMNS.fullName] || "").toLowerCase())
       .filter(Boolean)
   );
-  const existingPhoneSet = new Set(
-    (employeesSection?.rows || [])
-      .map((row) => normalizeUzPhone(row?.[EMPLOYEE_COLUMNS.phone] || ""))
-      .filter((phone) => employeePhoneLocalCompleteNormalized(phone))
-  );
+  const existingPhoneMap = new Map();
+  (employeesSection?.rows || []).forEach((row) => {
+    const phone = normalizeImportedEmployeePhone(row?.[EMPLOYEE_COLUMNS.phone] || "");
+    const digits = getImportedEmployeePhoneDigits(phone);
+    if (!employeePhoneLocalCompleteNormalized(phone)) return;
+    if (!existingPhoneMap.has(digits)) existingPhoneMap.set(digits, phone);
+  });
   const seenNameSet = new Set();
-  const seenPhoneSet = new Set();
+  const seenPhoneMap = new Map();
   return rows.map((raw) => {
+    const normalizedDepartment = getCatalogCanonicalValue("departments", raw.department);
+    const normalizedPosition = getCatalogCanonicalValue("roles", raw.position);
+    const normalizedPhone = normalizeImportedEmployeePhone(raw.phone || DEFAULT_PHONE_PREFIX);
+    const phoneDigits = getImportedEmployeePhoneDigits(normalizedPhone);
     const normalized = {
       fullName: normalizePersonName(raw.fullName),
-      department: String(raw.department || "").trim(),
-      position: String(raw.position || "").trim(),
-      phone: formatUzPhoneDisplay(normalizeUzPhone(raw.phone || DEFAULT_PHONE_PREFIX)),
+      department: normalizedDepartment,
+      position: normalizedPosition,
+      phone: normalizedPhone,
       telegram: normalizeEmployeeImportTelegram(raw.telegram)
     };
     const issues = [];
@@ -11537,11 +11543,13 @@ function inspectImportedEmployeeRows(rows, employeesSection) {
       if (seenNameSet.has(nameKey)) issues.push("Дубликат ФИО в импорте");
       seenNameSet.add(nameKey);
     }
-    const phoneNorm = normalizeUzPhone(normalized.phone || "");
-    if (employeePhoneLocalCompleteNormalized(phoneNorm)) {
-      if (existingPhoneSet.has(phoneNorm)) issues.push("Телефон уже есть в таблице");
-      if (seenPhoneSet.has(phoneNorm)) issues.push("Дубликат телефона в импорте");
-      seenPhoneSet.add(phoneNorm);
+    if (phoneDigits && !employeePhoneLocalCompleteNormalized(normalizedPhone)) {
+      issues.push("Телефон слишком короткий для проверки");
+    }
+    if (employeePhoneLocalCompleteNormalized(normalizedPhone)) {
+      if (existingPhoneMap.has(phoneDigits)) issues.push("Телефон уже есть в таблице");
+      if (seenPhoneMap.has(phoneDigits)) issues.push("Дубликат телефона в импорте");
+      seenPhoneMap.set(phoneDigits, normalizedPhone);
     }
     return {
       raw,
@@ -11555,6 +11563,56 @@ function inspectImportedEmployeeRows(rows, employeesSection) {
 function getCatalogValueSet(sectionId) {
   const rows = resolveCatalogSection(sectionId)?.rows || [];
   return new Set(rows.map((row) => String(row?.[1] || "").trim()).filter(Boolean));
+}
+
+function getCatalogCanonicalValue(sectionId, rawValue) {
+  const wanted = String(rawValue || "").trim();
+  if (!wanted) return "";
+  const rows = resolveCatalogSection(sectionId)?.rows || [];
+  const wantedKey = wanted.toLocaleLowerCase("ru-RU");
+  const exact = rows.find((row) => String(row?.[1] || "").trim() === wanted);
+  if (exact) return String(exact[1] || "").trim();
+  const fuzzy = rows.find((row) => String(row?.[1] || "").trim().toLocaleLowerCase("ru-RU") === wantedKey);
+  return fuzzy ? String(fuzzy[1] || "").trim() : wanted;
+}
+
+function normalizeImportedEmployeePhone(rawValue) {
+  return formatUzPhoneDisplay(normalizeUzPhone(rawValue || DEFAULT_PHONE_PREFIX));
+}
+
+function getImportedEmployeePhoneDigits(rawValue) {
+  return String(normalizeImportedEmployeePhone(rawValue)).replace(/\D/g, "");
+}
+
+function ensureEmployeeImportCatalogValues(rows) {
+  ensureCatalogValuesFromImport("departments", rows.map((item) => item.normalized?.department));
+  ensureCatalogValuesFromImport("roles", rows.map((item) => item.normalized?.position));
+}
+
+function ensureCatalogValuesFromImport(sectionId, rawValues) {
+  const section = resolveCatalogSection(sectionId);
+  if (!section) return;
+  const getTypeLabel = sectionId === "departments" ? getDepartmentTypeLabel : getRoleTypeLabel;
+  const normalizedExisting = new Map();
+  section.rows.forEach((row) => {
+    const value = String(row?.[1] || "").trim();
+    if (!value) return;
+    const key = value.toLocaleLowerCase("ru-RU");
+    if (!normalizedExisting.has(key)) normalizedExisting.set(key, value);
+  });
+  rawValues.forEach((value) => {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) return;
+    const key = trimmed.toLocaleLowerCase("ru-RU");
+    if (normalizedExisting.has(key)) return;
+    const nextId = String(section.rows.length + 1);
+    if (sectionId === "departments") {
+      section.rows.push([nextId, trimmed, "", getTypeLabel(trimmed)]);
+    } else {
+      section.rows.push([nextId, trimmed, getTypeLabel(trimmed)]);
+    }
+    normalizedExisting.set(key, trimmed);
+  });
 }
 
 function resolveCatalogSection(sectionId) {
@@ -13670,6 +13728,7 @@ function getDepartmentTypeLabel(departmentName) {
 function ensureSystemRoles() {
   const rolesSection = getSectionById("roles");
   if (!rolesSection) return;
+  dedupeCatalogRowsInPlace(rolesSection, 1);
   const existing = new Set(rolesSection.rows.map((row) => String(row[1] || "").trim()).filter(Boolean));
   rolesSection.rows.forEach((row) => {
     row[2] = getRoleTypeLabel(row[1]);
@@ -13685,6 +13744,7 @@ function ensureSystemRoles() {
 function ensureSystemDepartments() {
   const departmentsSection = getSectionById("departments");
   if (!departmentsSection) return;
+  dedupeCatalogRowsInPlace(departmentsSection, 1);
   const existing = new Set(departmentsSection.rows.map((row) => String(row[1] || "").trim()).filter(Boolean));
   departmentsSection.rows.forEach((row) => {
     row[3] = getDepartmentTypeLabel(row[1]);
@@ -13905,6 +13965,23 @@ function syncEmployeesDerivedFields() {
     row[EMPLOYEE_COLUMNS.adminAccess] = toEmployeeAdminAccessStorageValue(row[EMPLOYEE_COLUMNS.adminAccess]);
   });
   dedupeEmployeesInPlace(employeesSection);
+}
+
+function dedupeCatalogRowsInPlace(section, valueIndex = 1) {
+  if (!section?.rows?.length) return;
+  const seen = new Set();
+  section.rows = section.rows.filter((row) => {
+    const value = String(row?.[valueIndex] || "").trim();
+    if (!value) return false;
+    const key = value.toLocaleLowerCase("ru-RU");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    row[valueIndex] = value;
+    return true;
+  });
+  section.rows.forEach((row, index) => {
+    row[0] = String(index + 1);
+  });
 }
 
 /** Только цифры — не считаем человекочитаемым названием фазы/раздела/подраздела. */
@@ -16264,17 +16341,61 @@ function restoreDisplaySettings() {
   }
 }
 
-function renderTablePreserveScroll() {
-  startTurboLoader();
+function captureTableUiState() {
   const tableWrap = document.querySelector(".table-wrap");
-  const scrollTop = tableWrap ? tableWrap.scrollTop : 0;
-  const scrollLeft = tableWrap ? tableWrap.scrollLeft : 0;
-  renderTable();
+  const active = document.activeElement;
+  const isRestorableControl = active instanceof HTMLInputElement || active instanceof HTMLSelectElement || active instanceof HTMLTextAreaElement;
+  return {
+    scrollTop: tableWrap ? tableWrap.scrollTop : 0,
+    scrollLeft: tableWrap ? tableWrap.scrollLeft : 0,
+    focus: isRestorableControl
+      ? {
+        id: String(active.id || "").trim(),
+        tagName: active.tagName,
+        type: active instanceof HTMLInputElement ? String(active.type || "").toLowerCase() : "",
+        value: "value" in active ? String(active.value || "") : "",
+        selectionStart: active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active.selectionStart : null,
+        selectionEnd: active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active.selectionEnd : null
+      }
+      : null
+  };
+}
+
+function restoreTableUiState(state) {
   const nextWrap = document.querySelector(".table-wrap");
   if (nextWrap) {
-    nextWrap.scrollTop = scrollTop;
-    nextWrap.scrollLeft = scrollLeft;
+    nextWrap.scrollTop = Number(state?.scrollTop || 0);
+    nextWrap.scrollLeft = Number(state?.scrollLeft || 0);
   }
+  const focus = state?.focus;
+  if (!focus?.id) return;
+  const nextActive = document.getElementById(focus.id);
+  if (!nextActive) return;
+  const sameTag = String(nextActive.tagName || "") === String(focus.tagName || "");
+  if (!sameTag) return;
+  const sameValue = "value" in nextActive ? String(nextActive.value || "") === String(focus.value || "") : true;
+  nextActive.focus({ preventScroll: true });
+  if (
+    sameValue
+    && (nextActive instanceof HTMLInputElement || nextActive instanceof HTMLTextAreaElement)
+    && focus.type !== "color"
+    && focus.type !== "range"
+  ) {
+    const start = Number.isFinite(focus.selectionStart) ? focus.selectionStart : nextActive.value.length;
+    const end = Number.isFinite(focus.selectionEnd) ? focus.selectionEnd : start;
+    try {
+      nextActive.setSelectionRange(start, end);
+    } catch (_) {
+      // Some input types do not support selection restore.
+    }
+  }
+}
+
+function renderTablePreserveScroll() {
+  startTurboLoader();
+  const uiState = captureTableUiState();
+  renderTable();
+  restoreTableUiState(uiState);
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       finishTurboLoader();
@@ -17595,9 +17716,12 @@ function openEmployeeImportModal(section) {
   };
 
   saveBtn?.addEventListener("click", () => {
+    ensureEmployeeImportCatalogValues(inspectedRows.filter((item) => item.canImport));
     const rows = buildRows();
     if (!rows.length) return;
     rows.forEach((row) => section.rows.push(row));
+    ensureSystemRoles();
+    ensureSystemDepartments();
     syncEmployeesDerivedFields();
     saveSectionsData();
     scheduleEmployeeChatIdAutoRefresh();
@@ -18070,7 +18194,7 @@ function attachFilterHandlers(section) {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.search = searchInput.value;
       bumpTasksPagingReset();
-      renderTable();
+      renderTablePreserveScroll();
     });
   }
 
@@ -18079,7 +18203,7 @@ function attachFilterHandlers(section) {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.status = statusSelect.value;
       bumpTasksPagingReset();
-      renderTable();
+      renderTablePreserveScroll();
     });
   }
 
@@ -18088,7 +18212,7 @@ function attachFilterHandlers(section) {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.responsible = responsibleSelect.value;
       bumpTasksPagingReset();
-      renderTable();
+      renderTablePreserveScroll();
     });
   }
 
@@ -18097,7 +18221,7 @@ function attachFilterHandlers(section) {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.object = objectSelect.value;
       bumpTasksPagingReset();
-      renderTable();
+      renderTablePreserveScroll();
     });
   }
 
@@ -18106,7 +18230,7 @@ function attachFilterHandlers(section) {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.phase = phaseSelect.value;
       bumpTasksPagingReset();
-      renderTable();
+      renderTablePreserveScroll();
     });
   }
 
@@ -18115,7 +18239,7 @@ function attachFilterHandlers(section) {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.section = sectionSelect.value;
       bumpTasksPagingReset();
-      renderTable();
+      renderTablePreserveScroll();
     });
   }
 
@@ -18124,7 +18248,7 @@ function attachFilterHandlers(section) {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.subsection = subsectionSelect.value;
       bumpTasksPagingReset();
-      renderTable();
+      renderTablePreserveScroll();
     });
   }
 
@@ -18133,7 +18257,7 @@ function attachFilterHandlers(section) {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.delayReason = delayReasonSelect.value;
       bumpTasksPagingReset();
-      renderTable();
+      renderTablePreserveScroll();
     });
   }
 
@@ -18142,7 +18266,7 @@ function attachFilterHandlers(section) {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.readState = readStateSelect.value;
       bumpTasksPagingReset();
-      renderTable();
+      renderTablePreserveScroll();
     });
   }
 
@@ -18150,7 +18274,7 @@ function attachFilterHandlers(section) {
     resetButton.addEventListener("click", () => {
       filtersBySection[section.id] = {};
       bumpTasksPagingReset();
-      renderTable();
+      renderTablePreserveScroll();
     });
   }
 }
