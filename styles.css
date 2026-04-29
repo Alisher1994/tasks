@@ -1719,12 +1719,12 @@ th {
 
 thead.table-head-has-order .table-head-main-row th {
   top: 0;
-  z-index: 12;
+  z-index: 22;
 }
 
 thead.table-head-has-order .table-head-order-row th {
   top: var(--table-sticky-main-row-h, 40px);
-  z-index: 11;
+  z-index: 21;
   padding-top: 5px;
   padding-bottom: 5px;
   border-top: 1px solid #c6d2df;
@@ -1824,23 +1824,36 @@ thead th.checkbox-col,
 thead th.first-visible-col,
 thead th.number-col,
 thead th.actions-col {
-  z-index: 10;
+  z-index: 30;
 }
 
 /* Жёсткая фиксация sticky-колонок слева (чтобы не съезжали при горизонтальной прокрутке). */
 thead th.checkbox-col {
   left: 0;
-  z-index: 15;
+  z-index: 42;
 }
 
 thead th.number-col {
   left: 44px;
-  z-index: 14;
+  z-index: 41;
 }
 
 thead th.first-visible-col {
   left: 44px;
-  z-index: 14;
+  z-index: 41;
+}
+
+thead th.actions-col {
+  z-index: 34;
+}
+
+thead.table-head-has-order .table-head-order-row th.first-visible-col,
+thead.table-head-has-order .table-head-order-row th.number-col {
+  z-index: 40;
+}
+
+thead.table-head-has-order .table-head-order-row th.actions-col {
+  z-index: 33;
 }
 
 tbody td.checkbox-col {
