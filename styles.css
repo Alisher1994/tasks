@@ -1787,10 +1787,21 @@ th.actions-col {
   background: #f9fbfd;
 }
 
+.first-visible-col {
+  position: sticky;
+  left: 44px;
+  z-index: 3;
+  background: #f9fbfd;
+}
+
 .roles-number-col {
   left: 34px;
   min-width: 52px;
   width: 52px;
+}
+
+.roles-first-visible-col {
+  left: 34px;
 }
 
 .roles-compact-col {
@@ -1810,6 +1821,7 @@ th.number-col {
 }
 
 thead th.checkbox-col,
+thead th.first-visible-col,
 thead th.number-col,
 thead th.actions-col {
   z-index: 10;
@@ -1826,12 +1838,22 @@ thead th.number-col {
   z-index: 14;
 }
 
+thead th.first-visible-col {
+  left: 44px;
+  z-index: 14;
+}
+
 tbody td.checkbox-col {
   left: 0;
   z-index: 7;
 }
 
 tbody td.number-col {
+  left: 44px;
+  z-index: 6;
+}
+
+tbody td.first-visible-col {
   left: 44px;
   z-index: 6;
 }
@@ -1937,12 +1959,14 @@ tr:nth-child(even) td {
 }
 
 .row-highlight-closed .checkbox-col,
+.row-highlight-closed .first-visible-col,
 .row-highlight-closed .number-col,
 .row-highlight-closed .actions-col {
   background: var(--closed-highlight-edge) !important;
 }
 
 .row-highlight-need-decision .checkbox-col,
+.row-highlight-need-decision .first-visible-col,
 .row-highlight-need-decision .number-col,
 .row-highlight-need-decision .actions-col {
   background: #ffe7e7 !important;
@@ -1953,6 +1977,7 @@ tr:nth-child(even) td {
 }
 
 .row-highlight-reassign-pending .checkbox-col,
+.row-highlight-reassign-pending .first-visible-col,
 .row-highlight-reassign-pending .number-col,
 .row-highlight-reassign-pending .actions-col {
   background: #fff3bf !important;
@@ -1963,6 +1988,7 @@ tr:nth-child(even) td {
 }
 
 .focused-row .checkbox-col,
+.focused-row .first-visible-col,
 .focused-row .number-col,
 .focused-row .actions-col {
   background: var(--brand-surface-2) !important;
@@ -1978,6 +2004,10 @@ tr:nth-child(even) td {
 }
 
 .task-reassign-subrow .number-col {
+  white-space: nowrap;
+}
+
+.task-reassign-subrow .first-visible-col {
   white-space: nowrap;
 }
 

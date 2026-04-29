@@ -5195,13 +5195,15 @@ function renderTable() {
     : "";
   const titleHeaderCells = visibleColumnIndexes.map((columnIndex, viewOrder) => {
     const column = section.columns[columnIndex];
-    const numberClass = columnIndex === 0 && viewOrder === 0 ? "number-col" : "";
+    const firstVisibleClass = viewOrder === 0 ? "first-visible-col" : "";
+    const numberClass = columnIndex === 0 ? "number-col" : "";
     const rolesNumberClass = section.id === "roles" && columnIndex === 0 && viewOrder === 0 ? "roles-number-col" : "";
+    const rolesFirstVisibleClass = section.id === "roles" && viewOrder === 0 ? "roles-first-visible-col" : "";
     const statusClass = columnIndex === TASK_COLUMNS.status ? "status-col" : "";
     const objectClass = columnIndex === TASK_COLUMNS.object ? "object-col" : "";
     const mediaClass = isMediaColumn(columnIndex) ? "media-col" : "";
     const objectPhotoClass = section.id === "objects" && columnIndex === OBJECT_COLUMNS.photo ? "object-photo-col" : "";
-    return `<th class="${numberClass} ${rolesNumberClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass}">
+    return `<th class="${firstVisibleClass} ${numberClass} ${rolesNumberClass} ${rolesFirstVisibleClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass}">
       <span class="table-th-title">${escapeHtmlText(column)}</span>
     </th>`;
   }).join("");
@@ -5232,15 +5234,17 @@ function renderTable() {
           const rowCells = visibleColumnIndexes
             .map((colIndex, viewOrder) => {
               const cell = entry.row[colIndex];
-              const stickyClass = colIndex === 0 && viewOrder === 0 ? "number-col" : "";
+              const firstVisibleClass = viewOrder === 0 ? "first-visible-col" : "";
+              const stickyClass = colIndex === 0 ? "number-col" : "";
               const rolesNumberClass = section.id === "roles" && colIndex === 0 && viewOrder === 0 ? "roles-number-col" : "";
+              const rolesFirstVisibleClass = section.id === "roles" && viewOrder === 0 ? "roles-first-visible-col" : "";
               const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
               const objectClass = colIndex === TASK_COLUMNS.object ? "object-col" : "";
               const mediaClass = isMediaColumn(colIndex) ? "media-col" : "";
               const objectPhotoClass = section.id === "objects" && colIndex === OBJECT_COLUMNS.photo ? "object-photo-col" : "";
               const wideClass = getWideColumnClass(colIndex);
               const readonlyClass = isReadonlyColumn(section, colIndex) ? "readonly-cell" : "";
-              return `<td class="editable-cell ${stickyClass} ${rolesNumberClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass} ${wideClass} ${readonlyClass}" data-row-index="${entry.rowIndex}" data-col-index="${colIndex}">${renderCellContent(section, entry.row, colIndex, cell, entry.rowIndex)}</td>`;
+              return `<td class="editable-cell ${firstVisibleClass} ${stickyClass} ${rolesNumberClass} ${rolesFirstVisibleClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass} ${wideClass} ${readonlyClass}" data-row-index="${entry.rowIndex}" data-col-index="${colIndex}">${renderCellContent(section, entry.row, colIndex, cell, entry.rowIndex)}</td>`;
             })
             .join("");
           const rowFocusClass = activeRowBySection[section.id] === entry.rowIndex ? "focused-row" : "";
@@ -12225,12 +12229,13 @@ function renderTaskAssigneesAccordionRows(taskRow, visibleColumnIndexes, isTrash
       const subId = `${String(taskRow[TASK_COLUMNS.number] || "—")}.${idx + 1}`;
       const tds = visibleColumnIndexes
         .map((colIndex, viewOrder) => {
-          const stickyClass = colIndex === 0 && viewOrder === 0 ? "number-col" : "";
+          const firstVisibleClass = viewOrder === 0 ? "first-visible-col" : "";
+          const stickyClass = colIndex === 0 ? "number-col" : "";
           const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
           const objectClass = colIndex === TASK_COLUMNS.object ? "object-col" : "";
           const mediaClass = isMediaColumn(colIndex) ? "media-col" : "";
           const wideClass = getWideColumnClass(colIndex);
-          return `<td class="task-accordion-readonly-cell ${stickyClass} ${statusClass} ${objectClass} ${mediaClass} ${wideClass}">${renderTaskAccordionReadonlyCell(taskRow, colIndex, name, state, subId)}</td>`;
+          return `<td class="task-accordion-readonly-cell ${firstVisibleClass} ${stickyClass} ${statusClass} ${objectClass} ${mediaClass} ${wideClass}">${renderTaskAccordionReadonlyCell(taskRow, colIndex, name, state, subId)}</td>`;
         })
         .join("");
       const trashMetaCells = isTrashView ? `<td class="trash-meta-col">—</td><td class="trash-meta-col">—</td>` : "";
@@ -12282,7 +12287,8 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
     cloned[TASK_COLUMNS.reassignReason] = reason;
     cloned[TASK_COLUMNS.status] = label;
     const cells = visibleColumnIndexes.map((colIndex, viewOrder) => {
-      const stickyClass = colIndex === 0 && viewOrder === 0 ? "number-col" : "";
+      const firstVisibleClass = viewOrder === 0 ? "first-visible-col" : "";
+      const stickyClass = colIndex === 0 ? "number-col" : "";
       const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
       let val = cloned[colIndex];
       if (colIndex === TASK_COLUMNS.number) val = `↪ ${subId}`;
@@ -12297,7 +12303,7 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
       const rendered = colIndex === TASK_COLUMNS.assignedResponsible || colIndex === TASK_COLUMNS.status || colIndex === TASK_COLUMNS.note
         ? val
         : renderCellContent({ id: "tasks" }, cloned, colIndex, val, -1);
-      return `<td class="task-reassign-subrow-cell ${stickyClass} ${statusClass}">${rendered}</td>`;
+      return `<td class="task-reassign-subrow-cell ${firstVisibleClass} ${stickyClass} ${statusClass}">${rendered}</td>`;
     }).join("");
     return `
       <tr class="task-reassign-subrow">
