@@ -13221,8 +13221,10 @@ function getCellCommentKey(sectionId, rowIndex, colIndex) {
 function buildCellCommentsPreview(list) {
   const items = Array.isArray(list) ? list : [];
   if (!items.length) return "";
+  const active = items.filter((item) => !item?.resolved);
+  const source = active.length ? active : items;
   return items
-    .filter((item) => !item?.resolved)
+    .filter((item) => source.includes(item))
     .slice(-5)
     .map((item) => {
       const who = String(item.author || "Пользователь").trim() || "Пользователь";
@@ -13239,7 +13241,7 @@ function applyCellCommentDecorations(sectionId) {
     const rowIndex = Number(cell.dataset.rowIndex);
     const colIndex = Number(cell.dataset.colIndex);
     const key = getCellCommentKey(sectionId, rowIndex, colIndex);
-    const list = (Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : []).filter((item) => !item?.resolved);
+    const list = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : [];
     if (!list.length) {
       cell.classList.remove("has-cell-comment");
       cell.removeAttribute("data-cell-comment-preview");
@@ -13274,19 +13276,19 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
   let editingId = "";
   const close = () => overlay.remove();
   const renderThread = () => {
-    const current = (Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : []).filter((item) => !item?.resolved);
+    const current = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : [];
     if (!thread) return;
     if (!current.length) {
       thread.innerHTML = "";
       return;
     }
     thread.innerHTML = current.map((item) => `
-      <div class="cell-comment-item">
+      <div class="cell-comment-item ${item?.resolved ? "is-resolved" : ""}">
         <div class="cell-comment-meta">
-          ${escapeHtmlText(String(item.author || "Пользователь"))} • ${escapeHtmlText(String(item.at || "—"))}
+          ${escapeHtmlText(String(item.author || "Пользователь"))} • ${escapeHtmlText(String(item.at || "—"))}${item?.resolved ? " • выполнено" : ""}
           ${String(item.ownerKey || "").toLowerCase() === ownerKey
             ? `<span class="cell-comment-tools">
-                <button type="button" class="cell-comment-tool-btn" data-cell-comment-action="resolve" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="Отметить выполненным">✓</button>
+                <button type="button" class="cell-comment-tool-btn" data-cell-comment-action="resolve" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="${item?.resolved ? "Вернуть в активные" : "Отметить выполненным"}">${item?.resolved ? "↺" : "✓"}</button>
                 <button type="button" class="cell-comment-tool-btn" data-cell-comment-action="edit" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="Редактировать">✎</button>
               </span>`
             : ""}
@@ -13314,7 +13316,12 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
     const item = list[idx];
     if (String(item?.ownerKey || "").toLowerCase() !== ownerKey) return;
     if (action === "resolve") {
-      list[idx] = { ...item, resolved: true, resolvedAt: formatTaskHistoryWhen(Date.now()) };
+      const nextResolved = !Boolean(item?.resolved);
+      list[idx] = {
+        ...item,
+        resolved: nextResolved,
+        resolvedAt: nextResolved ? formatTaskHistoryWhen(Date.now()) : ""
+      };
       cellCommentsByCellKey[key] = list;
       normalizeCellCommentsStore();
       saveSectionsData();
@@ -13367,11 +13374,25 @@ function showCellContextMenu(sectionId, rowIndex, colIndex, pageX, pageY) {
   menu.className = "cell-context-menu";
   menu.style.left = `${pageX}px`;
   menu.style.top = `${pageY}px`;
-  menu.innerHTML = `<button type="button" class="cell-context-menu-btn">Добавить комментарий</button>`;
+  const key = getCellCommentKey(sectionId, rowIndex, colIndex);
+  const hasComments = Array.isArray(cellCommentsByCellKey[key]) && cellCommentsByCellKey[key].length > 0;
+  menu.innerHTML = `
+    <button type="button" class="cell-context-menu-btn" data-cell-menu-action="add">Добавить комментарий</button>
+    ${hasComments ? `<button type="button" class="cell-context-menu-btn" data-cell-menu-action="open">Открыть комментарии</button>` : ""}
+  `;
   const close = () => menu.remove();
-  menu.querySelector(".cell-context-menu-btn")?.addEventListener("click", () => {
+  menu.addEventListener("click", (event) => {
+    const btn = event.target instanceof HTMLElement ? event.target.closest(".cell-context-menu-btn") : null;
+    if (!(btn instanceof HTMLButtonElement)) return;
+    const action = String(btn.dataset.cellMenuAction || "").trim();
     close();
     openCellCommentModal(sectionId, rowIndex, colIndex);
+    if (action === "add") {
+      setTimeout(() => {
+        const input = document.querySelector("#cellCommentInput");
+        if (input instanceof HTMLTextAreaElement) input.focus();
+      }, 0);
+    }
   });
   document.body.appendChild(menu);
   const rect = menu.getBoundingClientRect();
@@ -19041,7 +19062,9 @@ function normalizeCellCommentsStore() {
           author: String(item.author || "Пользователь").trim().slice(0, 120) || "Пользователь",
           ownerKey: String(item.ownerKey || "").trim().toLowerCase(),
           at: String(item.at || "").trim() || new Date().toISOString(),
-          resolved: Boolean(item.resolved)
+          resolved: Boolean(item.resolved),
+          resolvedAt: String(item.resolvedAt || "").trim(),
+          editedAt: String(item.editedAt || "").trim()
         };
       })
       .filter(Boolean)
