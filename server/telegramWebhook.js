@@ -465,20 +465,17 @@ function buildTaskRowForAssignee(payload, row, assigneeName) {
 
 function buildTaskRowForChat(payload, row, chatId) {
   const taskId = String(row?.[TASK_COLUMNS.number] || "").trim();
-  const activeReassign = getActiveReassignForTask(payload, taskId);
+  const activeReassign = getActiveReassignForChat(payload, row, chatId);
   if (activeReassign) {
-    const employees = getEmployeesSection(payload);
-    const clickEmp = findEmployeeByChatId(employees, String(chatId || "").trim());
-    const clickName = normalizePersonName(clickEmp?.[EMPLOYEE_COLUMNS.fullName] || "");
     const activeTo = normalizePersonName(activeReassign.to || activeReassign.toEmployeeName || "");
     const scoped = Array.isArray(row) ? row.slice() : row;
-    if (clickName && activeTo && clickName.toLowerCase() === activeTo.toLowerCase()) {
-      scoped[TASK_COLUMNS.number] = String(activeReassign.code || `${taskId}/R1`).trim();
-      scoped[TASK_COLUMNS.status] = String(activeReassign.currentStatus || "В процессе").trim();
-      scoped[TASK_COLUMNS.assignedResponsible] = activeTo;
-      scoped[TASK_COLUMNS.reassignReason] = String(activeReassign.reasonText || row?.[TASK_COLUMNS.reassignReason] || "").trim();
-      return scoped;
-    }
+    scoped[TASK_COLUMNS.number] = String(activeReassign.code || `${taskId}/R1`).trim();
+    scoped[TASK_COLUMNS.status] = String(activeReassign.currentStatus || "В процессе").trim();
+    scoped[TASK_COLUMNS.assignedResponsible] = activeTo || scoped[TASK_COLUMNS.assignedResponsible];
+    scoped[TASK_COLUMNS.reassignReason] = String(activeReassign.reasonText || "").trim();
+    scoped[TASK_COLUMNS.plan] = String(activeReassign.comment || "").trim();
+    const readAt = String(activeReassign.readAt || "").trim();
+    scoped[TASK_COLUMNS.readState] = readAt ? composeReadStateValue(true, readAt) : composeReadStateValue(false, "—");
     return scoped;
   }
   const assigneeName = getTaskAssigneeNameByChat(payload, row, chatId);
@@ -618,10 +615,23 @@ function ensureTaskReassignLogStore(payload) {
 function getActiveReassignForTask(payload, taskId) {
   const id = String(taskId || "").trim();
   if (!id) return null;
-  const logArr = Array.isArray(payload?.taskReassignLog?.[id]) ? payload.taskReassignLog[id] : [];
+  const baseId = id.includes("/") ? String(id.split("/")[0] || "").trim() : id;
+  const logArr = Array.isArray(payload?.taskReassignLog?.[baseId]) ? payload.taskReassignLog[baseId] : [];
   const approved = logArr.find((x) => String(x?.status || "").trim() === "approved");
   if (!approved) return null;
   return approved;
+}
+
+function getActiveReassignForChat(payload, row, chatId) {
+  const active = getActiveReassignForTask(payload, String(row?.[TASK_COLUMNS.number] || "").trim());
+  if (!active) return null;
+  const toName = normalizePersonName(active.to || active.toEmployeeName || "");
+  if (!toName) return null;
+  const employees = getEmployeesSection(payload);
+  const clickEmp = findEmployeeByChatId(employees, String(chatId || "").trim());
+  const clickName = normalizePersonName(clickEmp?.[EMPLOYEE_COLUMNS.fullName] || "");
+  if (!clickName || clickName.toLowerCase() !== toName.toLowerCase()) return null;
+  return active;
 }
 
 function buildDepartmentOptions(payload) {
@@ -856,12 +866,14 @@ function filterMyTasksBySelection(rows, objectName, statusCode, appTz) {
   });
 }
 
-function myTasksListKeyboard(rows) {
+function myTasksListKeyboard(rows, payload, chatId) {
   const inline = rows.map((row) => {
-    const taskId = String(row?.[TASK_COLUMNS.number] || "").trim() || "—";
-    const status = normalizeTaskStatusValue(String(row?.[TASK_COLUMNS.status] || "").trim());
+    const scoped = buildTaskRowForChat(payload, row, chatId);
+    const taskId = String(scoped?.[TASK_COLUMNS.number] || "").trim() || "—";
+    const status = normalizeTaskStatusValue(String(scoped?.[TASK_COLUMNS.status] || "").trim());
+    const callbackTaskId = String(row?.[TASK_COLUMNS.number] || "").trim() || taskId;
     const emoji = STATUS_EMOJI[status] || "⚪";
-    return [{ text: `${emoji} Задача № ${taskId}`, callback_data: cb(taskId, "bk") }];
+    return [{ text: `${emoji} Задача № ${taskId}`, callback_data: cb(callbackTaskId, "bk") }];
   });
   inline.push([{ text: "⬅️ К объектам", callback_data: myTasksCb("bo", "0") }]);
   return { inline_keyboard: inline.slice(0, 70) };
@@ -1005,7 +1017,8 @@ function buildFullTaskMessage(row) {
   const lines = [];
   const st = String(row[TASK_COLUMNS.status] || "").trim();
   const statusLine = st ? `${STATUS_EMOJI[st] || "⚪"} ${st}` : "—";
-  lines.push(`📝 Задача №${String(row[TASK_COLUMNS.number] || "").trim() || "—"}: ${String(row[TASK_COLUMNS.task] || "").trim() || "—"}`);
+  lines.push(`📝 Задача №${String(row[TASK_COLUMNS.number] || "").trim() || "—"}`);
+  lines.push(`📄 Описание: ${String(row[TASK_COLUMNS.task] || "").trim() || "—"}`);
   lines.push(`🏢 Объект: ${String(row[TASK_COLUMNS.object] || "").trim() || "—"}`);
   lines.push(`📌 Статус: ${statusLine}`);
   lines.push(`⚡ Приоритет: ${String(row[TASK_COLUMNS.priority] || "").trim() || "—"}`);
@@ -1617,7 +1630,7 @@ async function handleCallback(q, pool, token) {
         chat_id: chatId,
         message_id: messageId,
         text: `Объект: ${objectName}\nСтатус: ${myTaskStatusLabel(statusCode)}\n\nВыберите задачу из списка:`,
-        reply_markup: myTasksListKeyboard(filtered)
+        reply_markup: myTasksListKeyboard(filtered, payload, chatId)
       });
       await tg(token, "answerCallbackQuery", { callback_query_id: q.id });
       return;
@@ -1674,7 +1687,10 @@ async function handleCallback(q, pool, token) {
   const payload = await loadPayload(pool);
   const tasks = getTasksSection(payload);
   const employees = getEmployeesSection(payload);
-  const row = findTaskRow(tasks, parsed.taskNum);
+  let row = findTaskRow(tasks, parsed.taskNum);
+  if (!row && String(parsed.taskNum || "").includes("/")) {
+    row = findTaskRow(tasks, String(parsed.taskNum).split("/")[0]);
+  }
   if (!row) {
     await tg(token, "answerCallbackQuery", { callback_query_id: q.id, text: "Задача не найдена" });
     return;
@@ -1686,7 +1702,7 @@ async function handleCallback(q, pool, token) {
   const empName = emp ? String(emp[EMPLOYEE_COLUMNS.fullName] || "").trim() : `chat ${chatId}`;
   const appTz = resolveAppTimeZone(payload);
   const viewerAssigneeName = getTaskAssigneeNameByChat(payload, row, chatId);
-  const viewerRow = buildTaskRowForAssignee(payload, row, viewerAssigneeName);
+  const viewerRow = buildTaskRowForChat(payload, row, chatId);
 
   const answerOk = async (text) => {
     await tg(token, "answerCallbackQuery", { callback_query_id: q.id, text: text || "", show_alert: Boolean(text && text.length > 200) });
@@ -1694,6 +1710,11 @@ async function handleCallback(q, pool, token) {
 
   if (parsed.action === "rd") {
     const nowText = formatRuDateTime(new Date(), appTz);
+    const activeForChat = getActiveReassignForChat(payload, row, chatId);
+    if (activeForChat) {
+      activeForChat.readAt = nowText;
+      activeForChat.updatedAt = nowText;
+    } else {
     // Кнопка «📖 Прочитать» приходит только адресату сообщения по задаче,
     // поэтому отмечаем ознакомление сразу по факту нажатия.
     row[TASK_COLUMNS.readState] = composeReadStateValue(true, nowText);
@@ -1704,6 +1725,7 @@ async function handleCallback(q, pool, token) {
         state[assigneeName].readAt = nowText;
         state[assigneeName].updatedAt = nowText;
       }
+    }
     }
     appendTaskHistory(payload, taskId, empName, `Telegram: задача прочитана (${nowText})`);
     setLastTaskContext(payload, chatId, taskId, messageId);
@@ -2204,11 +2226,18 @@ async function handleCallback(q, pool, token) {
   }
 
   if (parsed.action === "bk") {
+    const activeForChat = getActiveReassignForChat(payload, row, chatId);
     const currentRead = getTaskReadStateParts(row[TASK_COLUMNS.readState]);
     const assigneeName = getTaskAssigneeNameByChat(payload, row, chatId);
     const state = assigneeName ? getTaskMultiStateForRow(payload, row, { create: true }) : null;
     const assigneeReadAt = assigneeName && state?.[assigneeName] ? String(state[assigneeName].readAt || "").trim() : "";
-    if (canChatUseTaskActions(payload, row, chatId) && (!currentRead.isRead || (assigneeName && !assigneeReadAt))) {
+    const activeReadAt = activeForChat ? String(activeForChat.readAt || "").trim() : "";
+    if (activeForChat && canChatUseTaskActions(payload, row, chatId) && !activeReadAt) {
+      const nowText = formatRuDateTime(new Date(), appTz);
+      activeForChat.readAt = nowText;
+      activeForChat.updatedAt = nowText;
+      appendTaskHistory(payload, taskId, empName, `Telegram: задача открыта/прочитана (${nowText})`);
+    } else if (canChatUseTaskActions(payload, row, chatId) && (!currentRead.isRead || (assigneeName && !assigneeReadAt))) {
       const nowText = formatRuDateTime(new Date(), appTz);
       row[TASK_COLUMNS.readState] = composeReadStateValue(true, nowText);
       if (assigneeName && state?.[assigneeName]) {
@@ -2359,37 +2388,21 @@ async function handleCallback(q, pool, token) {
     if (!Array.isArray(logStore[rqTaskId])) logStore[rqTaskId] = [];
 
     if (decision === "y") {
-      const curList = parseTaskAssigneeNames(rqRow[TASK_COLUMNS.assignedResponsible]);
-      if (curList.length <= 1) {
-        rqRow[TASK_COLUMNS.assignedResponsible] = toName || rqRow[TASK_COLUMNS.assignedResponsible];
-      } else {
-        let done = false;
-        const next = curList.map((n) => {
-          if (!done && String(n).trim().toLowerCase() === String(fromName).trim().toLowerCase()) {
-            done = true;
-            return toName || n;
-          }
-          return n;
-        });
-        rqRow[TASK_COLUMNS.assignedResponsible] = Array.from(new Set(next.filter(Boolean))).join(", ");
-      }
       reqEntry.status = "approved";
       reqEntry.decidedAt = nowIso;
       reqEntry.decidedBy = actor;
       rqRow[TASK_COLUMNS.status] = "Передано";
-      rqRow[TASK_COLUMNS.assignedResponsible] = fromName || rqRow[TASK_COLUMNS.assignedResponsible];
-      rqRow[TASK_COLUMNS.reassignReason] = String(reqEntry.reasonText || "").trim();
-      rqRow[TASK_COLUMNS.readState] = composeReadStateValue(false, "—");
       appendTaskHistory(payload, rqTaskId, actor, `Telegram: переназначение подтверждено (${fromName || "—"} → ${toName || "—"})`);
       const employeesRows = Array.isArray(getEmployeesSection(payload)?.rows) ? getEmployeesSection(payload).rows : [];
       const targetEmp = employeesRows.find((r) => String(r?.[EMPLOYEE_COLUMNS.fullName] || "").trim().toLowerCase() === toName.toLowerCase());
       const targetChat = String(targetEmp?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
       if (targetChat && String(targetEmp?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен") {
+        const readKeyboard = { inline_keyboard: [[{ text: "📖 Прочитать", callback_data: cb(rqTaskId, "rd") }]] };
         const targetRow = buildTaskRowForChat(payload, rqRow, targetChat);
         await tg(token, "sendMessage", {
           chat_id: targetChat,
-        text: `${buildFullTaskMessage(targetRow)}\n\nВам назначена задача (${reassignCode}).`,
-          reply_markup: { inline_keyboard: mainKeyboardForChat(payload, rqTaskId, targetRow, targetChat, resolveAppTimeZone(payload)) }
+          text: `${buildFullTaskMessage(targetRow)}\n\nВам назначена задача (${reassignCode}).`,
+          reply_markup: readKeyboard
         });
       }
       const requesterChat = String(reqEntry.requesterChatId || "").trim();
@@ -2444,6 +2457,8 @@ async function handleCallback(q, pool, token) {
       code: reassignCode,
       status: reqEntry.status,
       currentStatus: String(reqEntry.status === "approved" ? "В процессе" : "").trim(),
+      comment: "",
+      readAt: "",
       from: fromName,
       to: toName,
       reasonType: reqEntry.reasonType || "",
@@ -2671,11 +2686,17 @@ async function handleMessage(msg, pool, token) {
   const getChatRow = () => buildTaskRowForChat(payload, row, chatId);
 
   if (sess.expect === "comment" && text) {
+    const activeForChat = getActiveReassignForChat(payload, row, chatId);
     const prevPlan = String(row[TASK_COLUMNS.plan] || "").trim();
     const nextPlan = String(text || "").trim().slice(0, 4000);
-    row[TASK_COLUMNS.plan] = nextPlan;
+    if (activeForChat) {
+      activeForChat.comment = nextPlan;
+      activeForChat.updatedAt = formatRuDateTime(new Date(), appTz);
+    } else {
+      row[TASK_COLUMNS.plan] = nextPlan;
+    }
     const assigneeName = getTaskAssigneeNameByChat(payload, row, chatId);
-    if (assigneeName) {
+    if (assigneeName && !activeForChat) {
       const nowText = formatRuDateTime(new Date(), appTz);
       const state = getTaskMultiStateForRow(payload, row, { create: true });
       if (state && state[assigneeName]) {
@@ -2684,7 +2705,14 @@ async function handleMessage(msg, pool, token) {
       }
       updateTaskAggregateStatusFromMulti(payload, row, appTz);
     }
-    if (prevPlan) {
+    if (activeForChat) {
+      appendTaskHistory(
+        payload,
+        taskId,
+        empName,
+        `Telegram: обновлены «Комментарии сотрудника (Результат)» по переназначению — ${nextPlan.slice(0, 2000)}`
+      );
+    } else if (prevPlan) {
       appendTaskHistory(
         payload,
         taskId,

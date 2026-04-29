@@ -12286,6 +12286,10 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
     cloned[TASK_COLUMNS.assignedResponsible] = to;
     cloned[TASK_COLUMNS.reassignReason] = reason;
     cloned[TASK_COLUMNS.status] = label;
+    cloned[TASK_COLUMNS.plan] = String(item?.comment || "").trim();
+    cloned[TASK_COLUMNS.readState] = String(item?.readAt || "").trim()
+      ? `Прочитано\n${String(item.readAt).trim()}`
+      : "Не прочитано\n—";
     const cells = visibleColumnIndexes.map((colIndex, viewOrder) => {
       const firstVisibleClass = viewOrder === 0 ? "first-visible-col" : "";
       const stickyClass = colIndex === 0 ? "number-col" : "";
