@@ -57,6 +57,7 @@ export function validateAppPayload(data) {
     "taskMultiState",
     "telegramReassignRequests",
     "taskReassignLog",
+    "cellComments",
     "taskAttachments",
     "reportShares"
   ];

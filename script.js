@@ -48,6 +48,7 @@ const TASK_CLOSE_META_STORAGE_KEY = "mbc_task_close_meta";
 const TASK_ATTACHMENTS_STORAGE_KEY = "mbc_task_attachments";
 const TASK_REASSIGN_REQUESTS_STORAGE_KEY = "mbc_task_reassign_requests";
 const TASK_REASSIGN_LOG_STORAGE_KEY = "mbc_task_reassign_log";
+const CELL_COMMENTS_STORAGE_KEY = "mbc_cell_comments";
 const TASK_HISTORY_MAX_PER_TASK = 300;
 const REPORT_CHART_ORDER_STORAGE_KEY = "mbc_report_chart_tile_order";
 /** «row» — Топ фаз / Разделы / Подразделы в одной строке; «separate» — каждый график на всю ширину */
@@ -1260,6 +1261,7 @@ function buildAppPayload() {
     taskCloseMeta: JSON.parse(JSON.stringify(taskCloseMeta)),
     telegramReassignRequests: JSON.parse(JSON.stringify(telegramReassignRequests)),
     taskReassignLog: JSON.parse(JSON.stringify(taskReassignLog)),
+    cellComments: JSON.parse(JSON.stringify(cellCommentsByCellKey)),
     taskAttachments: JSON.parse(JSON.stringify(taskAttachmentsByTaskId)),
     reportShares: loadReportShares(),
     reportChartOrder: loadReportChartOrder(),
@@ -1601,6 +1603,9 @@ async function mergeTaskReadStateFromServer(localPayload) {
     if (remotePayload?.taskReassignLog && typeof remotePayload.taskReassignLog === "object" && !Array.isArray(remotePayload.taskReassignLog)) {
       localPayload.taskReassignLog = JSON.parse(JSON.stringify(remotePayload.taskReassignLog));
     }
+    if (remotePayload?.cellComments && typeof remotePayload.cellComments === "object" && !Array.isArray(remotePayload.cellComments)) {
+      localPayload.cellComments = JSON.parse(JSON.stringify(remotePayload.cellComments));
+    }
   } catch (_) {
     /* noop */
   }
@@ -1676,6 +1681,16 @@ async function pullTaskReadStateFromServerIntoLocal({ rerender = true } = {}) {
         if (nextLog !== prevLog) {
           taskReassignLog = JSON.parse(nextLog);
           localStorage.setItem(TASK_REASSIGN_LOG_STORAGE_KEY, JSON.stringify(taskReassignLog));
+          multiChanged = true;
+        }
+      }
+      if (json?.data?.cellComments && typeof json.data.cellComments === "object" && !Array.isArray(json.data.cellComments)) {
+        const nextComments = JSON.stringify(json.data.cellComments);
+        const prevComments = JSON.stringify(cellCommentsByCellKey || {});
+        if (nextComments !== prevComments) {
+          cellCommentsByCellKey = JSON.parse(nextComments);
+          normalizeCellCommentsStore();
+          localStorage.setItem(CELL_COMMENTS_STORAGE_KEY, JSON.stringify(cellCommentsByCellKey));
           multiChanged = true;
         }
       }
@@ -1944,6 +1959,14 @@ function applyServerBundle(data, options = {}) {
     try {
       localStorage.setItem(TASK_REASSIGN_LOG_STORAGE_KEY, JSON.stringify(data.taskReassignLog));
       restoreTaskReassignStores();
+    } catch (_) {
+      /* noop */
+    }
+  }
+  if (data.cellComments && typeof data.cellComments === "object" && !Array.isArray(data.cellComments)) {
+    try {
+      localStorage.setItem(CELL_COMMENTS_STORAGE_KEY, JSON.stringify(data.cellComments));
+      restoreCellCommentsStore();
     } catch (_) {
       /* noop */
     }
@@ -4078,6 +4101,7 @@ let taskCloseMeta = {};
 let taskAttachmentsByTaskId = {};
 let telegramReassignRequests = {};
 let taskReassignLog = {};
+let cellCommentsByCellKey = {};
 const expandedTaskAssigneeRows = new Set();
 
 function iconSvg(name) {
@@ -13187,10 +13211,138 @@ function getDeleteGuardMessage(sectionId, rowIndex) {
   return "";
 }
 
+function getCellCommentKey(sectionId, rowIndex, colIndex) {
+  const section = getSectionById(sectionId);
+  const row = section?.rows?.[rowIndex];
+  const rowToken = String(row?.[0] ?? rowIndex).trim() || String(rowIndex);
+  return `${String(sectionId || "").trim()}::${rowToken}::${String(colIndex ?? "").trim()}`;
+}
+
+function buildCellCommentsPreview(list) {
+  const items = Array.isArray(list) ? list : [];
+  if (!items.length) return "";
+  return items
+    .slice(-5)
+    .map((item) => {
+      const who = String(item.author || "Пользователь").trim() || "Пользователь";
+      const when = String(item.at || "").trim() || "—";
+      const text = String(item.text || "").trim();
+      return `${who} • ${when}\n${text}`;
+    })
+    .join("\n\n");
+}
+
+function applyCellCommentDecorations(sectionId) {
+  const cells = Array.from(document.querySelectorAll(".editable-cell"));
+  cells.forEach((cell) => {
+    const rowIndex = Number(cell.dataset.rowIndex);
+    const colIndex = Number(cell.dataset.colIndex);
+    const key = getCellCommentKey(sectionId, rowIndex, colIndex);
+    const list = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : [];
+    if (!list.length) {
+      cell.classList.remove("has-cell-comment");
+      cell.removeAttribute("data-cell-comment-preview");
+      return;
+    }
+    cell.classList.add("has-cell-comment");
+    cell.setAttribute("data-cell-comment-preview", buildCellCommentsPreview(list));
+  });
+}
+
+function openCellCommentModal(sectionId, rowIndex, colIndex) {
+  const key = getCellCommentKey(sectionId, rowIndex, colIndex);
+  const list = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : [];
+  const overlay = document.createElement("div");
+  overlay.className = "cell-comment-overlay";
+  overlay.innerHTML = `
+    <div class="cell-comment-modal" role="dialog" aria-modal="true" aria-label="Комментарии к ячейке">
+      <div class="cell-comment-head">
+        <h3>Комментарии к ячейке</h3>
+        <button type="button" class="cell-comment-close-btn" aria-label="Закрыть">×</button>
+      </div>
+      <div class="cell-comment-thread" id="cellCommentThread"></div>
+      <textarea id="cellCommentInput" class="cell-comment-input" placeholder="Введите комментарий..."></textarea>
+      <div class="cell-comment-actions">
+        <button type="button" class="secondary-btn" id="cellCommentCancelBtn">Отмена</button>
+        <button type="button" class="primary-btn" id="cellCommentSaveBtn">Сохранить</button>
+      </div>
+    </div>
+  `;
+  const thread = overlay.querySelector("#cellCommentThread");
+  const input = overlay.querySelector("#cellCommentInput");
+  const close = () => overlay.remove();
+  const renderThread = () => {
+    const current = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : [];
+    if (!thread) return;
+    if (!current.length) {
+      thread.innerHTML = `<div class="cell-comment-empty">Пока нет комментариев.</div>`;
+      return;
+    }
+    thread.innerHTML = current.map((item) => `
+      <div class="cell-comment-item">
+        <div class="cell-comment-meta">${escapeHtmlText(String(item.author || "Пользователь"))} • ${escapeHtmlText(String(item.at || "—"))}</div>
+        <div class="cell-comment-text">${escapeHtmlText(String(item.text || ""))}</div>
+      </div>
+    `).join("");
+    thread.scrollTop = thread.scrollHeight;
+  };
+  renderThread();
+  overlay.querySelector(".cell-comment-close-btn")?.addEventListener("click", close);
+  overlay.querySelector("#cellCommentCancelBtn")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.querySelector("#cellCommentSaveBtn")?.addEventListener("click", () => {
+    const text = String(input?.value || "").trim();
+    if (!text) return;
+    const author = getSessionUserDisplayName();
+    const now = formatTaskHistoryWhen(Date.now());
+    const next = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key].slice() : [];
+    next.push({ text: text.slice(0, 2000), author, at: now });
+    cellCommentsByCellKey[key] = next.slice(-30);
+    normalizeCellCommentsStore();
+    saveSectionsData();
+    applyCellCommentDecorations(sectionId);
+    if (input) input.value = "";
+    renderThread();
+  });
+  document.body.appendChild(overlay);
+  input?.focus();
+}
+
+function showCellContextMenu(sectionId, rowIndex, colIndex, pageX, pageY) {
+  document.querySelectorAll(".cell-context-menu").forEach((el) => el.remove());
+  const menu = document.createElement("div");
+  menu.className = "cell-context-menu";
+  menu.style.left = `${pageX}px`;
+  menu.style.top = `${pageY}px`;
+  menu.innerHTML = `<button type="button" class="cell-context-menu-btn">Добавить комментарий</button>`;
+  const close = () => menu.remove();
+  menu.querySelector(".cell-context-menu-btn")?.addEventListener("click", () => {
+    close();
+    openCellCommentModal(sectionId, rowIndex, colIndex);
+  });
+  document.body.appendChild(menu);
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth - 8) menu.style.left = `${Math.max(8, window.innerWidth - rect.width - 8)}px`;
+  if (rect.bottom > window.innerHeight - 8) menu.style.top = `${Math.max(8, window.innerHeight - rect.height - 8)}px`;
+  setTimeout(() => {
+    document.addEventListener("click", close, { once: true });
+  }, 0);
+}
+
 function attachEditableCellHandlers(section) {
   const editableCells = Array.from(document.querySelectorAll(".editable-cell"));
+  applyCellCommentDecorations(section.id);
 
   editableCells.forEach((cell) => {
+    cell.addEventListener("contextmenu", (event) => {
+      const rowIndex = Number(cell.dataset.rowIndex);
+      const colIndex = Number(cell.dataset.colIndex);
+      if (!Number.isFinite(rowIndex) || !Number.isFinite(colIndex)) return;
+      event.preventDefault();
+      showCellContextMenu(section.id, rowIndex, colIndex, event.pageX, event.pageY);
+    });
     cell.addEventListener("click", () => {
       if (cell.querySelector(".cell-editor")) return;
       if (cell.isContentEditable) return;
@@ -18644,12 +18796,14 @@ function saveSectionsData() {
   normalizeTaskCloseMetaStore();
   cleanupTaskAttachmentsStore();
   normalizeTaskReassignStores();
+  normalizeCellCommentsStore();
   localStorage.setItem(DATA_STORAGE_KEY, JSON.stringify(sections));
   localStorage.setItem(TASK_MULTI_STATE_STORAGE_KEY, JSON.stringify(taskMultiState));
   localStorage.setItem(TASK_CLOSE_META_STORAGE_KEY, JSON.stringify(taskCloseMeta));
   localStorage.setItem(TASK_ATTACHMENTS_STORAGE_KEY, JSON.stringify(taskAttachmentsByTaskId));
   localStorage.setItem(TASK_REASSIGN_REQUESTS_STORAGE_KEY, JSON.stringify(telegramReassignRequests));
   localStorage.setItem(TASK_REASSIGN_LOG_STORAGE_KEY, JSON.stringify(taskReassignLog));
+  localStorage.setItem(CELL_COMMENTS_STORAGE_KEY, JSON.stringify(cellCommentsByCellKey));
   scheduleServerSync();
 }
 
@@ -18816,6 +18970,48 @@ function restoreTaskReassignStores() {
     /* noop */
   }
   normalizeTaskReassignStores();
+}
+
+function normalizeCellCommentsStore() {
+  if (!cellCommentsByCellKey || typeof cellCommentsByCellKey !== "object" || Array.isArray(cellCommentsByCellKey)) {
+    cellCommentsByCellKey = {};
+    return;
+  }
+  Object.keys(cellCommentsByCellKey).forEach((key) => {
+    const list = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : [];
+    const cleaned = list
+      .filter((item) => item && typeof item === "object" && !Array.isArray(item))
+      .map((item) => {
+        const text = String(item.text || "").trim().slice(0, 2000);
+        if (!text) return null;
+        return {
+          text,
+          author: String(item.author || "Пользователь").trim().slice(0, 120) || "Пользователь",
+          at: String(item.at || "").trim() || new Date().toISOString()
+        };
+      })
+      .filter(Boolean)
+      .slice(-30);
+    if (!cleaned.length) {
+      delete cellCommentsByCellKey[key];
+    } else {
+      cellCommentsByCellKey[key] = cleaned;
+    }
+  });
+}
+
+function restoreCellCommentsStore() {
+  const raw = localStorage.getItem(CELL_COMMENTS_STORAGE_KEY);
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      cellCommentsByCellKey = parsed;
+    }
+  } catch (_) {
+    // ignore broken storage
+  }
+  normalizeCellCommentsStore();
 }
 
 function getTrashRows(sectionId) {
@@ -19658,6 +19854,7 @@ restoreTaskMultiState();
 restoreTaskCloseMeta();
 restoreTaskAttachmentsData();
 restoreTaskReassignStores();
+restoreCellCommentsStore();
 cleanupPendingImportedTaskIds({ save: false });
 applyObjectsSeedIfNeeded();
 loadObjectPhotoThumbsFromStorage();

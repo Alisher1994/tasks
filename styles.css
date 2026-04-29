@@ -1845,17 +1845,17 @@ thead th.first-visible-col {
 
 tbody td.checkbox-col {
   left: 0;
-  z-index: 7;
+  z-index: 32;
 }
 
 tbody td.number-col {
   left: 44px;
-  z-index: 6;
+  z-index: 31;
 }
 
 tbody td.first-visible-col {
   left: 44px;
-  z-index: 6;
+  z-index: 31;
 }
 
 .status-col {
@@ -2042,6 +2042,172 @@ tr:nth-child(even) td {
 .editable-cell.editing {
   outline: 2px solid var(--brand-focus-outline);
   background: var(--brand-surface);
+}
+
+.editable-cell.has-cell-comment {
+  position: relative;
+}
+
+.editable-cell.has-cell-comment::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 9px 9px 0;
+  border-color: transparent #f4b400 transparent transparent;
+  pointer-events: none;
+}
+
+.editable-cell.has-cell-comment:hover::before {
+  content: attr(data-cell-comment-preview);
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  width: min(360px, 50vw);
+  white-space: pre-wrap;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #1f2a37;
+  background: #fffef6;
+  border: 1px solid #f6df9f;
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.14);
+  z-index: 120;
+}
+
+.cell-context-menu {
+  position: fixed;
+  z-index: 10030;
+  background: #ffffff;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  box-shadow: 0 10px 24px rgba(16, 24, 40, 0.16);
+  padding: 6px;
+}
+
+.cell-context-menu-btn {
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: #f6f8fc;
+  color: #22324a;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.cell-context-menu-btn:hover {
+  background: #e9eef8;
+}
+
+.cell-comment-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10040;
+  background: rgba(9, 17, 27, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.cell-comment-modal {
+  width: min(560px, 100%);
+  background: #ffffff;
+  border: 1px solid #d7e0ea;
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.2);
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.cell-comment-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cell-comment-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2a37;
+  text-align: left;
+}
+
+.cell-comment-close-btn {
+  border: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: #eef2f7;
+  cursor: pointer;
+  color: #27364a;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.cell-comment-thread {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fcfdff;
+  display: grid;
+  gap: 8px;
+}
+
+.cell-comment-item {
+  background: #f6f9ff;
+  border: 1px solid #d9e5f7;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.cell-comment-meta {
+  font-size: 11px;
+  color: #4a5d74;
+  margin-bottom: 4px;
+}
+
+.cell-comment-text {
+  white-space: pre-wrap;
+  font-size: 12px;
+  color: #1f2a37;
+}
+
+.cell-comment-empty {
+  font-size: 12px;
+  color: #607086;
+}
+
+.cell-comment-input {
+  width: 100%;
+  min-height: 90px;
+  resize: vertical;
+  border: 1px solid #cfd8e3;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 13px;
+  outline: none;
+  background: #ffffff;
+}
+
+.cell-comment-input:focus {
+  border-color: #95a9c8;
+  box-shadow: 0 0 0 3px rgba(62, 64, 149, 0.12);
+}
+
+.cell-comment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .cell-editor {
