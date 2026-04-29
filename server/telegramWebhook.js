@@ -2377,7 +2377,7 @@ async function handleCallback(q, pool, token) {
       reqEntry.decidedAt = nowIso;
       reqEntry.decidedBy = actor;
       rqRow[TASK_COLUMNS.status] = "Передано";
-      rqRow[TASK_COLUMNS.assignedResponsible] = "—";
+      rqRow[TASK_COLUMNS.assignedResponsible] = fromName || rqRow[TASK_COLUMNS.assignedResponsible];
       rqRow[TASK_COLUMNS.reassignReason] = String(reqEntry.reasonText || "").trim();
       rqRow[TASK_COLUMNS.readState] = composeReadStateValue(false, "—");
       appendTaskHistory(payload, rqTaskId, actor, `Telegram: переназначение подтверждено (${fromName || "—"} → ${toName || "—"})`);

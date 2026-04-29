@@ -12282,9 +12282,9 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
       let val = cloned[colIndex];
       if (colIndex === TASK_COLUMNS.number) val = `↪ ${subId}`;
       else if (colIndex === TASK_COLUMNS.task) val = `Переназначение: ${from} → ${to}`;
-      else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `${escapeHtmlText(to)} ← <s>${escapeHtmlText(from)}</s>`;
+      else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `${escapeHtmlText(to)}`;
       else if (colIndex === TASK_COLUMNS.status) val = `<span class="status-badge status-${slugify(label)}">${escapeHtmlText(label)}</span>`;
-      else if (colIndex === TASK_COLUMNS.reassignReason) val = `Причина: ${escapeHtmlText(reason)}`;
+      else if (colIndex === TASK_COLUMNS.reassignReason) val = `${escapeHtmlText(reason)}`;
       else if (colIndex === TASK_COLUMNS.createdAt) {
         const t = Date.parse(String(item?.createdAt || ""));
         val = escapeHtmlText(Number.isFinite(t) ? formatTrashDate(t) : "—");
@@ -12360,6 +12360,14 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
 
   if (colIndex === TASK_COLUMNS.priority) {
     return `<span class="priority-text priority-${slugify(value)}">${value}</span>`;
+  }
+
+  if (colIndex === TASK_COLUMNS.assignedResponsible) {
+    const status = String(row?.[TASK_COLUMNS.status] || "").trim().toLowerCase();
+    const fio = String(value || "").trim();
+    if (status === "передано" && fio) {
+      return `<s>${escapeHtmlText(fio)}</s>`;
+    }
   }
 
   if (colIndex === TASK_COLUMNS.addedDate || colIndex === TASK_COLUMNS.closedDate) {
