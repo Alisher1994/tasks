@@ -13222,6 +13222,7 @@ function buildCellCommentsPreview(list) {
   const items = Array.isArray(list) ? list : [];
   if (!items.length) return "";
   return items
+    .filter((item) => !item?.resolved)
     .slice(-5)
     .map((item) => {
       const who = String(item.author || "Пользователь").trim() || "Пользователь";
@@ -13238,7 +13239,7 @@ function applyCellCommentDecorations(sectionId) {
     const rowIndex = Number(cell.dataset.rowIndex);
     const colIndex = Number(cell.dataset.colIndex);
     const key = getCellCommentKey(sectionId, rowIndex, colIndex);
-    const list = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : [];
+    const list = (Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : []).filter((item) => !item?.resolved);
     if (!list.length) {
       cell.classList.remove("has-cell-comment");
       cell.removeAttribute("data-cell-comment-preview");
@@ -13251,7 +13252,7 @@ function applyCellCommentDecorations(sectionId) {
 
 function openCellCommentModal(sectionId, rowIndex, colIndex) {
   const key = getCellCommentKey(sectionId, rowIndex, colIndex);
-  const list = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : [];
+  const ownerKey = `${getSessionUserDisplayName()}|${getSessionPhone() || "-"}`.toLowerCase();
   const overlay = document.createElement("div");
   overlay.className = "cell-comment-overlay";
   overlay.innerHTML = `
@@ -13270,17 +13271,26 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
   `;
   const thread = overlay.querySelector("#cellCommentThread");
   const input = overlay.querySelector("#cellCommentInput");
+  let editingId = "";
   const close = () => overlay.remove();
   const renderThread = () => {
-    const current = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : [];
+    const current = (Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : []).filter((item) => !item?.resolved);
     if (!thread) return;
     if (!current.length) {
-      thread.innerHTML = `<div class="cell-comment-empty">Пока нет комментариев.</div>`;
+      thread.innerHTML = "";
       return;
     }
     thread.innerHTML = current.map((item) => `
       <div class="cell-comment-item">
-        <div class="cell-comment-meta">${escapeHtmlText(String(item.author || "Пользователь"))} • ${escapeHtmlText(String(item.at || "—"))}</div>
+        <div class="cell-comment-meta">
+          ${escapeHtmlText(String(item.author || "Пользователь"))} • ${escapeHtmlText(String(item.at || "—"))}
+          ${String(item.ownerKey || "").toLowerCase() === ownerKey
+            ? `<span class="cell-comment-tools">
+                <button type="button" class="cell-comment-tool-btn" data-cell-comment-action="resolve" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="Отметить выполненным">✓</button>
+                <button type="button" class="cell-comment-tool-btn" data-cell-comment-action="edit" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="Редактировать">✎</button>
+              </span>`
+            : ""}
+        </div>
         <div class="cell-comment-text">${escapeHtmlText(String(item.text || ""))}</div>
       </div>
     `).join("");
@@ -13292,19 +13302,60 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
   });
+  thread?.addEventListener("click", (event) => {
+    const btn = event.target instanceof HTMLElement ? event.target.closest(".cell-comment-tool-btn") : null;
+    if (!(btn instanceof HTMLButtonElement)) return;
+    const action = String(btn.dataset.cellCommentAction || "").trim();
+    const id = String(btn.dataset.cellCommentId || "").trim();
+    if (!id) return;
+    const list = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key].slice() : [];
+    const idx = list.findIndex((item) => String(item?.id || "").trim() === id);
+    if (idx < 0) return;
+    const item = list[idx];
+    if (String(item?.ownerKey || "").toLowerCase() !== ownerKey) return;
+    if (action === "resolve") {
+      list[idx] = { ...item, resolved: true, resolvedAt: formatTaskHistoryWhen(Date.now()) };
+      cellCommentsByCellKey[key] = list;
+      normalizeCellCommentsStore();
+      saveSectionsData();
+      applyCellCommentDecorations(sectionId);
+      renderThread();
+      return;
+    }
+    if (action === "edit") {
+      editingId = id;
+      if (input) {
+        input.value = String(item?.text || "");
+        input.focus();
+      }
+    }
+  });
   overlay.querySelector("#cellCommentSaveBtn")?.addEventListener("click", () => {
     const text = String(input?.value || "").trim();
     if (!text) return;
     const author = getSessionUserDisplayName();
     const now = formatTaskHistoryWhen(Date.now());
     const next = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key].slice() : [];
-    next.push({ text: text.slice(0, 2000), author, at: now });
+    if (editingId) {
+      const idx = next.findIndex((item) => String(item?.id || "").trim() === editingId);
+      if (idx >= 0 && String(next[idx]?.ownerKey || "").toLowerCase() === ownerKey) {
+        next[idx] = { ...next[idx], text: text.slice(0, 2000), editedAt: now, resolved: false };
+      }
+    } else {
+      next.push({
+        id: `cc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        text: text.slice(0, 2000),
+        author,
+        ownerKey,
+        at: now,
+        resolved: false
+      });
+    }
     cellCommentsByCellKey[key] = next.slice(-30);
     normalizeCellCommentsStore();
     saveSectionsData();
     applyCellCommentDecorations(sectionId);
-    if (input) input.value = "";
-    renderThread();
+    close();
   });
   document.body.appendChild(overlay);
   input?.focus();
@@ -18985,9 +19036,12 @@ function normalizeCellCommentsStore() {
         const text = String(item.text || "").trim().slice(0, 2000);
         if (!text) return null;
         return {
+          id: String(item.id || `cc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`).trim(),
           text,
           author: String(item.author || "Пользователь").trim().slice(0, 120) || "Пользователь",
-          at: String(item.at || "").trim() || new Date().toISOString()
+          ownerKey: String(item.ownerKey || "").trim().toLowerCase(),
+          at: String(item.at || "").trim() || new Date().toISOString(),
+          resolved: Boolean(item.resolved)
         };
       })
       .filter(Boolean)
