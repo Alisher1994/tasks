@@ -11985,7 +11985,12 @@ function ensureColumnDisplayState(section) {
     return out;
   };
   if (!visibleColumnsBySection[section.id]) {
-    visibleColumnsBySection[section.id] = section.columns.map(() => true);
+    const defaults = section.columns.map(() => true);
+    if (section.id === "tasks") {
+      defaults[TASK_COLUMNS.mediaBefore] = false;
+      defaults[TASK_COLUMNS.mediaAfter] = false;
+    }
+    visibleColumnsBySection[section.id] = defaults;
   }
   const visibility = visibleColumnsBySection[section.id];
   if (visibility.length !== size) {
