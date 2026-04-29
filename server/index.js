@@ -49,6 +49,9 @@ const TASK_MEDIA_AFTER_COL = 17;
 const TASK_READ_STATE_COL = 18;
 const TASK_LAST_SENT_AT_COL = 19;
 const TASK_DELAY_REASON_COL = 20;
+const TASK_CREATED_BY_COL = 21;
+const TASK_CREATED_AT_COL = 22;
+const TASK_REASSIGN_REASON_COL = 23;
 const EMPLOYEE_FULL_NAME_COL = 1;
 const EMPLOYEE_TELEGRAM_COL = 5;
 const EMPLOYEE_CHAT_ID_COL = 6;
@@ -467,7 +470,10 @@ function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
       TASK_CLOSED_DATE_COL,
       TASK_READ_STATE_COL,
       TASK_LAST_SENT_AT_COL,
-      TASK_DELAY_REASON_COL
+      TASK_DELAY_REASON_COL,
+      TASK_CREATED_BY_COL,
+      TASK_CREATED_AT_COL,
+      TASK_REASSIGN_REASON_COL
     ].forEach((col) => {
       if (isBlankTaskCell(row[col]) && !isBlankTaskCell(currentRow[col])) {
         row[col] = currentRow[col];

@@ -132,9 +132,10 @@ const TASK_COLUMNS = {
   lastSentAt: 19,
   delayReason: 20,
   createdBy: 21,
-  createdAt: 22
+  createdAt: 22,
+  reassignReason: 23
 };
-const TASK_ROW_LENGTH = TASK_COLUMNS.createdAt + 1;
+const TASK_ROW_LENGTH = TASK_COLUMNS.reassignReason + 1;
 const TASK_DEFAULT_COLUMN_ORDER = [
   TASK_COLUMNS.number,
   TASK_COLUMNS.object,
@@ -158,7 +159,8 @@ const TASK_DEFAULT_COLUMN_ORDER = [
   TASK_COLUMNS.readState,
   TASK_COLUMNS.lastSentAt,
   TASK_COLUMNS.createdBy,
-  TASK_COLUMNS.createdAt
+  TASK_COLUMNS.createdAt,
+  TASK_COLUMNS.reassignReason
 ];
 const OBJECT_COLUMNS = {
   id: 0,
@@ -3722,7 +3724,8 @@ let sections = [
       "Дата последней отправки",
       "Причина отставания",
       "Кем добавлена задача",
-      "Время занесения в систему"
+      "Время занесения в систему",
+      "Причина переназначения"
     ],
     rows: [
       [
@@ -3748,7 +3751,8 @@ let sections = [
         "—",
         "",
         "Система",
-        "15.04.2026 09:00"
+        "15.04.2026 09:00",
+        ""
       ],
       [
         "2",
@@ -3773,7 +3777,8 @@ let sections = [
         "—",
         "",
         "Система",
-        "16.04.2026 09:00"
+        "16.04.2026 09:00",
+        ""
       ],
       [
         "3",
@@ -3798,7 +3803,8 @@ let sections = [
         "",
         "",
         "Система",
-        "12.04.2026 09:00"
+        "12.04.2026 09:00",
+        ""
       ]
     ]
   },
@@ -12263,15 +12269,17 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
     const cloned = Array.isArray(taskRow) ? taskRow.slice() : [];
     cloned[TASK_COLUMNS.number] = subId;
     cloned[TASK_COLUMNS.assignedResponsible] = to;
+    cloned[TASK_COLUMNS.reassignReason] = reason;
+    cloned[TASK_COLUMNS.status] = status === "approved" ? "Переназначено" : status === "rejected" ? "Отклонено" : "Ожидание";
     const cells = visibleColumnIndexes.map((colIndex, viewOrder) => {
       const stickyClass = colIndex === 0 && viewOrder === 0 ? "number-col" : "";
       const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
       let val = cloned[colIndex];
       if (colIndex === TASK_COLUMNS.number) val = `↪ ${subId}`;
       else if (colIndex === TASK_COLUMNS.task) val = `Переназначение: ${from} → ${to}`;
-      else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `<s>${escapeHtmlText(from)}</s> → ${escapeHtmlText(to)}`;
+      else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `${escapeHtmlText(to)} ← <s>${escapeHtmlText(from)}</s>`;
       else if (colIndex === TASK_COLUMNS.status) val = `<span class="status-badge status-${slugify(label)}">${escapeHtmlText(label)}</span>`;
-      else if (colIndex === TASK_COLUMNS.note) val = `Причина: ${escapeHtmlText(reason)}`;
+      else if (colIndex === TASK_COLUMNS.reassignReason) val = `Причина: ${escapeHtmlText(reason)}`;
       else if (colIndex === TASK_COLUMNS.createdAt) {
         const t = Date.parse(String(item?.createdAt || ""));
         val = escapeHtmlText(Number.isFinite(t) ? formatTrashDate(t) : "—");
@@ -19245,6 +19253,7 @@ function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
   setByIndex(TASK_COLUMNS.delayReason, pick(["Причина отставания"]), 20);
   setByIndex(TASK_COLUMNS.createdBy, pick(["Кем добавлена задача", "Добавил", "Автор добавления"]));
   setByIndex(TASK_COLUMNS.createdAt, pick(["Время занесения в систему", "Дата и время занесения", "Дата занесения"]));
+  setByIndex(TASK_COLUMNS.reassignReason, pick(["Причина переназначения"]));
   out[TASK_COLUMNS.status] = normalizeTaskStatusValue(out[TASK_COLUMNS.status]);
   out[TASK_COLUMNS.priority] = normalizeTaskPriorityValue(out[TASK_COLUMNS.priority]);
   return out;
@@ -19283,6 +19292,9 @@ function migrateRowForSection(baseSection, row, sourceColumns = null) {
     if (source.length === 22) {
       source.push("");
     }
+    if (source.length === 23) {
+      source.push("");
+    }
 
     // Перестановка порядка колонок (старый -> новый):
     // old: [.., assignedResponsible, task, responsible, ...]
@@ -19312,6 +19324,9 @@ function migrateRowForSection(baseSection, row, sourceColumns = null) {
     }
     if (!String(source[TASK_COLUMNS.createdAt] || "").trim()) {
       source[TASK_COLUMNS.createdAt] = "—";
+    }
+    if (!String(source[TASK_COLUMNS.reassignReason] || "").trim()) {
+      source[TASK_COLUMNS.reassignReason] = "";
     }
   }
 

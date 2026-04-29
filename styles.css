@@ -1956,6 +1956,14 @@ tr:nth-child(even) td {
   font-size: 11px;
 }
 
+.task-reassign-subrow .number-col {
+  white-space: nowrap;
+}
+
+.task-reassign-subrow td {
+  vertical-align: top;
+}
+
 .task-reassign-card {
   border: 1px solid #e5e7eb;
   border-radius: 10px;
@@ -2873,6 +2881,11 @@ body.app-booting .app-boot-loader {
 .status-треб-реш-рук {
   background: #ffeceb;
   color: #b64a4a;
+}
+
+.status-переназначено {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .due-cell {

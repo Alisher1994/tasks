@@ -37,9 +37,10 @@ const TASK_COLUMNS = {
   lastSentAt: 19,
   delayReason: 20,
   createdBy: 21,
-  createdAt: 22
+  createdAt: 22,
+  reassignReason: 23
 };
-const TASK_ROW_LENGTH = TASK_COLUMNS.createdAt + 1;
+const TASK_ROW_LENGTH = TASK_COLUMNS.reassignReason + 1;
 const EMPLOYEE_COLUMNS = {
   id: 0,
   fullName: 1,
@@ -138,6 +139,7 @@ function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
   setByIndex(TASK_COLUMNS.delayReason, pick(["Причина отставания"]), 20);
   setByIndex(TASK_COLUMNS.createdBy, pick(["Кем добавлена задача", "Добавил", "Автор добавления"]), 21);
   setByIndex(TASK_COLUMNS.createdAt, pick(["Время занесения в систему", "Дата и время занесения", "Дата занесения"]), 22);
+  setByIndex(TASK_COLUMNS.reassignReason, pick(["Причина переназначения"]), 23);
   out[TASK_COLUMNS.status] = normalizeTaskStatusValue(out[TASK_COLUMNS.status]);
   out[TASK_COLUMNS.priority] = normalizeTaskPriorityValue(out[TASK_COLUMNS.priority]);
   return out;
@@ -990,6 +992,8 @@ function buildFullTaskMessage(row) {
   lines.push(`⏳ Срок: ${String(row[TASK_COLUMNS.dueDate] || "").trim() || "—"}`);
   const delayReason = String(row[TASK_COLUMNS.delayReason] || "").trim();
   if (delayReason) lines.push(`🚧 Причина отставания: ${delayReason}`);
+  const reassignReason = String(row[TASK_COLUMNS.reassignReason] || "").trim();
+  if (reassignReason) lines.push(`🔁 Причина переназначения: ${reassignReason}`);
   const note = String(row[TASK_COLUMNS.note] || "").trim();
   if (note) lines.push(`💬 Комментарий: ${note}`);
   return lines.join("\n");
@@ -2320,6 +2324,9 @@ async function handleCallback(q, pool, token) {
       reqEntry.status = "approved";
       reqEntry.decidedAt = nowIso;
       reqEntry.decidedBy = actor;
+      rqRow[TASK_COLUMNS.status] = "Переназначено";
+      rqRow[TASK_COLUMNS.reassignReason] = String(reqEntry.reasonText || "").trim();
+      rqRow[TASK_COLUMNS.readState] = composeReadStateValue(false, "—");
       appendTaskHistory(payload, rqTaskId, actor, `Telegram: переназначение подтверждено (${fromName || "—"} → ${toName || "—"})`);
       const employeesRows = Array.isArray(getEmployeesSection(payload)?.rows) ? getEmployeesSection(payload).rows : [];
       const targetEmp = employeesRows.find((r) => String(r?.[EMPLOYEE_COLUMNS.fullName] || "").trim().toLowerCase() === toName.toLowerCase());
