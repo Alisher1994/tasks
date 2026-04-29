@@ -901,6 +901,19 @@ function composeReadStateValue(isRead, whenText = "—") {
   return `${isRead ? "Прочитано" : "Не прочитано"}\n${String(whenText || "—").trim() || "—"}`;
 }
 
+function getTaskReadStateParts(value) {
+  const raw = String(value || "").trim();
+  const lines = raw.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  const first = String(lines[0] || "").trim();
+  const second = String(lines[1] || "—").trim() || "—";
+  const isRead = first.toLowerCase().startsWith("прочитано");
+  return {
+    isRead,
+    statusText: isRead ? "Прочитано" : "Не прочитано",
+    whenText: second
+  };
+}
+
 function isAssignedEmployeeReader(payload, row, chatId) {
   const employees = getEmployeesSection(payload);
   const clickChat = String(chatId || "").trim();
