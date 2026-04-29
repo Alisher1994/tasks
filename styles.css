@@ -1815,6 +1815,27 @@ thead th.actions-col {
   z-index: 10;
 }
 
+/* Жёсткая фиксация sticky-колонок слева (чтобы не съезжали при горизонтальной прокрутке). */
+thead th.checkbox-col {
+  left: 0;
+  z-index: 15;
+}
+
+thead th.number-col {
+  left: 44px;
+  z-index: 14;
+}
+
+tbody td.checkbox-col {
+  left: 0;
+  z-index: 7;
+}
+
+tbody td.number-col {
+  left: 44px;
+  z-index: 6;
+}
+
 .status-col {
   min-width: 130px;
   width: 130px;
