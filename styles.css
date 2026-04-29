@@ -2888,6 +2888,11 @@ body.app-booting .app-boot-loader {
   color: #92400e;
 }
 
+.status-передано {
+  background: #e5e7eb;
+  color: #374151;
+}
+
 .due-cell {
   display: flex;
   flex-direction: column;

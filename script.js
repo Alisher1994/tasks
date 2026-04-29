@@ -12264,13 +12264,18 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
     const to = String(item?.to || "").trim() || "—";
     const reason = String(item?.reasonText || "").trim() || "—";
     const status = String(item?.status || "").trim();
-    const label = status === "approved" ? "подтверждено" : status === "rejected" ? "отклонено" : "ожидание";
+    const currentStatus = String(item?.currentStatus || "").trim();
+    const label = status === "approved"
+      ? (currentStatus || "В процессе")
+      : status === "rejected"
+        ? "Отклонено"
+        : "Ожидание";
     const subId = String(item?.code || `${taskId}/R${idx + 1}`).trim();
     const cloned = Array.isArray(taskRow) ? taskRow.slice() : [];
     cloned[TASK_COLUMNS.number] = subId;
     cloned[TASK_COLUMNS.assignedResponsible] = to;
     cloned[TASK_COLUMNS.reassignReason] = reason;
-    cloned[TASK_COLUMNS.status] = status === "approved" ? "Переназначено" : status === "rejected" ? "Отклонено" : "Ожидание";
+    cloned[TASK_COLUMNS.status] = label;
     const cells = visibleColumnIndexes.map((colIndex, viewOrder) => {
       const stickyClass = colIndex === 0 && viewOrder === 0 ? "number-col" : "";
       const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
