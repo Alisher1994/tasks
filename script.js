@@ -12259,21 +12259,26 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
     const reason = String(item?.reasonText || "").trim() || "—";
     const status = String(item?.status || "").trim();
     const label = status === "approved" ? "подтверждено" : status === "rejected" ? "отклонено" : "ожидание";
-    const subId = `${taskId}/R${idx + 1}`;
+    const subId = String(item?.code || `${taskId}/R${idx + 1}`).trim();
+    const cloned = Array.isArray(taskRow) ? taskRow.slice() : [];
+    cloned[TASK_COLUMNS.number] = subId;
+    cloned[TASK_COLUMNS.assignedResponsible] = to;
     const cells = visibleColumnIndexes.map((colIndex, viewOrder) => {
       const stickyClass = colIndex === 0 && viewOrder === 0 ? "number-col" : "";
       const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
-      let val = "—";
+      let val = cloned[colIndex];
       if (colIndex === TASK_COLUMNS.number) val = `↪ ${subId}`;
       else if (colIndex === TASK_COLUMNS.task) val = `Переназначение: ${from} → ${to}`;
       else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `<s>${escapeHtmlText(from)}</s> → ${escapeHtmlText(to)}`;
       else if (colIndex === TASK_COLUMNS.status) val = `<span class="status-badge status-${slugify(label)}">${escapeHtmlText(label)}</span>`;
       else if (colIndex === TASK_COLUMNS.note) val = `Причина: ${escapeHtmlText(reason)}`;
-      else if (colIndex === TASK_COLUMNS.addedDate) val = escapeHtmlText(formatStoredDateForDisplay(String(item?.createdAt || "")) || "—");
-      else val = "—";
+      else if (colIndex === TASK_COLUMNS.createdAt) {
+        const t = Date.parse(String(item?.createdAt || ""));
+        val = escapeHtmlText(Number.isFinite(t) ? formatTrashDate(t) : "—");
+      }
       const rendered = colIndex === TASK_COLUMNS.assignedResponsible || colIndex === TASK_COLUMNS.status || colIndex === TASK_COLUMNS.note
         ? val
-        : escapeHtmlText(String(val || "—"));
+        : renderCellContent({ id: "tasks" }, cloned, colIndex, val, -1);
       return `<td class="task-reassign-subrow-cell ${stickyClass} ${statusClass}">${rendered}</td>`;
     }).join("");
     return `

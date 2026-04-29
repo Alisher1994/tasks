@@ -35,9 +35,11 @@ const TASK_COLUMNS = {
   mediaAfter: 17,
   readState: 18,
   lastSentAt: 19,
-  delayReason: 20
+  delayReason: 20,
+  createdBy: 21,
+  createdAt: 22
 };
-const TASK_ROW_LENGTH = TASK_COLUMNS.delayReason + 1;
+const TASK_ROW_LENGTH = TASK_COLUMNS.createdAt + 1;
 const EMPLOYEE_COLUMNS = {
   id: 0,
   fullName: 1,
@@ -134,6 +136,8 @@ function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
   setByIndex(TASK_COLUMNS.readState, pick(["Ознакомление"]), 18);
   setByIndex(TASK_COLUMNS.lastSentAt, pick(["Дата последней отправки"]), 19);
   setByIndex(TASK_COLUMNS.delayReason, pick(["Причина отставания"]), 20);
+  setByIndex(TASK_COLUMNS.createdBy, pick(["Кем добавлена задача", "Добавил", "Автор добавления"]), 21);
+  setByIndex(TASK_COLUMNS.createdAt, pick(["Время занесения в систему", "Дата и время занесения", "Дата занесения"]), 22);
   out[TASK_COLUMNS.status] = normalizeTaskStatusValue(out[TASK_COLUMNS.status]);
   out[TASK_COLUMNS.priority] = normalizeTaskPriorityValue(out[TASK_COLUMNS.priority]);
   return out;
@@ -627,6 +631,33 @@ function buildDepartmentEmployees(payload, departmentName) {
     });
   }
   return out.sort((a, b) => a.fullName.localeCompare(b.fullName, "ru"));
+}
+
+function getNextReassignCode(payload, taskId) {
+  const task = String(taskId || "").trim();
+  if (!task) return "R1";
+  let max = 0;
+  const logArr = Array.isArray(payload?.taskReassignLog?.[task]) ? payload.taskReassignLog[task] : [];
+  for (const item of logArr) {
+    const code = String(item?.code || "").trim();
+    const m = code.match(/\/R(\d+)$/i);
+    if (!m) continue;
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  const reqStore = payload?.telegramReassignRequests && typeof payload.telegramReassignRequests === "object"
+    ? payload.telegramReassignRequests
+    : {};
+  for (const key of Object.keys(reqStore)) {
+    const item = reqStore[key];
+    if (String(item?.taskId || "").trim() !== task) continue;
+    const code = String(item?.code || "").trim();
+    const m = code.match(/\/R(\d+)$/i);
+    if (!m) continue;
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return `${task}/R${max + 1}`;
 }
 
 function statusLabelWithEmoji(status) {
@@ -1996,6 +2027,7 @@ async function handleCallback(q, pool, token) {
     }
     const target = employees[idx];
     const requestId = `rr_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const reassignCode = getNextReassignCode(payload, taskId);
     const reqStore = ensureReassignRequestsStore(payload);
     const requestAllowed = new Set();
     getDepartmentHeadChatIdsForTask(payload, row).forEach((cid) => requestAllowed.add(cid));
@@ -2007,6 +2039,7 @@ async function handleCallback(q, pool, token) {
     const fromAssignee = String(viewerAssigneeName || currentAssignees[0] || "").trim();
     reqStore[requestId] = {
       id: requestId,
+      code: reassignCode,
       taskId,
       status: "pending",
       reasonType: sess.reasonType || "objective",
@@ -2033,6 +2066,7 @@ async function handleCallback(q, pool, token) {
     const reasonLabel = reqStore[requestId].reasonType === "objective" ? "Объективная" : "Субъективная";
     const requestText =
       `${buildFullTaskMessage(row)}\n\nЗапрос на переназначение\n` +
+      `Код: ${reassignCode}\n` +
       `ID: ${requestId}\n` +
       `Причина (${reasonLabel}): ${reqStore[requestId].reasonText || "—"}\n` +
       `С кого: ${fromAssignee || "—"}\n` +
@@ -2051,7 +2085,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId))}\n\nЗапрос на переназначение отправлен на подтверждение.`,
+      text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId))}\n\nЗапрос ${reassignCode} отправлен на подтверждение.`,
       reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, buildTaskRowForChat(payload, row, chatId), chatId, appTz) }
     });
     await answerOk("Запрос отправлен");
@@ -2260,9 +2294,11 @@ async function handleCallback(q, pool, token) {
       return;
     }
     const nowIso = new Date().toISOString();
+    const nowText = formatRuDateTime(new Date(), resolveAppTimeZone(payload));
     const actor = empName || `chat ${chatId}`;
     const fromName = String(reqEntry.fromEmployeeName || "").trim();
     const toName = String(reqEntry.toEmployeeName || "").trim();
+    const reassignCode = String(reqEntry.code || `${rqTaskId}/R1`).trim();
     const logStore = ensureTaskReassignLogStore(payload);
     if (!Array.isArray(logStore[rqTaskId])) logStore[rqTaskId] = [];
 
@@ -2289,19 +2325,39 @@ async function handleCallback(q, pool, token) {
       const targetEmp = employeesRows.find((r) => String(r?.[EMPLOYEE_COLUMNS.fullName] || "").trim().toLowerCase() === toName.toLowerCase());
       const targetChat = String(targetEmp?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
       if (targetChat && String(targetEmp?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен") {
+        const targetRow = buildTaskRowForChat(payload, rqRow, targetChat);
         await tg(token, "sendMessage", {
           chat_id: targetChat,
-          text: `${buildFullTaskMessage(rqRow)}\n\nВам назначена задача (переназначение).`
+          text: `${buildFullTaskMessage(targetRow)}\n\nВам назначена задача (переназначение ${reassignCode}).`,
+          reply_markup: { inline_keyboard: mainKeyboardForChat(payload, rqTaskId, targetRow, targetChat, resolveAppTimeZone(payload)) }
         });
       }
-      await tg(token, "sendMessage", {
-        chat_id: String(reqEntry.requesterChatId || ""),
-        text: `Задача №${rqTaskId}: переназначение подтверждено. Новый ответственный: ${toName || "—"}.`
-      });
+      const requesterChat = String(reqEntry.requesterChatId || "").trim();
+      const sourceMid = Number(reqEntry.sourceMessageId) || 0;
+      const reasonLabel = String(reqEntry.reasonType || "").trim() === "objective" ? "Объективная" : "Субъективная";
+      const requesterText =
+        `${buildFullTaskMessage(buildTaskRowForChat(payload, rqRow, requesterChat))}\n\n` +
+        `Вы переназначили задачу (${reassignCode}).\n` +
+        `Причина (${reasonLabel}): ${String(reqEntry.reasonText || "—").trim() || "—"}\n` +
+        `Передано: ${toName || "—"}\n` +
+        `Подтвердил: ${actor}\n` +
+        `Дата/время: ${nowText}`;
+      if (requesterChat) {
+        if (sourceMid) {
+          await tg(token, "editMessageText", {
+            chat_id: requesterChat,
+            message_id: sourceMid,
+            text: requesterText,
+            reply_markup: { inline_keyboard: [] }
+          });
+        } else {
+          await tg(token, "sendMessage", { chat_id: requesterChat, text: requesterText });
+        }
+      }
       await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: messageId,
-        text: `Заявка ${requestId}: подтверждено.`,
+        text: `Заявка ${reassignCode}: подтверждена.\nПодтвердил: ${actor}\nДата/время: ${nowText}`,
         reply_markup: { inline_keyboard: [] }
       });
     } else {
@@ -2311,18 +2367,21 @@ async function handleCallback(q, pool, token) {
       appendTaskHistory(payload, rqTaskId, actor, "Telegram: переназначение отклонено");
       await tg(token, "sendMessage", {
         chat_id: String(reqEntry.requesterChatId || ""),
-        text: `Задача №${rqTaskId}: запрос на переназначение отклонён.`
+        text:
+          `Задача №${rqTaskId}: запрос на переназначение (${reassignCode}) отклонён.\n` +
+          `Отклонил: ${actor}\nДата/время: ${nowText}`
       });
       await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: messageId,
-        text: `Заявка ${requestId}: отклонено.`,
+        text: `Заявка ${reassignCode}: отклонена.\nОтклонил: ${actor}\nДата/время: ${nowText}`,
         reply_markup: { inline_keyboard: [] }
       });
     }
 
     logStore[rqTaskId].unshift({
       id: requestId,
+      code: reassignCode,
       status: reqEntry.status,
       from: fromName,
       to: toName,
