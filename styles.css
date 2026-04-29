@@ -1927,6 +1927,16 @@ tr:nth-child(even) td {
   background: #ffe7e7 !important;
 }
 
+.row-highlight-reassign-pending td {
+  background: #fff9db !important;
+}
+
+.row-highlight-reassign-pending .checkbox-col,
+.row-highlight-reassign-pending .number-col,
+.row-highlight-reassign-pending .actions-col {
+  background: #fff3bf !important;
+}
+
 .focused-row td {
   background: var(--brand-surface) !important;
 }
@@ -1935,6 +1945,29 @@ tr:nth-child(even) td {
 .focused-row .number-col,
 .focused-row .actions-col {
   background: var(--brand-surface-2) !important;
+}
+
+.task-reassign-subrow td {
+  background: #fffef2 !important;
+  font-size: 12px;
+}
+
+.task-reassign-subrow .status-badge {
+  font-size: 11px;
+}
+
+.task-reassign-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px;
+  background: #fffef7;
+  margin-bottom: 8px;
+}
+
+.task-reassign-card-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
 }
 
 .editable-cell {

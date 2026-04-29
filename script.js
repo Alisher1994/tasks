@@ -46,6 +46,8 @@ const TASK_HISTORY_STORAGE_KEY = "mbc_task_action_history";
 const TASK_MULTI_STATE_STORAGE_KEY = "mbc_task_multi_state";
 const TASK_CLOSE_META_STORAGE_KEY = "mbc_task_close_meta";
 const TASK_ATTACHMENTS_STORAGE_KEY = "mbc_task_attachments";
+const TASK_REASSIGN_REQUESTS_STORAGE_KEY = "mbc_task_reassign_requests";
+const TASK_REASSIGN_LOG_STORAGE_KEY = "mbc_task_reassign_log";
 const TASK_HISTORY_MAX_PER_TASK = 300;
 const REPORT_CHART_ORDER_STORAGE_KEY = "mbc_report_chart_tile_order";
 /** «row» — Топ фаз / Разделы / Подразделы в одной строке; «separate» — каждый график на всю ширину */
@@ -1246,6 +1248,7 @@ function buildAppPayload() {
   normalizeTaskMultiStateStore();
   normalizeTaskCloseMetaStore();
   cleanupTaskAttachmentsStore();
+  normalizeTaskReassignStores();
   return {
     sections: JSON.parse(JSON.stringify(sections)),
     displaySettings: JSON.parse(JSON.stringify(displaySettings)),
@@ -1253,6 +1256,8 @@ function buildAppPayload() {
     taskHistory: loadTaskHistoryStore(),
     taskMultiState: JSON.parse(JSON.stringify(taskMultiState)),
     taskCloseMeta: JSON.parse(JSON.stringify(taskCloseMeta)),
+    telegramReassignRequests: JSON.parse(JSON.stringify(telegramReassignRequests)),
+    taskReassignLog: JSON.parse(JSON.stringify(taskReassignLog)),
     taskAttachments: JSON.parse(JSON.stringify(taskAttachmentsByTaskId)),
     reportShares: loadReportShares(),
     reportChartOrder: loadReportChartOrder(),
@@ -1588,6 +1593,12 @@ async function mergeTaskReadStateFromServer(localPayload) {
     if (remotePayload?.taskCloseMeta && typeof remotePayload.taskCloseMeta === "object" && !Array.isArray(remotePayload.taskCloseMeta)) {
       localPayload.taskCloseMeta = JSON.parse(JSON.stringify(remotePayload.taskCloseMeta));
     }
+    if (remotePayload?.telegramReassignRequests && typeof remotePayload.telegramReassignRequests === "object" && !Array.isArray(remotePayload.telegramReassignRequests)) {
+      localPayload.telegramReassignRequests = JSON.parse(JSON.stringify(remotePayload.telegramReassignRequests));
+    }
+    if (remotePayload?.taskReassignLog && typeof remotePayload.taskReassignLog === "object" && !Array.isArray(remotePayload.taskReassignLog)) {
+      localPayload.taskReassignLog = JSON.parse(JSON.stringify(remotePayload.taskReassignLog));
+    }
   } catch (_) {
     /* noop */
   }
@@ -1645,6 +1656,24 @@ async function pullTaskReadStateFromServerIntoLocal({ rerender = true } = {}) {
         if (nextCloseMeta !== prevCloseMeta) {
           taskCloseMeta = JSON.parse(nextCloseMeta);
           localStorage.setItem(TASK_CLOSE_META_STORAGE_KEY, JSON.stringify(taskCloseMeta));
+          multiChanged = true;
+        }
+      }
+      if (json?.data?.telegramReassignRequests && typeof json.data.telegramReassignRequests === "object" && !Array.isArray(json.data.telegramReassignRequests)) {
+        const nextReq = JSON.stringify(json.data.telegramReassignRequests);
+        const prevReq = JSON.stringify(telegramReassignRequests || {});
+        if (nextReq !== prevReq) {
+          telegramReassignRequests = JSON.parse(nextReq);
+          localStorage.setItem(TASK_REASSIGN_REQUESTS_STORAGE_KEY, JSON.stringify(telegramReassignRequests));
+          multiChanged = true;
+        }
+      }
+      if (json?.data?.taskReassignLog && typeof json.data.taskReassignLog === "object" && !Array.isArray(json.data.taskReassignLog)) {
+        const nextLog = JSON.stringify(json.data.taskReassignLog);
+        const prevLog = JSON.stringify(taskReassignLog || {});
+        if (nextLog !== prevLog) {
+          taskReassignLog = JSON.parse(nextLog);
+          localStorage.setItem(TASK_REASSIGN_LOG_STORAGE_KEY, JSON.stringify(taskReassignLog));
           multiChanged = true;
         }
       }
@@ -1897,6 +1926,22 @@ function applyServerBundle(data, options = {}) {
     try {
       localStorage.setItem(TASK_CLOSE_META_STORAGE_KEY, JSON.stringify(data.taskCloseMeta));
       restoreTaskCloseMeta();
+    } catch (_) {
+      /* noop */
+    }
+  }
+  if (data.telegramReassignRequests && typeof data.telegramReassignRequests === "object" && !Array.isArray(data.telegramReassignRequests)) {
+    try {
+      localStorage.setItem(TASK_REASSIGN_REQUESTS_STORAGE_KEY, JSON.stringify(data.telegramReassignRequests));
+      restoreTaskReassignStores();
+    } catch (_) {
+      /* noop */
+    }
+  }
+  if (data.taskReassignLog && typeof data.taskReassignLog === "object" && !Array.isArray(data.taskReassignLog)) {
+    try {
+      localStorage.setItem(TASK_REASSIGN_LOG_STORAGE_KEY, JSON.stringify(data.taskReassignLog));
+      restoreTaskReassignStores();
     } catch (_) {
       /* noop */
     }
@@ -2297,15 +2342,17 @@ function collectTaskCloseApproverNames(taskRow) {
     approvers.get(n).add(reason);
   };
 
-  // 1) Руководитель отдела исполнителя.
-  parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible]).forEach((assigneeName) => {
-    const headName = getDepartmentHeadNameByEmployeeName(assigneeName);
-    if (!headName) return;
-    const headRows = getEmployeeRowsByDisplayName(headName);
-    if (headRows.some((r) => employeeHasTelegramBinding(r))) {
-      add(headName, "руководитель отдела");
-    }
-  });
+  // 1) Руководитель отдела исполнителя (опционально, настраивается чекбоксом).
+  if (displaySettings.telegramDepartmentHeadsCanConfirmClose !== false) {
+    parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible]).forEach((assigneeName) => {
+      const headName = getDepartmentHeadNameByEmployeeName(assigneeName);
+      if (!headName) return;
+      const headRows = getEmployeeRowsByDisplayName(headName);
+      if (headRows.some((r) => employeeHasTelegramBinding(r))) {
+        add(headName, "руководитель отдела");
+      }
+    });
+  }
 
   // 2) Админ и директор (по должности), если подключены в Telegram.
   const alwaysPositions = new Set(["Администратор", "Генеральный директор"]);
@@ -3977,6 +4024,8 @@ let displaySettings = {
   telegramGlobalDuplicateRecipientIds: [],
   /** Подмножество ID из списка копий: могут подтверждать закрытие задачи в Telegram (кнопки уведомления) */
   telegramCloseConfirmAllowedIds: [],
+  /** Если выключено, руководители отделов не участвуют в подтверждении закрытия задач. */
+  telegramDepartmentHeadsCanConfirmClose: true,
   /** Сообщение исполнителю после подтверждения закрытия администратором (токены [ид_задачи], [название_задачи], [статус], [объект]) */
   telegramCloseAcceptedTemplate:
     "Задача [ид_задачи] ([название_задачи]): закрытие подтверждено.",
@@ -4021,6 +4070,8 @@ let displaySettings = {
 let taskMultiState = {};
 let taskCloseMeta = {};
 let taskAttachmentsByTaskId = {};
+let telegramReassignRequests = {};
+let taskReassignLog = {};
 const expandedTaskAssigneeRows = new Set();
 
 function iconSvg(name) {
@@ -5193,6 +5244,8 @@ function renderTable() {
             : "";
           const accordionRow =
             section.id === "tasks" ? renderTaskAssigneesAccordionRows(entry.row, visibleColumnIndexes, isTrashView) : "";
+          const reassignRows =
+            section.id === "tasks" ? renderTaskReassignRows(entry.row, visibleColumnIndexes, isTrashView) : "";
           return `
             <tr class="${rowFocusClass} ${rowHighlightClass}">
               <td class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}">
@@ -5205,6 +5258,7 @@ function renderTable() {
               </td>
             </tr>
             ${accordionRow}
+            ${reassignRows}
           `;
         })
         .join("") || `<tr><td colspan="${visibleColumnIndexes.length + (isTrashView ? 4 : 2)}" class="empty-state">Нет данных по выбранным фильтрам</td></tr>`}
@@ -12193,6 +12247,46 @@ function renderTaskAssigneesAccordionRows(taskRow, visibleColumnIndexes, isTrash
   return rowsHtml;
 }
 
+function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = false) {
+  if (isTrashView) return "";
+  const taskId = String(taskRow?.[TASK_COLUMNS.number] || "").trim();
+  if (!taskId) return "";
+  const list = Array.isArray(taskReassignLog?.[taskId]) ? taskReassignLog[taskId] : [];
+  if (!list.length) return "";
+  const rowsHtml = list.slice(0, 8).map((item, idx) => {
+    const from = String(item?.from || "").trim() || "—";
+    const to = String(item?.to || "").trim() || "—";
+    const reason = String(item?.reasonText || "").trim() || "—";
+    const status = String(item?.status || "").trim();
+    const label = status === "approved" ? "подтверждено" : status === "rejected" ? "отклонено" : "ожидание";
+    const subId = `${taskId}/R${idx + 1}`;
+    const cells = visibleColumnIndexes.map((colIndex, viewOrder) => {
+      const stickyClass = colIndex === 0 && viewOrder === 0 ? "number-col" : "";
+      const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
+      let val = "—";
+      if (colIndex === TASK_COLUMNS.number) val = `↪ ${subId}`;
+      else if (colIndex === TASK_COLUMNS.task) val = `Переназначение: ${from} → ${to}`;
+      else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `<s>${escapeHtmlText(from)}</s> → ${escapeHtmlText(to)}`;
+      else if (colIndex === TASK_COLUMNS.status) val = `<span class="status-badge status-${slugify(label)}">${escapeHtmlText(label)}</span>`;
+      else if (colIndex === TASK_COLUMNS.note) val = `Причина: ${escapeHtmlText(reason)}`;
+      else if (colIndex === TASK_COLUMNS.addedDate) val = escapeHtmlText(formatStoredDateForDisplay(String(item?.createdAt || "")) || "—");
+      else val = "—";
+      const rendered = colIndex === TASK_COLUMNS.assignedResponsible || colIndex === TASK_COLUMNS.status || colIndex === TASK_COLUMNS.note
+        ? val
+        : escapeHtmlText(String(val || "—"));
+      return `<td class="task-reassign-subrow-cell ${stickyClass} ${statusClass}">${rendered}</td>`;
+    }).join("");
+    return `
+      <tr class="task-reassign-subrow">
+        <td class="checkbox-col"><input type="checkbox" disabled aria-label="Переназначение ${escapeHtmlAttr(subId)}" /></td>
+        ${cells}
+        <td class="actions-col">—</td>
+      </tr>
+    `;
+  }).join("");
+  return rowsHtml;
+}
+
 function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1) {
   if (section.id === "objects" && colIndex === OBJECT_COLUMNS.photo) {
     return renderObjectPhotoCell(row, value, rowIndexForPhoto);
@@ -12630,6 +12724,13 @@ function pickFile(onPick, accept) {
 
 function getRowHighlightClass(section, row) {
   if (section.id !== "tasks") return "";
+  const taskId = String(row?.[TASK_COLUMNS.number] || "").trim();
+  if (taskId && Object.values(telegramReassignRequests || {}).some((item) => {
+    if (!item || typeof item !== "object") return false;
+    return String(item.taskId || "").trim() === taskId && String(item.status || "").trim() === "pending";
+  })) {
+    return "row-highlight-reassign-pending";
+  }
   const status = row[TASK_COLUMNS.status];
 
   if (displaySettings.highlightClosed && status === "Закрыт") {
@@ -15682,6 +15783,18 @@ function renderOtherSettingsPanel() {
 
         <div class="other-settings-section global-dup-pane ${activeSettingsTab === "globalDup" ? "" : "hidden"}" data-other-settings-pane="globalDup">
           <h4 class="other-settings-section-title">Получатели копий (Telegram)</h4>
+          <label class="other-settings-checkbox-row global-dup-heads-toggle">
+            <input
+              type="checkbox"
+              class="other-settings-checkbox"
+              data-setting="telegramDepartmentHeadsCanConfirmClose"
+              ${displaySettings.telegramDepartmentHeadsCanConfirmClose !== false ? "checked" : ""}
+            />
+            Руководители отделов могут подтверждать/отклонять задачи
+          </label>
+          <p class="other-settings-hint other-settings-hint--tight">
+            Если выключено, руководители отделов не получают запросы на подтверждение закрытия задач.
+          </p>
           <p id="globalDupRecipientSummary" class="global-dup-help-summary global-dup-help-summary--under-title"></p>
           <div class="dup-recipient-filters dup-recipient-filters--row">
             <div class="dup-recipient-filter-field dup-recipient-filter-field--search">
@@ -16283,6 +16396,7 @@ function restoreDisplaySettings() {
       displaySettings.telegramCloseAcceptedTemplate =
         "Задача [ид_задачи] ([название_задачи]): закрытие подтверждено.";
     }
+    displaySettings.telegramDepartmentHeadsCanConfirmClose = displaySettings.telegramDepartmentHeadsCanConfirmClose !== false;
     if (typeof displaySettings.telegramBotUsername !== "string") {
       displaySettings.telegramBotUsername = "";
     }
@@ -16415,6 +16529,39 @@ function clearActiveRow(sectionId) {
   delete activeRowBySection[sectionId];
 }
 
+function getPendingReassignRequestsForTask(taskId) {
+  const id = String(taskId || "").trim();
+  if (!id) return [];
+  return Object.values(telegramReassignRequests || {})
+    .filter((item) => item && typeof item === "object")
+    .filter((item) => String(item.taskId || "").trim() === id && String(item.status || "").trim() === "pending");
+}
+
+async function decideTaskReassignRequest(requestId, decision) {
+  if (!isHostedRuntime() || !getAuthToken()) {
+    return { ok: false, error: "Решение доступно только при подключенном сервере." };
+  }
+  try {
+    const r = await fetch("/api/tasks/reassign/decision", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({
+        requestId: String(requestId || "").trim(),
+        decision: String(decision || "").trim()
+      })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, error: String(j?.error || `Ошибка ${r.status}`) };
+    await pullRemoteAppState({ rerender: true });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
 function openTaskDetailsModal(section, row, rowIndex) {
   const columns = section.columns;
   const taskId = String(row[TASK_COLUMNS.number] || "");
@@ -16452,6 +16599,23 @@ function openTaskDetailsModal(section, row, rowIndex) {
       .map((x) => `<span class="close-approver-chip" title="${escapeHtmlAttr(x.reason)}">${escapeHtmlText(x.name)}</span>`)
       .join("")
     : '<span class="close-approver-empty">Не определены (проверьте руководителя отдела и Telegram-подключение).</span>';
+  const pendingReassign = getPendingReassignRequestsForTask(taskId);
+  const reassignHtml = pendingReassign.length
+    ? pendingReassign.map((req) => `
+      <div class="task-reassign-card">
+        <div><strong>ID:</strong> ${escapeHtmlText(String(req.id || "—"))}</div>
+        <div><strong>С кого:</strong> ${escapeHtmlText(String(req.fromEmployeeName || "—"))}</div>
+        <div><strong>На кого:</strong> ${escapeHtmlText(String(req.toEmployeeName || "—"))}</div>
+        <div><strong>Причина:</strong> ${escapeHtmlText(String(req.reasonText || "—"))}</div>
+        <div class="task-reassign-card-actions">
+          ${currentAuthRole === "admin"
+    ? `<button type="button" class="secondary task-reassign-approve-btn" data-reassign-id="${escapeHtmlAttr(String(req.id || ""))}">Подтвердить</button>
+             <button type="button" class="secondary task-reassign-reject-btn" data-reassign-id="${escapeHtmlAttr(String(req.id || ""))}">Отклонить</button>`
+    : `<span class="close-approver-empty">Ожидает решения администратора</span>`}
+        </div>
+      </div>
+    `).join("")
+    : '<span class="close-approver-empty">Нет активных заявок на переназначение.</span>';
   const beforeGallery = buildDraftGallery(draftState.before, draftState.preview, "before");
   const afterGallery = buildDraftGallery(draftState.after, draftState.preview, "after");
 
@@ -16482,6 +16646,10 @@ function openTaskDetailsModal(section, row, rowIndex) {
         <div class="close-approvers-box">
           <div class="close-approvers-title">Кто согласует закрытие</div>
           <div class="close-approvers-list">${closeApproversHtml}</div>
+        </div>
+        <div class="close-approvers-box">
+          <div class="close-approvers-title">Заявки на переназначение</div>
+          <div class="close-approvers-list">${reassignHtml}</div>
         </div>
         <div class="details-grid">${details}</div>
         <div class="gallery-block">
@@ -17364,6 +17532,26 @@ function openExportFormatModal(section, filteredEntries) {
   `;
   document.body.appendChild(overlay);
   initLucideIcons();
+  modal.querySelectorAll(".task-reassign-approve-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = String(btn.getAttribute("data-reassign-id") || "").trim();
+      if (!id) return;
+      btn.setAttribute("disabled", "disabled");
+      const r = await decideTaskReassignRequest(id, "approve");
+      if (!r.ok) window.alert(r.error || "Не удалось подтвердить заявку");
+      modal.remove();
+    });
+  });
+  modal.querySelectorAll(".task-reassign-reject-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = String(btn.getAttribute("data-reassign-id") || "").trim();
+      if (!id) return;
+      btn.setAttribute("disabled", "disabled");
+      const r = await decideTaskReassignRequest(id, "reject");
+      if (!r.ok) window.alert(r.error || "Не удалось отклонить заявку");
+      modal.remove();
+    });
+  });
 
   const close = () => overlay.remove();
   overlay.querySelector(".export-format-pdf-btn")?.addEventListener("click", () => {
@@ -18414,10 +18602,13 @@ function saveSectionsData() {
   normalizeTaskMultiStateStore();
   normalizeTaskCloseMetaStore();
   cleanupTaskAttachmentsStore();
+  normalizeTaskReassignStores();
   localStorage.setItem(DATA_STORAGE_KEY, JSON.stringify(sections));
   localStorage.setItem(TASK_MULTI_STATE_STORAGE_KEY, JSON.stringify(taskMultiState));
   localStorage.setItem(TASK_CLOSE_META_STORAGE_KEY, JSON.stringify(taskCloseMeta));
   localStorage.setItem(TASK_ATTACHMENTS_STORAGE_KEY, JSON.stringify(taskAttachmentsByTaskId));
+  localStorage.setItem(TASK_REASSIGN_REQUESTS_STORAGE_KEY, JSON.stringify(telegramReassignRequests));
+  localStorage.setItem(TASK_REASSIGN_LOG_STORAGE_KEY, JSON.stringify(taskReassignLog));
   scheduleServerSync();
 }
 
@@ -18533,6 +18724,57 @@ function migrateAttachmentsFromTaskMultiState() {
     }
     delete state.__files;
   });
+}
+
+function normalizeTaskReassignStores() {
+  const taskIds = new Set(getAllTaskRows().map((row) => String(row?.[TASK_COLUMNS.number] || "").trim()).filter(Boolean));
+  if (!telegramReassignRequests || typeof telegramReassignRequests !== "object" || Array.isArray(telegramReassignRequests)) {
+    telegramReassignRequests = {};
+  }
+  Object.keys(telegramReassignRequests).forEach((id) => {
+    const entry = telegramReassignRequests[id];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      delete telegramReassignRequests[id];
+      return;
+    }
+    const taskId = String(entry.taskId || "").trim();
+    if (!taskId || !taskIds.has(taskId)) {
+      delete telegramReassignRequests[id];
+    }
+  });
+  if (!taskReassignLog || typeof taskReassignLog !== "object" || Array.isArray(taskReassignLog)) {
+    taskReassignLog = {};
+  }
+  Object.keys(taskReassignLog).forEach((taskId) => {
+    if (!taskIds.has(String(taskId || "").trim())) {
+      delete taskReassignLog[taskId];
+      return;
+    }
+    if (!Array.isArray(taskReassignLog[taskId])) {
+      delete taskReassignLog[taskId];
+      return;
+    }
+    taskReassignLog[taskId] = taskReassignLog[taskId].filter((item) => item && typeof item === "object");
+    if (!taskReassignLog[taskId].length) delete taskReassignLog[taskId];
+  });
+}
+
+function restoreTaskReassignStores() {
+  try {
+    const reqRaw = localStorage.getItem(TASK_REASSIGN_REQUESTS_STORAGE_KEY);
+    const logRaw = localStorage.getItem(TASK_REASSIGN_LOG_STORAGE_KEY);
+    const reqParsed = reqRaw ? JSON.parse(reqRaw) : {};
+    const logParsed = logRaw ? JSON.parse(logRaw) : {};
+    if (reqParsed && typeof reqParsed === "object" && !Array.isArray(reqParsed)) {
+      telegramReassignRequests = reqParsed;
+    }
+    if (logParsed && typeof logParsed === "object" && !Array.isArray(logParsed)) {
+      taskReassignLog = logParsed;
+    }
+  } catch (_) {
+    /* noop */
+  }
+  normalizeTaskReassignStores();
 }
 
 function getTrashRows(sectionId) {
@@ -19367,6 +19609,7 @@ restoreSectionsData();
 restoreTaskMultiState();
 restoreTaskCloseMeta();
 restoreTaskAttachmentsData();
+restoreTaskReassignStores();
 cleanupPendingImportedTaskIds({ save: false });
 applyObjectsSeedIfNeeded();
 loadObjectPhotoThumbsFromStorage();

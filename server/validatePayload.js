@@ -55,6 +55,8 @@ export function validateAppPayload(data) {
     "trashBySection",
     "taskHistory",
     "taskMultiState",
+    "telegramReassignRequests",
+    "taskReassignLog",
     "taskAttachments",
     "reportShares"
   ];

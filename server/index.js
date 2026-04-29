@@ -49,6 +49,9 @@ const TASK_MEDIA_AFTER_COL = 17;
 const TASK_READ_STATE_COL = 18;
 const TASK_LAST_SENT_AT_COL = 19;
 const TASK_DELAY_REASON_COL = 20;
+const EMPLOYEE_FULL_NAME_COL = 1;
+const EMPLOYEE_TELEGRAM_COL = 5;
+const EMPLOYEE_CHAT_ID_COL = 6;
 const CHAT_CLEAR_CODE_TTL_MS = 10 * 60 * 1000;
 const CHAT_CLEAR_DELETE_SCAN_BEFORE = 3000;
 const CHAT_CLEAR_DELETE_SCAN_AFTER = 40;
@@ -331,6 +334,44 @@ function getTaskRows(payload) {
   return Array.isArray(tasks?.rows) ? tasks.rows : [];
 }
 
+function getSectionRows(payload, sectionId) {
+  const sections = Array.isArray(payload?.sections) ? payload.sections : [];
+  const section = sections.find((s) => s && s.id === sectionId);
+  return Array.isArray(section?.rows) ? section.rows : [];
+}
+
+function parseTaskAssigneeNames(rawValue) {
+  const raw = String(rawValue || "").trim();
+  if (!raw) return [];
+  const out = [];
+  const seen = new Set();
+  raw.split(",").map((x) => x.trim()).filter(Boolean).forEach((name) => {
+    const key = name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(name);
+  });
+  return out;
+}
+
+function replaceAssigneeName(rawValue, oldName, newName) {
+  const list = parseTaskAssigneeNames(rawValue);
+  if (!list.length) return String(newName || "").trim();
+  const oldKey = String(oldName || "").trim().toLowerCase();
+  const newClean = String(newName || "").trim();
+  if (!newClean) return list.join(", ");
+  let replaced = false;
+  const next = list.map((name) => {
+    if (!replaced && String(name || "").trim().toLowerCase() === oldKey) {
+      replaced = true;
+      return newClean;
+    }
+    return name;
+  });
+  if (!replaced) return newClean;
+  return Array.from(new Set(next.map((x) => String(x || "").trim()).filter(Boolean))).join(", ");
+}
+
 function isReadStateValue(value) {
   const firstLine = String(value || "").split(/\r?\n/)[0].trim().toLowerCase();
   return firstLine.startsWith("прочитано");
@@ -356,6 +397,18 @@ function latestTelegramHistoryTs(store, taskId) {
     if (t > maxTs) maxTs = t;
   }
   return maxTs;
+}
+
+function appendTaskHistory(payload, taskId, who, actionText) {
+  const id = String(taskId ?? "").trim() || "—";
+  const actor = String(who || "").trim() || "Система";
+  const action = String(actionText || "").trim() || "—";
+  if (!payload.taskHistory || typeof payload.taskHistory !== "object" || Array.isArray(payload.taskHistory)) {
+    payload.taskHistory = {};
+  }
+  if (!Array.isArray(payload.taskHistory[id])) payload.taskHistory[id] = [];
+  payload.taskHistory[id].unshift({ t: Date.now(), who: actor, action });
+  if (payload.taskHistory[id].length > 300) payload.taskHistory[id].length = 300;
 }
 
 function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
@@ -883,6 +936,75 @@ app.post("/api/telegram/send-media-group-proxy", authMiddleware, async (req, res
   }
 });
 
+app.post("/api/tasks/reassign/decision", authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const requestId = String(req.body?.requestId || "").trim();
+    const decision = String(req.body?.decision || "").trim().toLowerCase();
+    if (!requestId) return res.status(400).json({ ok: false, error: "requestId обязателен" });
+    if (!["approve", "reject"].includes(decision)) {
+      return res.status(400).json({ ok: false, error: "decision должен быть approve/reject" });
+    }
+
+    const { rows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
+    const payload = rows[0]?.payload && typeof rows[0].payload === "object"
+      ? JSON.parse(JSON.stringify(rows[0].payload))
+      : {};
+    const reqStore = ensureObjectStore(payload, "telegramReassignRequests");
+    const reqEntry = reqStore[requestId];
+    if (!reqEntry) return res.status(404).json({ ok: false, error: "Заявка не найдена" });
+    if (String(reqEntry.status || "").trim() !== "pending") {
+      return res.json({ ok: true, alreadyProcessed: true, status: reqEntry.status || "unknown" });
+    }
+
+    const tasks = getTaskRows(payload);
+    const taskId = String(reqEntry.taskId || "").trim();
+    const row = tasks.find((r) => String(r?.[TASK_NUMBER_COL] || "").trim() === taskId);
+    if (!row) return res.status(404).json({ ok: false, error: "Задача не найдена" });
+
+    const actorName = String(req.user?.name || "").trim() || "Администратор";
+    const nowIso = new Date().toISOString();
+    const logStore = ensureObjectStore(payload, "taskReassignLog");
+    if (!Array.isArray(logStore[taskId])) logStore[taskId] = [];
+
+    if (decision === "approve") {
+      const fromName = String(reqEntry.fromEmployeeName || "").trim();
+      const toName = String(reqEntry.toEmployeeName || "").trim();
+      const currentAssigned = String(row[TASK_ASSIGNED_COL] || "").trim();
+      row[TASK_ASSIGNED_COL] = replaceAssigneeName(currentAssigned, fromName, toName);
+      reqEntry.status = "approved";
+      reqEntry.decidedAt = nowIso;
+      reqEntry.decidedBy = actorName;
+      appendTaskHistory(payload, taskId, actorName, `Переназначение подтверждено: ${fromName || "—"} → ${toName || "—"}`);
+    } else {
+      reqEntry.status = "rejected";
+      reqEntry.decidedAt = nowIso;
+      reqEntry.decidedBy = actorName;
+      appendTaskHistory(payload, taskId, actorName, "Переназначение отклонено");
+    }
+
+    logStore[taskId].unshift({
+      id: requestId,
+      status: reqEntry.status,
+      from: reqEntry.fromEmployeeName || "",
+      to: reqEntry.toEmployeeName || "",
+      reasonType: reqEntry.reasonType || "",
+      reasonText: reqEntry.reasonText || "",
+      department: reqEntry.departmentName || "",
+      requestedBy: reqEntry.requesterName || "",
+      decidedBy: actorName,
+      createdAt: reqEntry.createdAt || nowIso,
+      decidedAt: nowIso
+    });
+    if (logStore[taskId].length > 100) logStore[taskId].length = 100;
+
+    await saveAppPayload(payload);
+    return res.json({ ok: true, status: reqEntry.status, taskId });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Ошибка обработки переназначения" });
+  }
+});
+
 app.post("/api/telegram/chat-clear/request", authMiddleware, requireAdmin, async (req, res) => {
   try {
     const employeeId = String(req.body?.employeeId || "").trim();
@@ -1078,37 +1200,47 @@ app.put("/api/data", authMiddleware, async (req, res) => {
              jsonb_set(
                jsonb_set(
                  jsonb_set(
-                    jsonb_set(
-                      jsonb_set(
-                        EXCLUDED.payload,
-                        '{telegramSessions}',
-                        COALESCE(app_state.payload->'telegramSessions', '{}'::jsonb),
-                        true
-                      ),
-                      '{telegramPhoneChatBindings}',
-                      COALESCE(app_state.payload->'telegramPhoneChatBindings', '{}'::jsonb),
-                      true
-                    ),
-                    '{telegramCloseRequests}',
-                    COALESCE(app_state.payload->'telegramCloseRequests', '{}'::jsonb),
-                    true
-                  ),
-                  '{telegramLastTaskByChat}',
-                  COALESCE(app_state.payload->'telegramLastTaskByChat', '{}'::jsonb),
-                  true
-                ),
-                '{telegramChatClearRequests}',
-                COALESCE(app_state.payload->'telegramChatClearRequests', '{}'::jsonb),
-                true
-              ),
-              '{telegramLastSeenMessageByChat}',
-              COALESCE(app_state.payload->'telegramLastSeenMessageByChat', '{}'::jsonb),
-              true
-            ),
-            '{taskCloseMeta}',
-            COALESCE(app_state.payload->'taskCloseMeta', '{}'::jsonb),
-            true
-          ),
+                   jsonb_set(
+                     jsonb_set(
+                       jsonb_set(
+                         jsonb_set(
+                           EXCLUDED.payload,
+                           '{telegramSessions}',
+                           COALESCE(app_state.payload->'telegramSessions', '{}'::jsonb),
+                           true
+                         ),
+                         '{telegramPhoneChatBindings}',
+                         COALESCE(app_state.payload->'telegramPhoneChatBindings', '{}'::jsonb),
+                         true
+                       ),
+                       '{telegramCloseRequests}',
+                       COALESCE(app_state.payload->'telegramCloseRequests', '{}'::jsonb),
+                       true
+                     ),
+                     '{telegramLastTaskByChat}',
+                     COALESCE(app_state.payload->'telegramLastTaskByChat', '{}'::jsonb),
+                     true
+                   ),
+                   '{telegramChatClearRequests}',
+                   COALESCE(app_state.payload->'telegramChatClearRequests', '{}'::jsonb),
+                   true
+                 ),
+                 '{telegramLastSeenMessageByChat}',
+                 COALESCE(app_state.payload->'telegramLastSeenMessageByChat', '{}'::jsonb),
+                 true
+               ),
+               '{telegramReassignRequests}',
+               COALESCE(app_state.payload->'telegramReassignRequests', '{}'::jsonb),
+               true
+             ),
+             '{taskReassignLog}',
+             COALESCE(app_state.payload->'taskReassignLog', '{}'::jsonb),
+             true
+           ),
+           '{taskCloseMeta}',
+           COALESCE(app_state.payload->'taskCloseMeta', '{}'::jsonb),
+           true
+         ),
          updated_at = NOW()
        RETURNING updated_at`,
       [JSON.stringify(mergedData)]

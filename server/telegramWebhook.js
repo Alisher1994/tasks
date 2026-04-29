@@ -278,7 +278,8 @@ function mainKeyboard(taskNumber, row, appTimeZone = "UTC") {
       { text: "⌛️ Сменить статус", callback_data: cb(n, "sm") },
       { text: "🗣 Комментарий", callback_data: cb(n, "cm") }
     ],
-    [{ text: "📸 Отправить фото", callback_data: cb(n, "ph") }]
+    [{ text: "📸 Отправить фото", callback_data: cb(n, "ph") }],
+    [{ text: "🔁 Переназначить задачу", callback_data: cb(n, "ra") }]
   ];
   if (isDelayReasonAllowedNow(row, appTimeZone)) {
     keyboard.push([{ text: "🚧 Причина отставания", callback_data: cb(n, "dr") }]);
@@ -495,7 +496,12 @@ function findDepartmentRowByName(payload, departmentName) {
   return rows.find((row) => String(row[1] || "").trim().replace(/\s+/g, " ") === want) || null;
 }
 
+function isDepartmentHeadsCloseConfirmEnabled(payload) {
+  return payload?.displaySettings?.telegramDepartmentHeadsCanConfirmClose !== false;
+}
+
 function getDepartmentHeadChatIdsForTask(payload, row) {
+  if (!isDepartmentHeadsCloseConfirmEnabled(payload)) return [];
   const employees = getEmployeesSection(payload);
   const out = new Set();
   const assignees = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
@@ -570,6 +576,57 @@ function parseOverdueCallbackData(data) {
   return {
     action: String(parts[1] || "").trim()
   };
+}
+
+function ensureReassignRequestsStore(payload) {
+  if (!payload.telegramReassignRequests || typeof payload.telegramReassignRequests !== "object" || Array.isArray(payload.telegramReassignRequests)) {
+    payload.telegramReassignRequests = {};
+  }
+  return payload.telegramReassignRequests;
+}
+
+function ensureTaskReassignLogStore(payload) {
+  if (!payload.taskReassignLog || typeof payload.taskReassignLog !== "object" || Array.isArray(payload.taskReassignLog)) {
+    payload.taskReassignLog = {};
+  }
+  return payload.taskReassignLog;
+}
+
+function buildDepartmentOptions(payload) {
+  const sections = payload?.sections || [];
+  const departments = sections.find((s) => s && s.id === "departments");
+  const rows = Array.isArray(departments?.rows) ? departments.rows : [];
+  const out = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const name = String(row?.[1] || "").trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out.sort((a, b) => a.localeCompare(b, "ru"));
+}
+
+function buildDepartmentEmployees(payload, departmentName) {
+  const employees = getEmployeesSection(payload);
+  const rows = Array.isArray(employees?.rows) ? employees.rows : [];
+  const want = String(departmentName || "").trim().toLowerCase();
+  const out = [];
+  for (const row of rows) {
+    const fio = String(row?.[EMPLOYEE_COLUMNS.fullName] || "").trim();
+    if (!fio) continue;
+    const dep = String(row?.[EMPLOYEE_COLUMNS.department] || "").trim().toLowerCase();
+    if (!want || dep !== want) continue;
+    out.push({
+      id: String(row?.[EMPLOYEE_COLUMNS.id] || "").trim(),
+      fullName: fio,
+      chatId: String(row?.[EMPLOYEE_COLUMNS.chatId] || "").trim(),
+      telegramConnected: String(row?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен"
+    });
+  }
+  return out.sort((a, b) => a.fullName.localeCompare(b.fullName, "ru"));
 }
 
 function statusLabelWithEmoji(status) {
@@ -1778,6 +1835,216 @@ async function handleCallback(q, pool, token) {
     return;
   }
 
+  if (parsed.action === "ra") {
+    if (!canChatUseTaskActions(payload, row, chatId)) {
+      await answerOk("Переназначение доступно только исполнителю");
+      return;
+    }
+    const keyboard = [
+      [{ text: "Объективная причина", callback_data: cb(taskId, "rat|obj") }],
+      [{ text: "Субъективная причина", callback_data: cb(taskId, "rat|subj") }],
+      [{ text: "⬅️ Назад", callback_data: cb(taskId, "bk") }]
+    ];
+    setLastTaskContext(payload, chatId, taskId, messageId);
+    await savePayload(pool, payload);
+    await tg(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: `${taskCaptionWithPlan(viewerRow)}\n\nВыберите тип причины для переназначения:`,
+      reply_markup: { inline_keyboard: keyboard }
+    });
+    await answerOk();
+    return;
+  }
+
+  if (parsed.action === "rat") {
+    if (!canChatUseTaskActions(payload, row, chatId)) {
+      await answerOk("Недостаточно прав");
+      return;
+    }
+    const type = String(parsed.rest?.[0] || "").trim();
+    if (type === "obj") {
+      const options = getDelayReasonOptions(payload);
+      const keyboard = options.map((reason, i) => [{ text: reason, callback_data: cb(taskId, `rar|${i}`) }]);
+      keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "ra") }]);
+      await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${taskCaptionWithPlan(viewerRow)}\n\nВыберите причину:`,
+        reply_markup: { inline_keyboard: keyboard.slice(0, 60) }
+      });
+      await answerOk();
+      return;
+    }
+    if (type === "subj") {
+      if (!payload.telegramSessions) payload.telegramSessions = {};
+      payload.telegramSessions[String(chatId)] = {
+        expect: "reassignReasonText",
+        taskId,
+        promptMessageId: Number(messageId) || null
+      };
+      await savePayload(pool, payload);
+      await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${taskCaptionWithPlan(viewerRow)}\n\nВведите причину переназначения одним сообщением (или /отмена).`,
+        reply_markup: { inline_keyboard: backOnlyKeyboard(taskId) }
+      });
+      await answerOk();
+      return;
+    }
+    await answerOk("Некорректный выбор");
+    return;
+  }
+
+  if (parsed.action === "rar") {
+    if (!canChatUseTaskActions(payload, row, chatId)) {
+      await answerOk("Недостаточно прав");
+      return;
+    }
+    const idx = Number(parsed.rest?.[0]);
+    const options = getDelayReasonOptions(payload);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= options.length) {
+      await answerOk("Неверный выбор");
+      return;
+    }
+    if (!payload.telegramSessions) payload.telegramSessions = {};
+    payload.telegramSessions[String(chatId)] = {
+      expect: "reassignDepartment",
+      taskId,
+      reasonType: "objective",
+      reasonText: String(options[idx] || "").trim(),
+      promptMessageId: Number(messageId) || null
+    };
+    const departments = buildDepartmentOptions(payload);
+    const keyboard = departments.map((name, i) => [{ text: name, callback_data: cb(taskId, `rad|${i}`) }]);
+    keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "ra") }]);
+    await savePayload(pool, payload);
+    await tg(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: `${taskCaptionWithPlan(viewerRow)}\n\nШаг 1/2: выберите отдел`,
+      reply_markup: { inline_keyboard: keyboard.slice(0, 80) }
+    });
+    await answerOk();
+    return;
+  }
+
+  if (parsed.action === "rad") {
+    const sess = payload.telegramSessions?.[String(chatId)];
+    if (!sess || sess.expect !== "reassignDepartment" || String(sess.taskId || "").trim() !== taskId) {
+      await answerOk("Сессия истекла, начните заново");
+      return;
+    }
+    const idx = Number(parsed.rest?.[0]);
+    const departments = buildDepartmentOptions(payload);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= departments.length) {
+      await answerOk("Отдел не найден");
+      return;
+    }
+    const departmentName = String(departments[idx] || "").trim();
+    const currentAssignees = new Set(parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]).map((x) => x.toLowerCase()));
+    const employees = buildDepartmentEmployees(payload, departmentName).filter((e) => !currentAssignees.has(e.fullName.toLowerCase()));
+    payload.telegramSessions[String(chatId)] = {
+      ...sess,
+      expect: "reassignEmployee",
+      departmentName,
+      candidateEmployeeNames: employees.map((x) => x.fullName)
+    };
+    const keyboard = employees.map((empRow, i) => [{ text: empRow.fullName, callback_data: cb(taskId, `rae|${i}`) }]);
+    keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "ra") }]);
+    await savePayload(pool, payload);
+    await tg(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: `${taskCaptionWithPlan(viewerRow)}\n\nШаг 2/2: выберите сотрудника отдела «${departmentName}»`,
+      reply_markup: { inline_keyboard: keyboard.slice(0, 80) }
+    });
+    await answerOk();
+    return;
+  }
+
+  if (parsed.action === "rae") {
+    const sess = payload.telegramSessions?.[String(chatId)];
+    if (!sess || sess.expect !== "reassignEmployee" || String(sess.taskId || "").trim() !== taskId) {
+      await answerOk("Сессия истекла, начните заново");
+      return;
+    }
+    const idx = Number(parsed.rest?.[0]);
+    const departmentName = String(sess.departmentName || "").trim();
+    const all = buildDepartmentEmployees(payload, departmentName);
+    const candidates = Array.isArray(sess.candidateEmployeeNames)
+      ? sess.candidateEmployeeNames.map((x) => String(x || "").trim()).filter(Boolean)
+      : all.map((x) => x.fullName);
+    const employees = all.filter((x) => candidates.includes(x.fullName));
+    if (!Number.isFinite(idx) || idx < 0 || idx >= employees.length) {
+      await answerOk("Сотрудник не найден");
+      return;
+    }
+    const target = employees[idx];
+    const requestId = `rr_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const reqStore = ensureReassignRequestsStore(payload);
+    const requestAllowed = new Set();
+    getDepartmentHeadChatIdsForTask(payload, row).forEach((cid) => requestAllowed.add(cid));
+    getAlwaysConfirmChatIds(payload).forEach((cid) => requestAllowed.add(cid));
+    const adminChat = String(payload?.displaySettings?.telegramAdminChatId || "").trim();
+    if (adminChat) requestAllowed.add(adminChat);
+
+    const currentAssignees = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
+    const fromAssignee = String(viewerAssigneeName || currentAssignees[0] || "").trim();
+    reqStore[requestId] = {
+      id: requestId,
+      taskId,
+      status: "pending",
+      reasonType: sess.reasonType || "objective",
+      reasonText: String(sess.reasonText || "").trim(),
+      departmentName,
+      fromEmployeeName: fromAssignee,
+      toEmployeeName: String(target.fullName || "").trim(),
+      requesterChatId: String(chatId),
+      requesterName: empName,
+      requesterAssigneeName: String(viewerAssigneeName || "").trim(),
+      createdAt: new Date().toISOString(),
+      sourceMessageId: Number(messageId) || null,
+      allowedConfirmChatIds: Array.from(requestAllowed)
+    };
+    appendTaskHistory(
+      payload,
+      taskId,
+      empName,
+      `Telegram: запрошено переназначение (${fromAssignee || "—"} → ${target.fullName || "—"})`
+    );
+    clearSession(payload, String(chatId));
+    await savePayload(pool, payload);
+
+    const reasonLabel = reqStore[requestId].reasonType === "objective" ? "Объективная" : "Субъективная";
+    const requestText =
+      `${buildFullTaskMessage(row)}\n\nЗапрос на переназначение\n` +
+      `ID: ${requestId}\n` +
+      `Причина (${reasonLabel}): ${reqStore[requestId].reasonText || "—"}\n` +
+      `С кого: ${fromAssignee || "—"}\n` +
+      `На кого: ${target.fullName || "—"}\n` +
+      `Инициатор: ${empName || "—"}`;
+    const reqKb = {
+      inline_keyboard: [[
+        { text: "Подтвердить", callback_data: cb(taskId, `ar|${requestId}|y`) },
+        { text: "Отклонить", callback_data: cb(taskId, `ar|${requestId}|n`) }
+      ]]
+    };
+    for (const cid of Array.from(requestAllowed)) {
+      await tg(token, "sendMessage", { chat_id: cid, text: requestText, reply_markup: reqKb });
+    }
+
+    await tg(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId))}\n\nЗапрос на переназначение отправлен на подтверждение.`,
+      reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, buildTaskRowForChat(payload, row, chatId), chatId, appTz) }
+    });
+    await answerOk("Запрос отправлен");
+    return;
+  }
+
   if (parsed.action === "drs") {
     if (!canChatUseTaskActions(payload, row, chatId)) {
       await answerOk("Причина доступна только исполнителю");
@@ -1945,6 +2212,117 @@ async function handleCallback(q, pool, token) {
         reply_markup: { inline_keyboard: [] }
       });
     }
+    await answerOk();
+    return;
+  }
+
+  if (parsed.action === "ar") {
+    const requestId = String(parsed.rest?.[0] || "").trim();
+    const decision = String(parsed.rest?.[1] || "").trim().toLowerCase();
+    if (!requestId || !["y", "n"].includes(decision)) {
+      await answerOk("Некорректные данные");
+      return;
+    }
+    const reqStore = ensureReassignRequestsStore(payload);
+    const reqEntry = reqStore[requestId];
+    if (!reqEntry) {
+      await answerOk("Заявка не найдена");
+      return;
+    }
+    if (String(reqEntry.status || "").trim() !== "pending") {
+      await answerOk("Заявка уже обработана");
+      return;
+    }
+    const allowed = Array.isArray(reqEntry.allowedConfirmChatIds)
+      ? reqEntry.allowedConfirmChatIds.map((x) => String(x).trim()).filter(Boolean)
+      : [];
+    if (!allowed.includes(String(chatId).trim()) && !canConfirmCloseInPayload(payload, String(chatId))) {
+      await answerOk("Недостаточно прав");
+      return;
+    }
+    const rqTaskId = String(reqEntry.taskId || "").trim();
+    const rqRow = findTaskRow(tasks, rqTaskId);
+    if (!rqRow) {
+      await answerOk("Задача не найдена");
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    const actor = empName || `chat ${chatId}`;
+    const fromName = String(reqEntry.fromEmployeeName || "").trim();
+    const toName = String(reqEntry.toEmployeeName || "").trim();
+    const logStore = ensureTaskReassignLogStore(payload);
+    if (!Array.isArray(logStore[rqTaskId])) logStore[rqTaskId] = [];
+
+    if (decision === "y") {
+      const curList = parseTaskAssigneeNames(rqRow[TASK_COLUMNS.assignedResponsible]);
+      if (curList.length <= 1) {
+        rqRow[TASK_COLUMNS.assignedResponsible] = toName || rqRow[TASK_COLUMNS.assignedResponsible];
+      } else {
+        let done = false;
+        const next = curList.map((n) => {
+          if (!done && String(n).trim().toLowerCase() === String(fromName).trim().toLowerCase()) {
+            done = true;
+            return toName || n;
+          }
+          return n;
+        });
+        rqRow[TASK_COLUMNS.assignedResponsible] = Array.from(new Set(next.filter(Boolean))).join(", ");
+      }
+      reqEntry.status = "approved";
+      reqEntry.decidedAt = nowIso;
+      reqEntry.decidedBy = actor;
+      appendTaskHistory(payload, rqTaskId, actor, `Telegram: переназначение подтверждено (${fromName || "—"} → ${toName || "—"})`);
+      const employeesRows = Array.isArray(getEmployeesSection(payload)?.rows) ? getEmployeesSection(payload).rows : [];
+      const targetEmp = employeesRows.find((r) => String(r?.[EMPLOYEE_COLUMNS.fullName] || "").trim().toLowerCase() === toName.toLowerCase());
+      const targetChat = String(targetEmp?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
+      if (targetChat && String(targetEmp?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен") {
+        await tg(token, "sendMessage", {
+          chat_id: targetChat,
+          text: `${buildFullTaskMessage(rqRow)}\n\nВам назначена задача (переназначение).`
+        });
+      }
+      await tg(token, "sendMessage", {
+        chat_id: String(reqEntry.requesterChatId || ""),
+        text: `Задача №${rqTaskId}: переназначение подтверждено. Новый ответственный: ${toName || "—"}.`
+      });
+      await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: `Заявка ${requestId}: подтверждено.`,
+        reply_markup: { inline_keyboard: [] }
+      });
+    } else {
+      reqEntry.status = "rejected";
+      reqEntry.decidedAt = nowIso;
+      reqEntry.decidedBy = actor;
+      appendTaskHistory(payload, rqTaskId, actor, "Telegram: переназначение отклонено");
+      await tg(token, "sendMessage", {
+        chat_id: String(reqEntry.requesterChatId || ""),
+        text: `Задача №${rqTaskId}: запрос на переназначение отклонён.`
+      });
+      await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: `Заявка ${requestId}: отклонено.`,
+        reply_markup: { inline_keyboard: [] }
+      });
+    }
+
+    logStore[rqTaskId].unshift({
+      id: requestId,
+      status: reqEntry.status,
+      from: fromName,
+      to: toName,
+      reasonType: reqEntry.reasonType || "",
+      reasonText: reqEntry.reasonText || "",
+      department: reqEntry.departmentName || "",
+      requestedBy: reqEntry.requesterName || "",
+      decidedBy: actor,
+      createdAt: reqEntry.createdAt || nowIso,
+      decidedAt: nowIso
+    });
+    if (logStore[rqTaskId].length > 100) logStore[rqTaskId].length = 100;
+    await savePayload(pool, payload);
     await answerOk();
     return;
   }
@@ -2277,6 +2655,42 @@ async function handleMessage(msg, pool, token) {
 
   if (sess.expect === "delayReason" && !text) {
     await tg(token, "sendMessage", { chat_id: chatId, text: "Пожалуйста, отправьте причину отставания текстом или /отмена." });
+    return;
+  }
+
+  if (sess.expect === "reassignReasonText" && text) {
+    const reasonText = String(text || "").trim().slice(0, 1000);
+    const departments = buildDepartmentOptions(payload);
+    payload.telegramSessions[chatKey] = {
+      expect: "reassignDepartment",
+      taskId,
+      reasonType: "subjective",
+      reasonText,
+      promptMessageId
+    };
+    await savePayload(pool, payload);
+    await safeDeleteMessage(token, chatId, messageId);
+    const keyboard = departments.map((name, i) => [{ text: name, callback_data: cb(taskId, `rad|${i}`) }]);
+    keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "ra") }]);
+    if (promptMessageId) {
+      await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: promptMessageId,
+        text: `${taskCaptionWithPlan(getChatRow())}\n\nШаг 1/2: выберите отдел`,
+        reply_markup: { inline_keyboard: keyboard.slice(0, 80) }
+      });
+    } else {
+      await tg(token, "sendMessage", {
+        chat_id: chatId,
+        text: `${taskCaptionWithPlan(getChatRow())}\n\nШаг 1/2: выберите отдел`,
+        reply_markup: { inline_keyboard: keyboard.slice(0, 80) }
+      });
+    }
+    return;
+  }
+
+  if (sess.expect === "reassignReasonText" && !text) {
+    await tg(token, "sendMessage", { chat_id: chatId, text: "Пожалуйста, отправьте причину текстом или /отмена." });
     return;
   }
 
