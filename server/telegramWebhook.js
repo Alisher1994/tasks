@@ -2460,23 +2460,53 @@ async function handleCallback(q, pool, token) {
       const employeesRows = Array.isArray(getEmployeesSection(payload)?.rows) ? getEmployeesSection(payload).rows : [];
       const targetEmp = employeesRows.find((r) => String(r?.[EMPLOYEE_COLUMNS.fullName] || "").trim().toLowerCase() === toName.toLowerCase());
       const targetChat = String(targetEmp?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
-      let sentAtIso = "";
-      if (targetChat && String(targetEmp?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен") {
-        const readKeyboard = { inline_keyboard: [[{ text: "📖 Прочитать", callback_data: cb(reassignCode, "rd") }]] };
-        const targetRow = buildTaskRowForReassign(rqRow, {
+      const canSendToTarget = targetChat && String(targetEmp?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен";
+      let reassignEntry = logStore[rqTaskId].find((item) => String(item?.code || "").trim() === reassignCode) || null;
+      if (!reassignEntry) {
+        reassignEntry = {
+          id: requestId,
           code: reassignCode,
+          status: reqEntry.status,
           currentStatus: "В процессе",
+          comment: "",
+          readAt: "",
+          sentAt: "",
+          from: fromName,
           to: toName,
+          reasonType: reqEntry.reasonType || "",
           reasonText: reqEntry.reasonText || "",
-          comment: reqEntry.comment || "",
-          readAt: ""
-        }, rqTaskId);
+          department: reqEntry.departmentName || "",
+          requestedBy: reqEntry.requesterName || "",
+          decidedBy: actor,
+          createdAt: reqEntry.createdAt || nowIso,
+          decidedAt: nowIso
+        };
+        logStore[rqTaskId].unshift(reassignEntry);
+      } else {
+        reassignEntry.status = reqEntry.status;
+        reassignEntry.currentStatus = "В процессе";
+        reassignEntry.from = fromName;
+        reassignEntry.to = toName;
+        reassignEntry.reasonType = reqEntry.reasonType || "";
+        reassignEntry.reasonText = reqEntry.reasonText || "";
+        reassignEntry.department = reqEntry.departmentName || "";
+        reassignEntry.requestedBy = reqEntry.requesterName || "";
+        reassignEntry.decidedBy = actor;
+        reassignEntry.decidedAt = nowIso;
+      }
+      if (logStore[rqTaskId].length > 100) logStore[rqTaskId].length = 100;
+      await savePayload(pool, payload);
+
+      if (canSendToTarget) {
+        const readKeyboard = { inline_keyboard: [[{ text: "📖 Прочитать", callback_data: cb(reassignCode, "rd") }]] };
+        const targetRow = buildTaskRowForReassign(rqRow, reassignEntry, rqTaskId);
         await tg(token, "sendMessage", {
           chat_id: targetChat,
           text: `${buildFullTaskMessage(targetRow)}\n\nВам назначена задача (${reassignCode}).`,
           reply_markup: readKeyboard
         });
-        sentAtIso = nowIso;
+        reassignEntry.sentAt = nowIso;
+        await savePayload(pool, payload);
       }
       const requesterChat = String(reqEntry.requesterChatId || "").trim();
       const sourceMid = Number(reqEntry.sourceMessageId) || 0;
@@ -2524,15 +2554,15 @@ async function handleCallback(q, pool, token) {
         reply_markup: { inline_keyboard: [] }
       });
     }
-
+    if (decision !== "y") {
       logStore[rqTaskId].unshift({
         id: requestId,
         code: reassignCode,
         status: reqEntry.status,
-        currentStatus: String(reqEntry.status === "approved" ? "В процессе" : "").trim(),
+        currentStatus: "",
         comment: "",
         readAt: "",
-        sentAt: sentAtIso,
+        sentAt: "",
         from: fromName,
         to: toName,
         reasonType: reqEntry.reasonType || "",
@@ -2543,8 +2573,9 @@ async function handleCallback(q, pool, token) {
         createdAt: reqEntry.createdAt || nowIso,
         decidedAt: nowIso
       });
-    if (logStore[rqTaskId].length > 100) logStore[rqTaskId].length = 100;
-    await savePayload(pool, payload);
+      if (logStore[rqTaskId].length > 100) logStore[rqTaskId].length = 100;
+      await savePayload(pool, payload);
+    }
     await answerOk();
     return;
   }
