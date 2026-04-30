@@ -1691,17 +1691,28 @@ select:focus {
 
 table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   min-width: 1100px;
 }
 
 th,
 td {
-  border: 1px solid #dbe2ea;
+  border-right: 1px solid #dbe2ea;
+  border-bottom: 1px solid #dbe2ea;
   padding: 10px 12px;
   text-align: left;
   vertical-align: top;
   font-size: 13px;
+}
+
+thead th:first-child,
+tbody td:first-child {
+  border-left: 1px solid #dbe2ea;
+}
+
+thead tr:first-child th {
+  border-top: 1px solid #dbe2ea;
 }
 
 th {
@@ -1753,6 +1764,19 @@ thead.table-head-has-order .table-head-order-row th.table-order-cell {
   z-index: 3;
   background: #f9fbfd;
   isolation: isolate;
+  overflow: visible;
+}
+
+.checkbox-col::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  bottom: -1px;
+  width: 1px;
+  background: #dbe2ea;
+  pointer-events: none;
+  z-index: 3;
 }
 
 th.checkbox-col {
@@ -1795,12 +1819,24 @@ th.actions-col {
   content: "";
   position: absolute;
   top: -1px;
-  right: -3px;
+  right: -1px;
   bottom: -1px;
-  width: 4px;
+  width: 1px;
+  background: #dbe2ea;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.number-col::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  bottom: -1px;
+  right: 0;
   background: inherit;
   pointer-events: none;
-  z-index: 1;
+  z-index: -1;
 }
 
 .first-visible-col {
