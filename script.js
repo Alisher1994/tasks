@@ -4142,7 +4142,6 @@ let telegramReassignRequests = {};
 let taskReassignLog = {};
 let cellCommentsByCellKey = {};
 const expandedTaskAssigneeRows = new Set();
-let tasksTabulatorInstance = null;
 
 function iconSvg(name) {
   const attrs = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide-icon" aria-hidden="true"';
@@ -5099,7 +5098,6 @@ function detachTasksChunksObserver() {
 function renderTable() {
   detachTasksChunksObserver();
   destroyReportCharts();
-  destroyTasksTabulator();
 
   if (activeSectionId === "otherSettings") {
     tableContainer.innerHTML = renderOtherSettingsPanel();
@@ -5252,23 +5250,6 @@ function renderTable() {
   const selectedCount = selectedRows.size;
   const isAllFilteredSelected = allFilteredEntries.length > 0
     && allFilteredEntries.every((entry) => selectedRows.has(entry.rowIndex));
-
-  if (section.id === "tasks" && typeof Tabulator === "function") {
-    const rendered = renderTasksTabulatorSection(section, {
-      entriesForTbody,
-      allFilteredEntries,
-      selectedCount,
-      tasksListFooterHtml,
-      tasksChunksSentinelHtml,
-      showTasksBackBtn,
-      sectionGroupTabs,
-      sectionFilters,
-      visibleColumnIndexes,
-      isTrashView,
-      isAllFilteredSelected
-    });
-    if (rendered) return;
-  }
 
   const showHeaderNumbers = headerNumberingBySection[section.id] !== false;
   const headRowspan = showHeaderNumbers ? ` rowspan="2"` : "";
@@ -12192,364 +12173,6 @@ function renderTasksScreenModeSwitch(section, selectedCount = 0, isTrashView = f
   `;
 }
 
-function getTaskTabulatorColumnWidth(colIndex) {
-  if (colIndex === TASK_COLUMNS.number) return 74;
-  if (colIndex === TASK_COLUMNS.status) return 150;
-  if (colIndex === TASK_COLUMNS.priority) return 120;
-  if (colIndex === TASK_COLUMNS.object) return 220;
-  if (colIndex === TASK_COLUMNS.task) return 280;
-  if (colIndex === TASK_COLUMNS.dueDate) return 170;
-  if (colIndex === TASK_COLUMNS.readState) return 150;
-  if (colIndex === TASK_COLUMNS.lastSentAt) return 150;
-  if (isMediaColumn(colIndex)) return 190;
-  return 150;
-}
-
-function buildTaskTabulatorHeaderHtml(label, orderText = "") {
-  return `
-    <div class="task-tabulator-headcell">
-      <span class="task-tabulator-headcell-title">${String(label || "")}</span>
-      <span class="task-tabulator-headcell-order">${escapeHtmlText(orderText || "")}</span>
-    </div>
-  `;
-}
-
-function wrapTaskTabulatorCellHtml(content, classNames = [], dataset = {}) {
-  const attrs = Object.entries(dataset)
-    .map(([key, value]) => ` data-${escapeHtmlAttr(key)}="${escapeHtmlAttr(String(value))}"`)
-    .join("");
-  const classes = ["task-tabulator-cell-inner", ...classNames.filter(Boolean)].join(" ");
-  return `<div class="${classes}"${attrs}>${content}</div>`;
-}
-
-function buildTasksTabulatorDisplayRows(section, entries, visibleColumnIndexes, isTrashView, selectedRows) {
-  const rows = [];
-  entries.forEach((entry) => {
-    const row = entry.row;
-    const rowIndex = entry.rowIndex;
-    const taskId = String(row?.[TASK_COLUMNS.number] || "").trim();
-    const rowHighlightClass = getRowHighlightClass(section, row);
-    const focused = activeRowBySection[section.id] === rowIndex;
-    const base = {
-      __id: `task-${rowIndex}`,
-      __kind: "task",
-      __rowIndex: rowIndex,
-      __taskId: taskId,
-      __rowClass: [rowHighlightClass, focused ? "focused-row" : ""].filter(Boolean).join(" ")
-    };
-    base.__select = wrapTaskTabulatorCellHtml(
-      `<input type="checkbox" class="row-checkbox" data-row-index="${escapeHtmlAttr(String(rowIndex))}" ${selectedRows.has(rowIndex) ? "checked" : ""} />`,
-      ["task-tabulator-select-cell"]
-    );
-    visibleColumnIndexes.forEach((colIndex) => {
-      const classNames = ["editable-cell"];
-      if (colIndex === TASK_COLUMNS.status) classNames.push("status-col");
-      if (colIndex === TASK_COLUMNS.object) classNames.push("object-col");
-      if (isMediaColumn(colIndex)) classNames.push("media-col");
-      const wideClass = getWideColumnClass(colIndex);
-      if (wideClass) classNames.push(wideClass);
-      if (isReadonlyColumn(section, colIndex)) classNames.push("readonly-cell");
-      base[`col_${colIndex}`] = wrapTaskTabulatorCellHtml(
-        renderCellContent(section, row, colIndex, row[colIndex], rowIndex),
-        classNames,
-        { "row-index": rowIndex, "col-index": colIndex }
-      );
-    });
-    base.__trashDeletedAt = wrapTaskTabulatorCellHtml(escapeHtmlText(formatTrashDate(entry.deletedAt)));
-    base.__trashRemaining = wrapTaskTabulatorCellHtml(escapeHtmlText(formatTrashRemaining(entry.expiresAt)));
-    base.__actions = wrapTaskTabulatorCellHtml(
-      renderRowActions(section.id, isTrashView, rowIndex, row),
-      ["task-tabulator-actions-cell"]
-    );
-    rows.push(base);
-
-    const assignees = parseTaskAssigneeNames(row?.[TASK_COLUMNS.assignedResponsible]);
-    const multiTaskId = getTaskIdForMultiState(row);
-    const expanded = multiTaskId && expandedTaskAssigneeRows.has(multiTaskId);
-    if (!isTrashView && expanded && assignees.length > 1) {
-      const map = getTaskMultiAssigneeMap(multiTaskId) || {};
-      assignees.forEach((name, idx) => {
-        const state = map?.[name] || {};
-        const subId = `${String(row[TASK_COLUMNS.number] || "—")}.${idx + 1}`;
-        const subRow = {
-          __id: `assignee-${rowIndex}-${idx}`,
-          __kind: "assignee-subrow",
-          __rowIndex: rowIndex,
-          __taskId: multiTaskId,
-          __rowClass: "task-assignee-subrow"
-        };
-        subRow.__select = wrapTaskTabulatorCellHtml(
-          `<input type="checkbox" disabled aria-label="Подзадача ${escapeHtmlAttr(subId)}" />`,
-          ["task-tabulator-select-cell"]
-        );
-        visibleColumnIndexes.forEach((colIndex) => {
-          const classNames = ["task-tabulator-subcell"];
-          if (colIndex === TASK_COLUMNS.status) classNames.push("status-col");
-          if (colIndex === TASK_COLUMNS.object) classNames.push("object-col");
-          if (isMediaColumn(colIndex)) classNames.push("media-col");
-          const wideClass = getWideColumnClass(colIndex);
-          if (wideClass) classNames.push(wideClass);
-          subRow[`col_${colIndex}`] = wrapTaskTabulatorCellHtml(
-            renderTaskAccordionReadonlyCell(row, colIndex, name, state, subId),
-            classNames
-          );
-        });
-        subRow.__trashDeletedAt = wrapTaskTabulatorCellHtml("—");
-        subRow.__trashRemaining = wrapTaskTabulatorCellHtml("—");
-        subRow.__actions = wrapTaskTabulatorCellHtml(`
-          <div class="action-buttons">
-            <button type="button" class="icon-action-btn task-sub-view-btn" title="Просмотр задачи" data-task-id="${escapeHtmlAttr(multiTaskId)}" data-assignee="${escapeHtmlAttr(name)}">
-              <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
-            </button>
-            <button type="button" class="icon-action-btn task-sub-send-btn" title="Отправить подзадачу" data-task-id="${escapeHtmlAttr(multiTaskId)}" data-assignee="${escapeHtmlAttr(name)}">
-              <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
-            </button>
-            <button type="button" class="icon-action-btn danger-btn task-sub-remove-btn" title="Удалить подзадачу" data-task-id="${escapeHtmlAttr(multiTaskId)}" data-assignee="${escapeHtmlAttr(name)}">
-              <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
-            </button>
-          </div>
-        `, ["task-tabulator-actions-cell"]);
-        rows.push(subRow);
-      });
-    }
-
-    if (!isTrashView && taskId) {
-      const list = Array.isArray(taskReassignLog?.[taskId]) ? taskReassignLog[taskId] : [];
-      list.slice(0, 8).forEach((item, idx) => {
-        const from = String(item?.from || "").trim() || "—";
-        const to = String(item?.to || "").trim() || "—";
-        const reason = String(item?.reasonText || "").trim() || "—";
-        const status = String(item?.status || "").trim();
-        const currentStatus = String(item?.currentStatus || "").trim();
-        const label = status === "approved" ? (currentStatus || "В процессе") : status === "rejected" ? "Отклонено" : "Ожидание";
-        const subId = String(item?.code || `${taskId}/R${idx + 1}`).trim();
-        const cloned = Array.isArray(row) ? row.slice() : [];
-        cloned[TASK_COLUMNS.number] = subId;
-        cloned[TASK_COLUMNS.assignedResponsible] = to;
-        cloned[TASK_COLUMNS.reassignReason] = reason;
-        cloned[TASK_COLUMNS.status] = label;
-        cloned[TASK_COLUMNS.plan] = String(item?.comment || "").trim();
-        cloned[TASK_COLUMNS.readState] = String(item?.readAt || "").trim() ? `Прочитано\n${String(item.readAt).trim()}` : "Не прочитано\n—";
-        const reassignRow = {
-          __id: `reassign-${rowIndex}-${idx}`,
-          __kind: "reassign-subrow",
-          __rowIndex: rowIndex,
-          __taskId: taskId,
-          __rowClass: "task-reassign-subrow"
-        };
-        reassignRow.__select = wrapTaskTabulatorCellHtml(
-          `<input type="checkbox" disabled aria-label="Переназначение ${escapeHtmlAttr(subId)}" />`,
-          ["task-tabulator-select-cell"]
-        );
-        visibleColumnIndexes.forEach((colIndex) => {
-          let val = cloned[colIndex];
-          if (colIndex === TASK_COLUMNS.number) val = `↪ ${subId}`;
-          else if (colIndex === TASK_COLUMNS.task) val = `Переназначение: ${from} → ${to}`;
-          else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `${escapeHtmlText(to)}`;
-          else if (colIndex === TASK_COLUMNS.status) val = `<span class="status-badge status-${slugify(label)}">${escapeHtmlText(label)}</span>`;
-          else if (colIndex === TASK_COLUMNS.reassignReason) val = `${escapeHtmlText(reason)}`;
-          else if (colIndex === TASK_COLUMNS.createdAt) {
-            const t = Date.parse(String(item?.createdAt || ""));
-            val = escapeHtmlText(Number.isFinite(t) ? formatTrashDate(t) : "—");
-          }
-          const rendered = colIndex === TASK_COLUMNS.assignedResponsible || colIndex === TASK_COLUMNS.status || colIndex === TASK_COLUMNS.note
-            ? val
-            : renderCellContent({ id: "tasks" }, cloned, colIndex, val, -1);
-          const classNames = ["task-tabulator-subcell"];
-          if (colIndex === TASK_COLUMNS.status) classNames.push("status-col");
-          const wideClass = getWideColumnClass(colIndex);
-          if (wideClass) classNames.push(wideClass);
-          reassignRow[`col_${colIndex}`] = wrapTaskTabulatorCellHtml(rendered, classNames);
-        });
-        reassignRow.__trashDeletedAt = wrapTaskTabulatorCellHtml("—");
-        reassignRow.__trashRemaining = wrapTaskTabulatorCellHtml("—");
-        reassignRow.__actions = wrapTaskTabulatorCellHtml("—", ["task-tabulator-actions-cell"]);
-        rows.push(reassignRow);
-      });
-    }
-  });
-  return rows;
-}
-
-function buildTasksTabulatorColumns(section, visibleColumnIndexes, showHeaderNumbers, isTrashView, isAllFilteredSelected) {
-  const columns = [
-    {
-      title: buildTaskTabulatorHeaderHtml(`<input type="checkbox" id="selectAllRows" ${isAllFilteredSelected ? "checked" : ""} />`, showHeaderNumbers ? "" : ""),
-      field: "__select",
-      frozen: true,
-      headerSort: false,
-      hozAlign: "center",
-      vertAlign: "middle",
-      width: section.id === "roles" ? 34 : 44,
-      minWidth: section.id === "roles" ? 34 : 44,
-      formatter: "html",
-      cssClass: "checkbox-col"
-    }
-  ];
-  visibleColumnIndexes.forEach((colIndex, viewOrder) => {
-    const label = escapeHtmlText(String(section.columns[colIndex] || "").trim());
-    const classes = [];
-    if (colIndex === TASK_COLUMNS.number) classes.push("number-col");
-    if (colIndex === TASK_COLUMNS.status) classes.push("status-col");
-    if (colIndex === TASK_COLUMNS.object) classes.push("object-col");
-    if (isMediaColumn(colIndex)) classes.push("media-col");
-    const wideClass = getWideColumnClass(colIndex);
-    if (wideClass) classes.push(wideClass);
-    columns.push({
-      title: buildTaskTabulatorHeaderHtml(label, showHeaderNumbers ? String(viewOrder + 1) : ""),
-      field: `col_${colIndex}`,
-      frozen: colIndex === TASK_COLUMNS.number,
-      headerSort: false,
-      resizable: false,
-      formatter: "html",
-      variableHeight: true,
-      width: getTaskTabulatorColumnWidth(colIndex),
-      minWidth: getTaskTabulatorColumnWidth(colIndex),
-      cssClass: classes.join(" ")
-    });
-  });
-  if (isTrashView) {
-    columns.push(
-      {
-        title: buildTaskTabulatorHeaderHtml(escapeHtmlText("Удалено"), showHeaderNumbers ? String(visibleColumnIndexes.length + 1) : ""),
-        field: "__trashDeletedAt",
-        headerSort: false,
-        resizable: false,
-        formatter: "html",
-        width: 140,
-        minWidth: 140,
-        cssClass: "trash-meta-col"
-      },
-      {
-        title: buildTaskTabulatorHeaderHtml(escapeHtmlText("До удаления"), showHeaderNumbers ? String(visibleColumnIndexes.length + 2) : ""),
-        field: "__trashRemaining",
-        headerSort: false,
-        resizable: false,
-        formatter: "html",
-        width: 120,
-        minWidth: 120,
-        cssClass: "trash-meta-col"
-      }
-    );
-  }
-  columns.push({
-    title: buildTaskTabulatorHeaderHtml(escapeHtmlText("Действие"), showHeaderNumbers ? String(visibleColumnIndexes.length + (isTrashView ? 3 : 1)) : ""),
-    field: "__actions",
-    headerSort: false,
-    resizable: false,
-    formatter: "html",
-    width: section.id === "roles" ? 56 : 94,
-    minWidth: section.id === "roles" ? 56 : 94,
-    cssClass: "actions-col"
-  });
-  return columns;
-}
-
-function getTasksTabulatorHeight() {
-  const wrap = document.querySelector(".table-wrap");
-  if (!wrap) return 520;
-  const rect = wrap.getBoundingClientRect();
-  const viewport = window.innerHeight || document.documentElement.clientHeight || 900;
-  return Math.max(320, Math.floor(viewport - rect.top - 110));
-}
-
-function renderTasksTabulatorSection(section, options) {
-  const {
-    entriesForTbody,
-    allFilteredEntries,
-    selectedCount,
-    tasksListFooterHtml,
-    tasksChunksSentinelHtml,
-    showTasksBackBtn,
-    sectionGroupTabs,
-    sectionFilters,
-    visibleColumnIndexes,
-    isTrashView,
-    isAllFilteredSelected
-  } = options;
-  const tableHeaderIconButtons = renderSectionHeaderIconButtons(section);
-  const sectionTitleH3 = `<h3>${withIcon(getSectionIcon(section.id), section.title)}</h3>`;
-  const tasksDrilldownHeader =
-    section.id === "tasks" && showTasksBackBtn
-      ? `
-      <div class="table-header table-header--tasks-drilldown">
-        <div class="table-header-drill-left">
-          <button type="button" class="secondary tasks-back-objects-btn" id="tasksBackToObjectsBtn">← К объектам</button>
-          ${sectionTitleH3}
-        </div>
-        ${tableHeaderIconButtons}
-      </div>`
-      : `
-      <div class="table-header">
-        ${sectionTitleH3}
-        ${tableHeaderIconButtons}
-      </div>`;
-  tableContainer.innerHTML = `
-    <section class="table-card${section.id === "tasks" && showTasksBackBtn ? " table-card--tasks-drilldown" : ""}">
-      ${tasksDrilldownHeader}
-      ${sectionGroupTabs}
-      ${renderStatusTabs(section)}
-      ${renderTasksScreenModeSwitch(section, selectedCount, isTrashView)}
-      ${renderFilters(section, sectionFilters, filterPanelOpenBySection[section.id] === true)}
-      <div class="table-wrap table-wrap--tabulator">
-        <div id="tasksTabulatorHost" class="tasks-tabulator-host"></div>
-        ${tasksChunksSentinelHtml}
-      </div>
-      ${tasksListFooterHtml}
-    </section>
-  `;
-  attachFilterHandlers(section);
-  attachHeaderActionHandlers(section, allFilteredEntries);
-  attachTasksListFooterHandlers(section);
-  attachTasksObjectPickerHandlers(section);
-  attachTasksBrowseModeSwitchHandlers();
-  const selectedRows = getSelectedRowsSet(getSelectionKey(section.id));
-  const data = buildTasksTabulatorDisplayRows(section, entriesForTbody, visibleColumnIndexes, isTrashView, selectedRows);
-  const columns = buildTasksTabulatorColumns(section, visibleColumnIndexes, headerNumberingBySection[section.id] !== false, isTrashView, isAllFilteredSelected);
-  const host = document.getElementById("tasksTabulatorHost");
-  if (!(host instanceof HTMLElement) || typeof Tabulator !== "function") {
-    return false;
-  }
-  tasksTabulatorInstance = new Tabulator(host, {
-    data,
-    columns,
-    index: "__id",
-    layout: "fitData",
-    height: getTasksTabulatorHeight(),
-    reactiveData: false,
-    selectableRows: false,
-    placeholder: "Нет данных по выбранным фильтрам",
-    rowFormatter(row) {
-      const dataRow = row.getData();
-      const el = row.getElement();
-      if (dataRow?.__rowClass) {
-        dataRow.__rowClass.split(/\s+/).filter(Boolean).forEach((className) => el.classList.add(className));
-      }
-      el.classList.add("task-tabulator-row");
-      if (dataRow?.__kind === "assignee-subrow") el.classList.add("task-assignee-subrow");
-      if (dataRow?.__kind === "reassign-subrow") el.classList.add("task-reassign-subrow");
-    },
-    renderComplete() {
-      initLucideIcons();
-      attachTableActionHandlers(section, allFilteredEntries);
-      attachEditableCellHandlers(section);
-      attachMediaSlotHandlers(section);
-      attachObjectPhotoHandlers(section);
-      attachEmployeeAdminAccessHandlers(section);
-      attachTaskAccordionHandlers(section);
-      updateTableStickyHeaderOffsets();
-    }
-  });
-  requestAnimationFrame(() => {
-    try {
-      tasksTabulatorInstance.redraw(true);
-    } catch (_) {
-      // noop
-    }
-  });
-  return true;
-}
-
 function resolveObjectPhotoSourceUrl(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -17155,22 +16778,8 @@ function restoreDisplaySettings() {
   }
 }
 
-function destroyTasksTabulator() {
-  if (!tasksTabulatorInstance) return;
-  try {
-    tasksTabulatorInstance.destroy();
-  } catch (_) {
-    // ignore teardown noise from already-removed nodes
-  }
-  tasksTabulatorInstance = null;
-}
-
-function getActiveTableScrollElement() {
-  return document.querySelector(".table-wrap .tabulator-tableholder") || document.querySelector(".table-wrap");
-}
-
 function captureTableUiState() {
-  const tableWrap = getActiveTableScrollElement();
+  const tableWrap = document.querySelector(".table-wrap");
   const active = document.activeElement;
   const isRestorableControl = active instanceof HTMLInputElement || active instanceof HTMLSelectElement || active instanceof HTMLTextAreaElement;
   return {
@@ -17190,7 +16799,7 @@ function captureTableUiState() {
 }
 
 function restoreTableUiState(state) {
-  const nextWrap = getActiveTableScrollElement();
+  const nextWrap = document.querySelector(".table-wrap");
   if (nextWrap) {
     nextWrap.scrollTop = Number(state?.scrollTop || 0);
     nextWrap.scrollLeft = Number(state?.scrollLeft || 0);
@@ -17232,10 +16841,10 @@ function renderTablePreserveScroll() {
 }
 
 function markFocusedRow(cell) {
-  const tableRoot = cell.closest(".tabulator") || cell.closest("table");
-  if (!tableRoot) return;
-  tableRoot.querySelectorAll(".focused-row").forEach((row) => row.classList.remove("focused-row"));
-  const row = cell.closest(".tabulator-row") || cell.closest("tr");
+  const table = cell.closest("table");
+  if (!table) return;
+  table.querySelectorAll("tr.focused-row").forEach((row) => row.classList.remove("focused-row"));
+  const row = cell.closest("tr");
   row?.classList.add("focused-row");
 }
 
