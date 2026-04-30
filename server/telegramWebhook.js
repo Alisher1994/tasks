@@ -278,7 +278,8 @@ function isDelayReasonAllowedNow(row, appTimeZone = "UTC") {
 function mainKeyboard(taskNumber, row, appTimeZone = "UTC") {
   const status = normalizeTaskStatusValue(String(row?.[TASK_COLUMNS.status] || "").trim());
   if (status === "Закрыт") return [];
-  const n = encodeTaskNum(taskNumber);
+  const actualTaskNumber = String(row?.[TASK_COLUMNS.number] || taskNumber || "").trim() || String(taskNumber || "").trim();
+  const n = encodeTaskNum(actualTaskNumber);
   const keyboard = [
     [
       { text: "⌛️ Сменить статус", callback_data: cb(n, "sm") },
@@ -1687,9 +1688,10 @@ async function handleCallback(q, pool, token) {
   const payload = await loadPayload(pool);
   const tasks = getTasksSection(payload);
   const employees = getEmployeesSection(payload);
-  let row = findTaskRow(tasks, parsed.taskNum);
-  if (!row && String(parsed.taskNum || "").includes("/")) {
-    row = findTaskRow(tasks, String(parsed.taskNum).split("/")[0]);
+  const requestedTaskId = String(parsed.taskNum || "").trim();
+  let row = findTaskRow(tasks, requestedTaskId);
+  if (!row && requestedTaskId.includes("/")) {
+    row = findTaskRow(tasks, String(requestedTaskId).split("/")[0]);
   }
   if (!row) {
     await tg(token, "answerCallbackQuery", { callback_query_id: q.id, text: "Задача не найдена" });
@@ -1697,7 +1699,8 @@ async function handleCallback(q, pool, token) {
   }
   syncTaskMultiStateForRow(payload, row);
 
-  const taskId = String(row[TASK_COLUMNS.number] ?? "").trim();
+  const baseTaskId = String(row[TASK_COLUMNS.number] ?? "").trim();
+  const taskId = requestedTaskId || baseTaskId;
   const emp = findEmployeeByChatId(employees, String(chatId));
   const empName = emp ? String(emp[EMPLOYEE_COLUMNS.fullName] || "").trim() : `chat ${chatId}`;
   const appTz = resolveAppTimeZone(payload);
@@ -1810,6 +1813,8 @@ async function handleCallback(q, pool, token) {
         chatId: String(chatId),
         employeeName: empName,
         requesterAssigneeName: assigneeName || "",
+        baseTaskId,
+        reassignCode: taskId.includes("/") ? taskId : "",
         at: Date.now(),
         sourceMessageId: Number(messageId) || null,
         allowedConfirmChatIds: Array.from(requestAllowed)
@@ -2284,8 +2289,20 @@ async function handleCallback(q, pool, token) {
       const now = new Date();
       const confirmedAt = formatRuDateTime(now, appTz);
       const requesterAssignee = normalizePersonName(req.requesterAssigneeName || "");
+      const closeCode = String(req.reassignCode || taskId).trim();
+      const closeBaseTaskId = String(req.baseTaskId || baseTaskId || "").trim() || String(closeCode.split("/")[0] || "").trim();
+      const isReassignClose = closeCode.includes("/");
       const assignees = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
-      if (requesterAssignee && assignees.length > 1) {
+      if (isReassignClose) {
+        const reassignLogStore = ensureTaskReassignLogStore(payload);
+        if (!Array.isArray(reassignLogStore[closeBaseTaskId])) reassignLogStore[closeBaseTaskId] = [];
+        const reassignEntry = reassignLogStore[closeBaseTaskId].find((item) => String(item?.code || "").trim() === closeCode);
+        if (reassignEntry) {
+          reassignEntry.currentStatus = "Закрыт";
+          reassignEntry.closedAt = confirmedAt;
+          reassignEntry.updatedAt = confirmedAt;
+        }
+      } else if (requesterAssignee && assignees.length > 1) {
         const state = getTaskMultiStateForRow(payload, row, { create: true });
         if (state && state[requesterAssignee]) {
           state[requesterAssignee].status = "Закрыт";
@@ -2302,7 +2319,7 @@ async function handleCallback(q, pool, token) {
         ? `Закрытие подтверждено: ${requesterAssignee} (${empName || "—"}), ${confirmedAt}`
         : `Закрытие подтверждено: ${empName || "—"}, ${confirmedAt}`;
       delete payload.telegramCloseRequests[taskId];
-      appendTaskHistory(payload, taskId, empName, `Telegram: закрытие задачи подтверждено (${confirmedAt})`);
+      appendTaskHistory(payload, closeBaseTaskId || taskId, empName, `Telegram: закрытие задачи подтверждено (${closeCode || taskId}, ${confirmedAt})`);
       await savePayload(pool, payload);
 
       const sourceMid = Number(req.sourceMessageId) || 0;
@@ -2396,14 +2413,16 @@ async function handleCallback(q, pool, token) {
       const employeesRows = Array.isArray(getEmployeesSection(payload)?.rows) ? getEmployeesSection(payload).rows : [];
       const targetEmp = employeesRows.find((r) => String(r?.[EMPLOYEE_COLUMNS.fullName] || "").trim().toLowerCase() === toName.toLowerCase());
       const targetChat = String(targetEmp?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
+      let sentAtIso = "";
       if (targetChat && String(targetEmp?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен") {
-        const readKeyboard = { inline_keyboard: [[{ text: "📖 Прочитать", callback_data: cb(rqTaskId, "rd") }]] };
+        const readKeyboard = { inline_keyboard: [[{ text: "📖 Прочитать", callback_data: cb(reassignCode, "rd") }]] };
         const targetRow = buildTaskRowForChat(payload, rqRow, targetChat);
         await tg(token, "sendMessage", {
           chat_id: targetChat,
           text: `${buildFullTaskMessage(targetRow)}\n\nВам назначена задача (${reassignCode}).`,
           reply_markup: readKeyboard
         });
+        sentAtIso = nowIso;
       }
       const requesterChat = String(reqEntry.requesterChatId || "").trim();
       const sourceMid = Number(reqEntry.sourceMessageId) || 0;
@@ -2452,23 +2471,24 @@ async function handleCallback(q, pool, token) {
       });
     }
 
-    logStore[rqTaskId].unshift({
-      id: requestId,
-      code: reassignCode,
-      status: reqEntry.status,
-      currentStatus: String(reqEntry.status === "approved" ? "В процессе" : "").trim(),
-      comment: "",
-      readAt: "",
-      from: fromName,
-      to: toName,
-      reasonType: reqEntry.reasonType || "",
-      reasonText: reqEntry.reasonText || "",
-      department: reqEntry.departmentName || "",
-      requestedBy: reqEntry.requesterName || "",
-      decidedBy: actor,
-      createdAt: reqEntry.createdAt || nowIso,
-      decidedAt: nowIso
-    });
+      logStore[rqTaskId].unshift({
+        id: requestId,
+        code: reassignCode,
+        status: reqEntry.status,
+        currentStatus: String(reqEntry.status === "approved" ? "В процессе" : "").trim(),
+        comment: "",
+        readAt: "",
+        sentAt: sentAtIso,
+        from: fromName,
+        to: toName,
+        reasonType: reqEntry.reasonType || "",
+        reasonText: reqEntry.reasonText || "",
+        department: reqEntry.departmentName || "",
+        requestedBy: reqEntry.requesterName || "",
+        decidedBy: actor,
+        createdAt: reqEntry.createdAt || nowIso,
+        decidedAt: nowIso
+      });
     if (logStore[rqTaskId].length > 100) logStore[rqTaskId].length = 100;
     await savePayload(pool, payload);
     await answerOk();

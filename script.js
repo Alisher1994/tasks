@@ -12364,6 +12364,12 @@ function renderTasksSplitLayout(section, options) {
         cloned[TASK_COLUMNS.status] = label;
         cloned[TASK_COLUMNS.plan] = String(item?.comment || "").trim();
         cloned[TASK_COLUMNS.readState] = String(item?.readAt || "").trim() ? `Прочитано\n${String(item.readAt).trim()}` : "Не прочитано\n—";
+        cloned[TASK_COLUMNS.lastSentAt] = String(item?.sentAt || "").trim()
+          ? formatTrashDate(Date.parse(String(item.sentAt)))
+          : "—";
+        cloned[TASK_COLUMNS.closedDate] = String(item?.closedAt || "").trim()
+          ? String(String(item.closedAt).split(",")[0] || "").trim()
+          : cloned[TASK_COLUMNS.closedDate];
         const reassignKey = `${rowKey}-reassign-${idx}`;
         leftBodyRows.push(`
           <tr class="task-reassign-subrow" data-split-row-key="${reassignKey}">
@@ -12380,6 +12386,11 @@ function renderTasksSplitLayout(section, options) {
           else if (colIndex === TASK_COLUMNS.createdAt) {
             const t = Date.parse(String(item?.createdAt || ""));
             val = escapeHtmlText(Number.isFinite(t) ? formatTrashDate(t) : "—");
+          } else if (colIndex === TASK_COLUMNS.lastSentAt) {
+            const t = Date.parse(String(item?.sentAt || ""));
+            val = escapeHtmlText(Number.isFinite(t) ? formatTrashDate(t) : "—");
+          } else if (colIndex === TASK_COLUMNS.closedDate) {
+            val = escapeHtmlText(String(cloned[TASK_COLUMNS.closedDate] || "—").trim() || "—");
           }
           const rendered = colIndex === TASK_COLUMNS.assignedResponsible || colIndex === TASK_COLUMNS.status || colIndex === TASK_COLUMNS.note
             ? val
@@ -12730,6 +12741,12 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
     cloned[TASK_COLUMNS.readState] = String(item?.readAt || "").trim()
       ? `Прочитано\n${String(item.readAt).trim()}`
       : "Не прочитано\n—";
+    cloned[TASK_COLUMNS.lastSentAt] = String(item?.sentAt || "").trim()
+      ? formatTrashDate(Date.parse(String(item.sentAt)))
+      : "—";
+    cloned[TASK_COLUMNS.closedDate] = String(item?.closedAt || "").trim()
+      ? String(String(item.closedAt).split(",")[0] || "").trim()
+      : cloned[TASK_COLUMNS.closedDate];
     const cells = visibleColumnIndexes.map((colIndex, viewOrder) => {
       const firstVisibleClass = "";
       const stickyClass = colIndex === 0 ? "number-col" : "";
@@ -12743,6 +12760,11 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
       else if (colIndex === TASK_COLUMNS.createdAt) {
         const t = Date.parse(String(item?.createdAt || ""));
         val = escapeHtmlText(Number.isFinite(t) ? formatTrashDate(t) : "—");
+      } else if (colIndex === TASK_COLUMNS.lastSentAt) {
+        const t = Date.parse(String(item?.sentAt || ""));
+        val = escapeHtmlText(Number.isFinite(t) ? formatTrashDate(t) : "—");
+      } else if (colIndex === TASK_COLUMNS.closedDate) {
+        val = escapeHtmlText(String(cloned[TASK_COLUMNS.closedDate] || "—").trim() || "—");
       }
       const rendered = colIndex === TASK_COLUMNS.assignedResponsible || colIndex === TASK_COLUMNS.status || colIndex === TASK_COLUMNS.note
         ? val
