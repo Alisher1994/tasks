@@ -1689,7 +1689,7 @@ select:focus {
 
 .table-frozen-pane {
   flex: 0 0 auto;
-  width: 102px;
+  width: 128px;
   min-height: 0;
   height: 100%;
   overflow-x: hidden;
@@ -1875,6 +1875,12 @@ thead.table-head-has-order .table-head-order-row th.table-order-cell {
   isolation: auto;
 }
 
+.table-wrap--split .number-col {
+  min-width: 82px;
+  width: 82px;
+  white-space: nowrap;
+}
+
 .table-wrap--split .checkbox-col::after,
 .table-wrap--split .number-col::after,
 .table-wrap--split .number-col::before {
@@ -1921,6 +1927,7 @@ th.actions-col {
 .number-col {
   min-width: 56px;
   width: 56px;
+  white-space: nowrap;
   position: sticky;
   left: 44px;
   z-index: 3;
