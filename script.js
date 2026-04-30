@@ -11298,6 +11298,26 @@ function normalizeTaskIdValue(value) {
   return String(value ?? "").trim();
 }
 
+function buildReassignChildTaskId(baseTaskId, seq = 1) {
+  const base = String(baseTaskId || "").trim();
+  const n = Math.max(1, Number(seq) || 1);
+  if (!base) return `${n}`;
+  return `${base}/${n}`;
+}
+
+function parseReassignChildTaskId(taskId) {
+  const raw = String(taskId || "").trim();
+  const match = raw.match(/^(.+?)\/(\d+)$/);
+  if (!match) return null;
+  const seq = Number(match[2]);
+  if (!Number.isFinite(seq) || seq < 1) return null;
+  return {
+    baseTaskId: String(match[1] || "").trim(),
+    seq,
+    code: raw
+  };
+}
+
 function readNumericTaskId(value) {
   const n = Number(normalizeTaskIdValue(value));
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
@@ -12356,7 +12376,7 @@ function renderTasksSplitLayout(section, options) {
         const status = String(item?.status || "").trim();
         const currentStatus = String(item?.currentStatus || "").trim();
         const label = status === "approved" ? (currentStatus || "В процессе") : status === "rejected" ? "Отклонено" : "Ожидание";
-        const subId = String(item?.code || `${String(row[TASK_COLUMNS.number] || "").trim()}/R${idx + 1}`).trim();
+        const subId = String(item?.code || buildReassignChildTaskId(String(row[TASK_COLUMNS.number] || "").trim(), idx + 1)).trim();
         const cloned = Array.isArray(row) ? row.slice() : [];
         cloned[TASK_COLUMNS.number] = subId;
         cloned[TASK_COLUMNS.assignedResponsible] = to;
@@ -12731,7 +12751,7 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
       : status === "rejected"
         ? "Отклонено"
         : "Ожидание";
-    const subId = String(item?.code || `${taskId}/R${idx + 1}`).trim();
+    const subId = String(item?.code || buildReassignChildTaskId(taskId, idx + 1)).trim();
     const cloned = Array.isArray(taskRow) ? taskRow.slice() : [];
     cloned[TASK_COLUMNS.number] = subId;
     cloned[TASK_COLUMNS.assignedResponsible] = to;

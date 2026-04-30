@@ -470,7 +470,7 @@ function buildTaskRowForChat(payload, row, chatId) {
   if (activeReassign) {
     const activeTo = normalizePersonName(activeReassign.to || activeReassign.toEmployeeName || "");
     const scoped = Array.isArray(row) ? row.slice() : row;
-    scoped[TASK_COLUMNS.number] = String(activeReassign.code || `${taskId}/R1`).trim();
+    scoped[TASK_COLUMNS.number] = String(activeReassign.code || buildReassignChildTaskId(taskId, 1)).trim();
     scoped[TASK_COLUMNS.status] = String(activeReassign.currentStatus || "В процессе").trim();
     scoped[TASK_COLUMNS.assignedResponsible] = activeTo || scoped[TASK_COLUMNS.assignedResponsible];
     scoped[TASK_COLUMNS.reassignReason] = String(activeReassign.reasonText || "").trim();
@@ -487,7 +487,7 @@ function buildTaskRowForChat(payload, row, chatId) {
 function buildTaskRowForReassign(row, reassignEntry, fallbackTaskId = "") {
   const scoped = Array.isArray(row) ? row.slice() : [];
   const baseTaskId = String(row?.[TASK_COLUMNS.number] || fallbackTaskId || "").trim();
-  const scopedTaskId = String(reassignEntry?.code || `${baseTaskId}/R1`).trim();
+  const scopedTaskId = String(reassignEntry?.code || buildReassignChildTaskId(baseTaskId, 1)).trim();
   const activeTo = normalizePersonName(reassignEntry?.to || reassignEntry?.toEmployeeName || "");
   scoped[TASK_COLUMNS.number] = scopedTaskId;
   scoped[TASK_COLUMNS.status] = String(reassignEntry?.currentStatus || "В процессе").trim() || "В процессе";
@@ -628,11 +628,35 @@ function ensureTaskReassignLogStore(payload) {
   return payload.taskReassignLog;
 }
 
+function buildReassignChildTaskId(baseTaskId, seq = 1) {
+  const base = String(baseTaskId || "").trim();
+  const n = Math.max(1, Number(seq) || 1);
+  if (!base) return `${n}`;
+  return `${base}/${n}`;
+}
+
+function parseReassignChildTaskId(taskId) {
+  const raw = String(taskId || "").trim();
+  const match = raw.match(/^(.+?)\/(\d+)$/);
+  if (!match) return null;
+  const seq = Number(match[2]);
+  if (!Number.isFinite(seq) || seq < 1) return null;
+  return {
+    baseTaskId: String(match[1] || "").trim(),
+    seq,
+    code: raw
+  };
+}
+
 function getActiveReassignForTask(payload, taskId) {
   const id = String(taskId || "").trim();
   if (!id) return null;
-  const baseId = id.includes("/") ? String(id.split("/")[0] || "").trim() : id;
+  const parsedChild = parseReassignChildTaskId(id);
+  const baseId = parsedChild?.baseTaskId || id;
   const logArr = Array.isArray(payload?.taskReassignLog?.[baseId]) ? payload.taskReassignLog[baseId] : [];
+  if (parsedChild) {
+    return logArr.find((x) => String(x?.code || "").trim() === parsedChild.code) || null;
+  }
   const approved = logArr.find((x) => String(x?.status || "").trim() === "approved");
   if (!approved) return null;
   return approved;
@@ -689,14 +713,14 @@ function buildDepartmentEmployees(payload, departmentName) {
 
 function getNextReassignCode(payload, taskId) {
   const task = String(taskId || "").trim();
-  if (!task) return "R1";
+  if (!task) return "1";
   let max = 0;
   const logArr = Array.isArray(payload?.taskReassignLog?.[task]) ? payload.taskReassignLog[task] : [];
   for (const item of logArr) {
     const code = String(item?.code || "").trim();
-    const m = code.match(/\/R(\d+)$/i);
-    if (!m) continue;
-    const n = Number(m[1]);
+    const parsed = parseReassignChildTaskId(code);
+    if (!parsed || parsed.baseTaskId !== task) continue;
+    const n = parsed.seq;
     if (Number.isFinite(n) && n > max) max = n;
   }
   const reqStore = payload?.telegramReassignRequests && typeof payload.telegramReassignRequests === "object"
@@ -706,12 +730,12 @@ function getNextReassignCode(payload, taskId) {
     const item = reqStore[key];
     if (String(item?.taskId || "").trim() !== task) continue;
     const code = String(item?.code || "").trim();
-    const m = code.match(/\/R(\d+)$/i);
-    if (!m) continue;
-    const n = Number(m[1]);
+    const parsed = parseReassignChildTaskId(code);
+    if (!parsed || parsed.baseTaskId !== task) continue;
+    const n = parsed.seq;
     if (Number.isFinite(n) && n > max) max = n;
   }
-  return `${task}/R${max + 1}`;
+  return buildReassignChildTaskId(task, max + 1);
 }
 
 function statusLabelWithEmoji(status) {
@@ -2423,7 +2447,7 @@ async function handleCallback(q, pool, token) {
     const actor = empName || `chat ${chatId}`;
     const fromName = String(reqEntry.fromEmployeeName || "").trim();
     const toName = String(reqEntry.toEmployeeName || "").trim();
-    const reassignCode = String(reqEntry.code || `${rqTaskId}/R1`).trim();
+    const reassignCode = String(reqEntry.code || buildReassignChildTaskId(rqTaskId, 1)).trim();
     const logStore = ensureTaskReassignLogStore(payload);
     if (!Array.isArray(logStore[rqTaskId])) logStore[rqTaskId] = [];
 

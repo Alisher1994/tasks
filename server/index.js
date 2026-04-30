@@ -975,8 +975,7 @@ app.post("/api/tasks/reassign/decision", authMiddleware, requireAdmin, async (re
     if (decision === "approve") {
       const fromName = String(reqEntry.fromEmployeeName || "").trim();
       const toName = String(reqEntry.toEmployeeName || "").trim();
-      const currentAssigned = String(row[TASK_ASSIGNED_COL] || "").trim();
-      row[TASK_ASSIGNED_COL] = replaceAssigneeName(currentAssigned, fromName, toName);
+      row[TASK_STATUS_COL] = "Передано";
       reqEntry.status = "approved";
       reqEntry.decidedAt = nowIso;
       reqEntry.decidedBy = actorName;
@@ -990,7 +989,9 @@ app.post("/api/tasks/reassign/decision", authMiddleware, requireAdmin, async (re
 
     logStore[taskId].unshift({
       id: requestId,
+      code: String(reqEntry.code || `${taskId}/1`).trim(),
       status: reqEntry.status,
+      currentStatus: String(reqEntry.status === "approved" ? "В процессе" : "").trim(),
       from: reqEntry.fromEmployeeName || "",
       to: reqEntry.toEmployeeName || "",
       reasonType: reqEntry.reasonType || "",
