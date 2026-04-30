@@ -5372,8 +5372,7 @@ function renderTable() {
       ${renderTasksScreenModeSwitch(section, selectedCount, isTrashView)}
       ${section.id !== "tasks" ? renderBulkActions(selectedCount, isTrashView, section.id) : ""}
       ${renderFilters(section, sectionFilters, filterPanelOpenBySection[section.id] === true)}
-      <div class="table-wrap ${section.id === "roles" ? "table-wrap--roles-left" : ""}">
-        <div class="table-left-freeze-mask" aria-hidden="true"></div>
+      <div class="table-wrap">
         <table>
           ${thead}
           ${tbody}
@@ -5420,10 +5419,6 @@ function updateTableStickyHeaderOffsets() {
   const wrap = document.querySelector(".table-wrap");
   const table = wrap?.querySelector("table");
   if (!table) return;
-  const mask = wrap?.querySelector(".table-left-freeze-mask");
-  if (mask instanceof HTMLElement) {
-    mask.style.setProperty("--table-left-freeze-mask-h", `${Math.max(wrap?.scrollHeight || 0, table.scrollHeight || 0)}px`);
-  }
   const mainHeadRow = table.querySelector("thead.table-head-has-order .table-head-main-row");
   if (!mainHeadRow) {
     table.style.removeProperty("--table-sticky-main-row-h");

@@ -1668,33 +1668,6 @@ select:focus {
   scrollbar-color: #b7c3d0 #eef3f8;
   flex: 1;
   max-height: none;
-  position: relative;
-  --table-left-freeze-w: 100px;
-}
-
-.table-wrap--roles-left {
-  --table-left-freeze-w: 86px;
-}
-
-.table-left-freeze-mask {
-  position: sticky;
-  left: 0;
-  top: 0;
-  width: 0;
-  height: 0;
-  z-index: 65;
-  pointer-events: none;
-}
-
-.table-left-freeze-mask::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: var(--table-left-freeze-w, 100px);
-  height: var(--table-left-freeze-mask-h, 100%);
-  background: #ffffff;
-  border-right: 1px solid #dbe2ea;
 }
 
 .table-wrap::-webkit-scrollbar {
@@ -1815,6 +1788,19 @@ th.actions-col {
   z-index: 3;
   background: #f9fbfd;
   isolation: isolate;
+  overflow: visible;
+}
+
+.number-col::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: -3px;
+  bottom: -1px;
+  width: 4px;
+  background: inherit;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .first-visible-col {
