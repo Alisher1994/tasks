@@ -5258,7 +5258,7 @@ function renderTable() {
     : "";
   const titleHeaderCells = visibleColumnIndexes.map((columnIndex, viewOrder) => {
     const column = section.columns[columnIndex];
-    const firstVisibleClass = viewOrder === 0 ? "first-visible-col" : "";
+    const firstVisibleClass = section.id === "roles" && viewOrder === 0 ? "first-visible-col" : "";
     const numberClass = columnIndex === 0 ? "number-col" : "";
     const rolesNumberClass = section.id === "roles" && columnIndex === 0 && viewOrder === 0 ? "roles-number-col" : "";
     const rolesFirstVisibleClass = section.id === "roles" && viewOrder === 0 ? "roles-first-visible-col" : "";
@@ -5297,7 +5297,7 @@ function renderTable() {
           const rowCells = visibleColumnIndexes
             .map((colIndex, viewOrder) => {
               const cell = entry.row[colIndex];
-              const firstVisibleClass = viewOrder === 0 ? "first-visible-col" : "";
+              const firstVisibleClass = section.id === "roles" && viewOrder === 0 ? "first-visible-col" : "";
               const stickyClass = colIndex === 0 ? "number-col" : "";
               const rolesNumberClass = section.id === "roles" && colIndex === 0 && viewOrder === 0 ? "roles-number-col" : "";
               const rolesFirstVisibleClass = section.id === "roles" && viewOrder === 0 ? "roles-first-visible-col" : "";
@@ -12296,7 +12296,7 @@ function renderTaskAssigneesAccordionRows(taskRow, visibleColumnIndexes, isTrash
       const subId = `${String(taskRow[TASK_COLUMNS.number] || "—")}.${idx + 1}`;
       const tds = visibleColumnIndexes
         .map((colIndex, viewOrder) => {
-          const firstVisibleClass = viewOrder === 0 ? "first-visible-col" : "";
+          const firstVisibleClass = "";
           const stickyClass = colIndex === 0 ? "number-col" : "";
           const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
           const objectClass = colIndex === TASK_COLUMNS.object ? "object-col" : "";
@@ -12358,7 +12358,7 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
       ? `Прочитано\n${String(item.readAt).trim()}`
       : "Не прочитано\n—";
     const cells = visibleColumnIndexes.map((colIndex, viewOrder) => {
-      const firstVisibleClass = viewOrder === 0 ? "first-visible-col" : "";
+      const firstVisibleClass = "";
       const stickyClass = colIndex === 0 ? "number-col" : "";
       const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
       let val = cloned[colIndex];
@@ -13423,8 +13423,11 @@ function showCellContextMenu(sectionId, rowIndex, colIndex, pageX, pageY) {
   const key = getCellCommentKey(sectionId, rowIndex, colIndex);
   const hasComments = Array.isArray(cellCommentsByCellKey[key]) && cellCommentsByCellKey[key].length > 0;
   menu.innerHTML = `
-    <button type="button" class="cell-context-menu-btn" data-cell-menu-action="add">Добавить комментарий</button>
-    ${hasComments ? `<button type="button" class="cell-context-menu-btn" data-cell-menu-action="open">Открыть комментарии</button>` : ""}
+    <button type="button" class="cell-context-menu-btn" data-cell-menu-action="add">
+      <i data-lucide="message-square-plus" class="cell-context-menu-icon" aria-hidden="true"></i>
+      <span>Добавить комментарий</span>
+    </button>
+    ${hasComments ? `<button type="button" class="cell-context-menu-btn" data-cell-menu-action="open"><i data-lucide="messages-square" class="cell-context-menu-icon" aria-hidden="true"></i><span>Открыть комментарии</span></button>` : ""}
   `;
   const close = () => menu.remove();
   menu.addEventListener("click", (event) => {
@@ -13441,6 +13444,7 @@ function showCellContextMenu(sectionId, rowIndex, colIndex, pageX, pageY) {
     }
   });
   document.body.appendChild(menu);
+  initLucideIcons();
   const rect = menu.getBoundingClientRect();
   if (rect.right > window.innerWidth - 8) menu.style.left = `${Math.max(8, window.innerWidth - rect.width - 8)}px`;
   if (rect.bottom > window.innerHeight - 8) menu.style.top = `${Math.max(8, window.innerHeight - rect.height - 8)}px`;
