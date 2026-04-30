@@ -2366,6 +2366,11 @@ tr:nth-child(even) td {
   gap: 8px;
 }
 
+.cell-comment-thread[hidden],
+.cell-comment-thread.is-empty {
+  display: none !important;
+}
+
 .cell-comment-item {
   background: #f6f9ff;
   border: 1px solid #d9e5f7;
@@ -2401,6 +2406,48 @@ tr:nth-child(even) td {
   gap: 6px;
 }
 
+.cell-comment-menu-wrap {
+  position: relative;
+}
+
+.cell-comment-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 150px;
+  padding: 6px;
+  border: 1px solid #d7e0ea;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  display: grid;
+  gap: 4px;
+  z-index: 4;
+}
+
+.cell-comment-popover-btn {
+  border: 0;
+  background: transparent;
+  color: #31445d;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cell-comment-popover-btn:hover {
+  background: #f3f6fb;
+}
+
+.cell-comment-popover-btn.danger {
+  color: #c24141;
+}
+
+.cell-comment-popover-btn.danger:hover {
+  background: #fff1f1;
+}
+
 .cell-comment-tool-btn {
   border: 1px solid #c9d4e3;
   background: #ffffff;
@@ -2415,6 +2462,18 @@ tr:nth-child(even) td {
   cursor: pointer;
   font-size: 12px;
   line-height: 1;
+}
+
+.cell-comment-tool-btn .lucide-icon {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2;
+}
+
+.cell-comment-tool-btn--more span {
+  font-size: 16px;
+  line-height: 1;
+  transform: translateY(-1px);
 }
 
 .cell-comment-tool-btn:hover {
@@ -2440,7 +2499,7 @@ tr:nth-child(even) td {
 
 .cell-comment-actions {
   display: flex;
-  justify-content: flex-start;
+  justify-content: space-between;
   gap: 8px;
 }
 

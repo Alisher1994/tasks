@@ -13693,6 +13693,11 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
   const saveBtn = overlay.querySelector("#cellCommentSaveBtn");
   let editingId = "";
   const close = () => overlay.remove();
+  const hideCommentMenus = () => {
+    overlay.querySelectorAll(".cell-comment-popover").forEach((menu) => {
+      if (menu instanceof HTMLElement) menu.hidden = true;
+    });
+  };
   const syncCommentSaveState = () => {
     if (!(saveBtn instanceof HTMLButtonElement)) return;
     const hasText = Boolean(String(input?.value || "").trim());
@@ -13705,23 +13710,36 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
     if (!current.length) {
       thread.innerHTML = "";
       thread.hidden = true;
+      thread.classList.add("is-empty");
       return;
     }
     thread.hidden = false;
+    thread.classList.remove("is-empty");
     thread.innerHTML = current.map((item) => `
       <div class="cell-comment-item ${item?.resolved ? "is-resolved" : ""}">
         <div class="cell-comment-meta">
           ${escapeHtmlText(String(item.author || "Пользователь"))} • ${escapeHtmlText(String(item.at || "—"))}${item?.resolved ? " • выполнено" : ""}
           ${String(item.ownerKey || "").toLowerCase() === ownerKey
             ? `<span class="cell-comment-tools">
-                <button type="button" class="cell-comment-tool-btn" data-cell-comment-action="resolve" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="${item?.resolved ? "Вернуть в активные" : "Отметить выполненным"}">${item?.resolved ? "↺" : "✓"}</button>
-                <button type="button" class="cell-comment-tool-btn" data-cell-comment-action="edit" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="Редактировать">✎</button>
+                <button type="button" class="cell-comment-tool-btn cell-comment-tool-btn--ok" data-cell-comment-action="resolve" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="${item?.resolved ? "Вернуть в активные" : "Отметить выполненным"}">
+                  <i data-lucide="${item?.resolved ? "rotate-ccw" : "check"}" class="lucide-icon" aria-hidden="true"></i>
+                </button>
+                <div class="cell-comment-menu-wrap">
+                  <button type="button" class="cell-comment-tool-btn cell-comment-tool-btn--more" data-cell-comment-action="menu" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="Ещё действия">
+                    <span aria-hidden="true">⋯</span>
+                  </button>
+                  <div class="cell-comment-popover" data-cell-comment-popover="${escapeHtmlAttr(String(item.id || ""))}" hidden>
+                    <button type="button" class="cell-comment-popover-btn" data-cell-comment-action="edit" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}">Редактировать</button>
+                    <button type="button" class="cell-comment-popover-btn danger" data-cell-comment-action="delete" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}">Удалить</button>
+                  </div>
+                </div>
               </span>`
             : ""}
         </div>
         <div class="cell-comment-text">${escapeHtmlText(String(item.text || ""))}</div>
       </div>
     `).join("");
+    initLucideIcons();
     thread.scrollTop = thread.scrollHeight;
   };
   renderThread();
@@ -13733,16 +13751,27 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
     if (event.target === overlay) close();
   });
   thread?.addEventListener("click", (event) => {
+    const clickedInsideMenu = event.target instanceof HTMLElement ? event.target.closest(".cell-comment-menu-wrap") : null;
+    if (!clickedInsideMenu) hideCommentMenus();
     const btn = event.target instanceof HTMLElement ? event.target.closest(".cell-comment-tool-btn") : null;
-    if (!(btn instanceof HTMLButtonElement)) return;
-    const action = String(btn.dataset.cellCommentAction || "").trim();
-    const id = String(btn.dataset.cellCommentId || "").trim();
+    const popBtn = event.target instanceof HTMLElement ? event.target.closest(".cell-comment-popover-btn") : null;
+    const actionEl = btn || popBtn;
+    if (!(actionEl instanceof HTMLButtonElement)) return;
+    const action = String(actionEl.dataset.cellCommentAction || "").trim();
+    const id = String(actionEl.dataset.cellCommentId || "").trim();
     if (!id) return;
     const list = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key].slice() : [];
     const idx = list.findIndex((item) => String(item?.id || "").trim() === id);
     if (idx < 0) return;
     const item = list[idx];
     if (String(item?.ownerKey || "").toLowerCase() !== ownerKey) return;
+    if (action === "menu") {
+      const menu = overlay.querySelector(`[data-cell-comment-popover="${id}"]`);
+      hideCommentMenus();
+      if (menu instanceof HTMLElement) menu.hidden = false;
+      return;
+    }
+    hideCommentMenus();
     if (action === "resolve") {
       const nextResolved = !Boolean(item?.resolved);
       list[idx] = {
@@ -13764,7 +13793,19 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
         syncCommentSaveState();
         input.focus();
       }
+      return;
     }
+    if (action === "delete") {
+      cellCommentsByCellKey[key] = list.filter((comment) => String(comment?.id || "").trim() !== id);
+      normalizeCellCommentsStore();
+      saveSectionsData();
+      applyCellCommentDecorations(sectionId);
+      renderThread();
+    }
+  });
+  overlay.addEventListener("click", (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target?.closest(".cell-comment-menu-wrap")) hideCommentMenus();
   });
   saveBtn?.addEventListener("click", () => {
     const text = String(input?.value || "").trim();
