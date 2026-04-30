@@ -6804,7 +6804,7 @@ body.shared-report-mode .sidebar {
   justify-content: flex-start;
   gap: 12px;
   margin: 12px 0 14px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .tasks-screen-switch-left {
@@ -6821,6 +6821,20 @@ body.shared-report-mode .sidebar {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.bulk-actions-bar--inline {
+  margin: 0;
+  padding: 6px 8px;
+  min-height: 36px;
+  flex-shrink: 0;
+}
+
+.bulk-actions-inline-placeholder {
+  min-height: 36px;
+  min-width: 180px;
+  flex-shrink: 0;
 }
 
 .tasks-gantt-scale-group {

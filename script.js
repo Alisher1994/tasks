@@ -5115,7 +5115,7 @@ function renderTable() {
         </div>
       </div>
       <div class="tasks-object-picker-shell">
-        ${renderTasksScreenModeSwitch(section)}
+        ${renderTasksScreenModeSwitch(section, 0, false)}
         <p class="tasks-object-picker-hint">Выберите объект — откроется таблица задач по этому объекту (фильтры и вкладки будут доступны в таблице).</p>
         ${pickerInner}
       </div>
@@ -5139,7 +5139,7 @@ function renderTable() {
       </div>
       ${sectionGroupTabs}
       ${renderStatusTabs(section)}
-      ${renderTasksScreenModeSwitch(section)}
+      ${renderTasksScreenModeSwitch(section, 0, false)}
       ${renderFilters(section, sectionFilters, filterPanelOpenBySection[section.id] === true)}
       ${renderTasksGanttHtml(allFilteredEntries)}
     </section>
@@ -5323,9 +5323,9 @@ function renderTable() {
     <section class="table-card${section.id === "tasks" && showTasksBackBtn ? " table-card--tasks-drilldown" : ""}">
       ${tasksDrilldownHeader}
       ${sectionGroupTabs}
-      ${renderBulkActions(selectedCount, isTrashView, section.id)}
       ${renderStatusTabs(section)}
-      ${renderTasksScreenModeSwitch(section)}
+      ${renderTasksScreenModeSwitch(section, selectedCount, isTrashView)}
+      ${section.id !== "tasks" ? renderBulkActions(selectedCount, isTrashView, section.id) : ""}
       ${renderFilters(section, sectionFilters, filterPanelOpenBySection[section.id] === true)}
       <div class="table-wrap">
         <table>
@@ -5413,11 +5413,13 @@ function formatTrashRemaining(expiresAt) {
   return `${diff} дн.`;
 }
 
-function renderBulkActions(selectedCount, isTrashView, sectionId) {
+function renderBulkActions(selectedCount, isTrashView, sectionId, options = {}) {
   if (selectedCount <= 1) return "";
+  const inline = options?.inline === true;
+  const rowClass = inline ? "bulk-actions-bar bulk-actions-bar--inline" : "bulk-actions-bar";
   if (isTrashView) {
     return `
-      <div class="bulk-actions-bar">
+      <div class="${rowClass}">
         <span class="bulk-actions-count">В корзине выбрано: ${selectedCount}</span>
         <button type="button" class="icon-action-btn bulk-restore-btn" id="bulkRestoreBtn" title="Восстановить выбранные">
           <i data-lucide="rotate-ccw" class="lucide-icon" aria-hidden="true"></i>
@@ -5427,7 +5429,7 @@ function renderBulkActions(selectedCount, isTrashView, sectionId) {
   }
   if (sectionId !== "tasks") {
     return `
-      <div class="bulk-actions-bar">
+      <div class="${rowClass}">
         <span class="bulk-actions-count">Выбрано: ${selectedCount}</span>
         <button type="button" class="icon-action-btn danger-btn bulk-delete-btn" id="bulkDeleteBtn" title="Удалить выбранные">
           <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
@@ -5436,7 +5438,7 @@ function renderBulkActions(selectedCount, isTrashView, sectionId) {
     `;
   }
   return `
-    <div class="bulk-actions-bar">
+    <div class="${rowClass}">
       <span class="bulk-actions-count">Выбрано: ${selectedCount}</span>
       <button type="button" class="icon-action-btn bulk-send-btn" id="bulkSendBtn" title="Отправить выбранные">
         <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
@@ -12081,7 +12083,7 @@ function renderStatusTabs(section) {
   return `<div class="status-tabs-row">${tabsHtml}</div>`;
 }
 
-function renderTasksScreenModeSwitch(section) {
+function renderTasksScreenModeSwitch(section, selectedCount = 0, isTrashView = false) {
   if (section.id !== "tasks") return "";
   const mode = displaySettings.tasksListBrowseMode === "byObject" || displaySettings.tasksListBrowseMode === "graph"
     ? displaySettings.tasksListBrowseMode
@@ -12100,9 +12102,11 @@ function renderTasksScreenModeSwitch(section) {
         </label>
       </div>`
     : `<div class="tasks-screen-switch-left"></div>`;
+  const inlineBulk = renderBulkActions(selectedCount, isTrashView, section.id, { inline: true });
   return `
     <div class="tasks-screen-switch-row">
       ${leftControls}
+      ${inlineBulk || `<div class="bulk-actions-inline-placeholder" aria-hidden="true"></div>`}
       <div class="tasks-screen-switch-group">
         <div class="tasks-segment-group" role="radiogroup" aria-label="Переключение вида задач">
           <label class="tasks-segment">
