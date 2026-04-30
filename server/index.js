@@ -976,6 +976,7 @@ app.post("/api/tasks/reassign/decision", authMiddleware, requireAdmin, async (re
       const fromName = String(reqEntry.fromEmployeeName || "").trim();
       const toName = String(reqEntry.toEmployeeName || "").trim();
       row[TASK_STATUS_COL] = "Передано";
+      row[TASK_REASSIGN_REASON_COL] = String(reqEntry.reasonText || "").trim();
       reqEntry.status = "approved";
       reqEntry.decidedAt = nowIso;
       reqEntry.decidedBy = actorName;

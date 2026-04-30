@@ -12369,7 +12369,7 @@ function renderTasksSplitLayout(section, options) {
       }
 
       const reassignList = Array.isArray(taskReassignLog?.[String(row?.[TASK_COLUMNS.number] || "").trim()]) ? taskReassignLog[String(row?.[TASK_COLUMNS.number] || "").trim()] : [];
-      reassignList.slice(0, 8).forEach((item, idx) => {
+      if (expanded && reassignList.length) reassignList.slice(0, 8).forEach((item, idx) => {
         const from = String(item?.from || "").trim() || "—";
         const to = String(item?.to || "").trim() || "—";
         const reason = String(item?.reasonText || "").trim() || "—";
@@ -12738,6 +12738,7 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
   if (isTrashView) return "";
   const taskId = String(taskRow?.[TASK_COLUMNS.number] || "").trim();
   if (!taskId) return "";
+  if (!expandedTaskAssigneeRows.has(taskId)) return "";
   const list = Array.isArray(taskReassignLog?.[taskId]) ? taskReassignLog[taskId] : [];
   if (!list.length) return "";
   const rowsHtml = list.slice(0, 8).map((item, idx) => {
@@ -12842,10 +12843,14 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
   }
 
   if (colIndex === TASK_COLUMNS.number) {
-    const summary = getTaskAssigneeProgressSummary(row);
-    if (!summary) return escapeHtmlText(String(value || ""));
     const taskId = getTaskIdForMultiState(row);
-    return `<span class="task-parent-id-toggle" data-task-assignees-toggle="${escapeHtmlAttr(taskId)}" title="Нажмите на ID, чтобы раскрыть подзадачи">${escapeHtmlText(String(value || ""))}</span>`;
+    const summary = getTaskAssigneeProgressSummary(row);
+    const hasReassignRows = taskId && Array.isArray(taskReassignLog?.[taskId]) && taskReassignLog[taskId].length > 0;
+    if (!summary && !hasReassignRows) return escapeHtmlText(String(value || ""));
+    const toggleTitle = hasReassignRows
+      ? "Нажмите на ID, чтобы раскрыть подзадачи и переназначения"
+      : "Нажмите на ID, чтобы раскрыть подзадачи";
+    return `<span class="task-parent-id-toggle" data-task-assignees-toggle="${escapeHtmlAttr(taskId)}" title="${escapeHtmlAttr(toggleTitle)}">${escapeHtmlText(String(value || ""))}</span>`;
   }
 
   if (colIndex === TASK_COLUMNS.status) {

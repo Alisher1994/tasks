@@ -2455,6 +2455,7 @@ async function handleCallback(q, pool, token) {
       reqEntry.decidedAt = nowIso;
       reqEntry.decidedBy = actor;
       rqRow[TASK_COLUMNS.status] = "Передано";
+      rqRow[TASK_COLUMNS.reassignReason] = String(reqEntry.reasonText || "").trim();
       appendTaskHistory(payload, rqTaskId, actor, `Telegram: переназначение подтверждено (${fromName || "—"} → ${toName || "—"})`);
       const employeesRows = Array.isArray(getEmployeesSection(payload)?.rows) ? getEmployeesSection(payload).rows : [];
       const targetEmp = employeesRows.find((r) => String(r?.[EMPLOYEE_COLUMNS.fullName] || "").trim().toLowerCase() === toName.toLowerCase());
