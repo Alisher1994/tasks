@@ -1556,6 +1556,40 @@ function mergeTaskMultiStatePreferRemotePreserveLocal(remoteRaw, localRaw) {
   return out;
 }
 
+function mergeCellCommentsPreferRemoteKeepLocal(remoteRaw, localRaw) {
+  const remote = isPlainObjectRecord(remoteRaw) ? remoteRaw : {};
+  const local = isPlainObjectRecord(localRaw) ? localRaw : {};
+  const out = {};
+  const allKeys = new Set([...Object.keys(remote), ...Object.keys(local)]);
+
+  for (const key of allKeys) {
+    const remoteList = Array.isArray(remote[key]) ? remote[key] : [];
+    const localList = Array.isArray(local[key]) ? local[key] : [];
+    const merged = new Map();
+
+    remoteList.forEach((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return;
+      const id = String(item.id || "").trim();
+      if (!id) return;
+      merged.set(id, cloneJsonSafe(item));
+    });
+
+    // Локальные правки имеют приоритет до фактической синхронизации,
+    // чтобы автопулл не затирал только что добавленные/отредактированные комментарии.
+    localList.forEach((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return;
+      const id = String(item.id || "").trim();
+      if (!id) return;
+      merged.set(id, cloneJsonSafe(item));
+    });
+
+    if (merged.size) {
+      out[key] = Array.from(merged.values()).slice(-30);
+    }
+  }
+  return out;
+}
+
 async function mergeTaskReadStateFromServer(localPayload) {
   if (!isHostedRuntime() || !getAuthToken()) return;
   if (!localPayload || typeof localPayload !== "object") return;
@@ -1604,7 +1638,10 @@ async function mergeTaskReadStateFromServer(localPayload) {
       localPayload.taskReassignLog = JSON.parse(JSON.stringify(remotePayload.taskReassignLog));
     }
     if (remotePayload?.cellComments && typeof remotePayload.cellComments === "object" && !Array.isArray(remotePayload.cellComments)) {
-      localPayload.cellComments = JSON.parse(JSON.stringify(remotePayload.cellComments));
+      localPayload.cellComments = mergeCellCommentsPreferRemoteKeepLocal(
+        remotePayload.cellComments,
+        localPayload.cellComments
+      );
     }
   } catch (_) {
     /* noop */
@@ -1685,7 +1722,8 @@ async function pullTaskReadStateFromServerIntoLocal({ rerender = true } = {}) {
         }
       }
       if (json?.data?.cellComments && typeof json.data.cellComments === "object" && !Array.isArray(json.data.cellComments)) {
-        const nextComments = JSON.stringify(json.data.cellComments);
+        const mergedComments = mergeCellCommentsPreferRemoteKeepLocal(json.data.cellComments, cellCommentsByCellKey || {});
+        const nextComments = JSON.stringify(mergedComments);
         const prevComments = JSON.stringify(cellCommentsByCellKey || {});
         if (nextComments !== prevComments) {
           cellCommentsByCellKey = JSON.parse(nextComments);
@@ -1965,7 +2003,8 @@ function applyServerBundle(data, options = {}) {
   }
   if (data.cellComments && typeof data.cellComments === "object" && !Array.isArray(data.cellComments)) {
     try {
-      localStorage.setItem(CELL_COMMENTS_STORAGE_KEY, JSON.stringify(data.cellComments));
+      const mergedComments = mergeCellCommentsPreferRemoteKeepLocal(data.cellComments, cellCommentsByCellKey || {});
+      localStorage.setItem(CELL_COMMENTS_STORAGE_KEY, JSON.stringify(mergedComments));
       restoreCellCommentsStore();
     } catch (_) {
       /* noop */
@@ -13365,6 +13404,9 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
     cellCommentsByCellKey[key] = next.slice(-30);
     normalizeCellCommentsStore();
     saveSectionsData();
+    if (isHostedRuntime() && getAuthToken()) {
+      void pushAppToServerImmediate();
+    }
     applyCellCommentDecorations(sectionId);
     close();
   });
