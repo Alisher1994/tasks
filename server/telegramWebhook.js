@@ -484,6 +484,21 @@ function buildTaskRowForChat(payload, row, chatId) {
   return buildTaskRowForAssignee(payload, row, assigneeName);
 }
 
+function buildTaskRowForReassign(row, reassignEntry, fallbackTaskId = "") {
+  const scoped = Array.isArray(row) ? row.slice() : [];
+  const baseTaskId = String(row?.[TASK_COLUMNS.number] || fallbackTaskId || "").trim();
+  const scopedTaskId = String(reassignEntry?.code || `${baseTaskId}/R1`).trim();
+  const activeTo = normalizePersonName(reassignEntry?.to || reassignEntry?.toEmployeeName || "");
+  scoped[TASK_COLUMNS.number] = scopedTaskId;
+  scoped[TASK_COLUMNS.status] = String(reassignEntry?.currentStatus || "В процессе").trim() || "В процессе";
+  if (activeTo) scoped[TASK_COLUMNS.assignedResponsible] = activeTo;
+  scoped[TASK_COLUMNS.reassignReason] = String(reassignEntry?.reasonText || "").trim();
+  scoped[TASK_COLUMNS.plan] = String(reassignEntry?.comment || "").trim();
+  const readAt = String(reassignEntry?.readAt || "").trim();
+  scoped[TASK_COLUMNS.readState] = readAt ? composeReadStateValue(true, readAt) : composeReadStateValue(false, "—");
+  return scoped;
+}
+
 function updateTaskAggregateStatusFromMulti(payload, row, appTimeZone) {
   const assignees = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
   if (assignees.length <= 1) return;
@@ -1733,11 +1748,15 @@ async function handleCallback(q, pool, token) {
     appendTaskHistory(payload, taskId, empName, `Telegram: задача прочитана (${nowText})`);
     setLastTaskContext(payload, chatId, taskId, messageId);
     await savePayload(pool, payload);
+    const refreshedViewerRow = buildTaskRowForChat(payload, row, chatId);
+    const inlineKeyboard = activeForChat && canChatUseTaskActions(payload, row, chatId)
+      ? mainKeyboard(taskId, refreshedViewerRow, appTz)
+      : mainKeyboardForChat(payload, taskId, refreshedViewerRow, chatId, appTz);
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${buildFullTaskMessage(viewerRow)}\n\nВыберите действие по задаче:`,
-      reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, viewerRow, chatId, appTz) }
+      text: `${buildFullTaskMessage(refreshedViewerRow)}\n\nВыберите действие по задаче:`,
+      reply_markup: { inline_keyboard: inlineKeyboard }
     });
     await answerOk("Задача отмечена как прочитанная");
     return;
@@ -2254,11 +2273,15 @@ async function handleCallback(q, pool, token) {
     clearSession(payload, String(chatId));
     setLastTaskContext(payload, chatId, taskId, messageId);
     await savePayload(pool, payload);
+    const refreshedViewerRow = buildTaskRowForChat(payload, row, chatId);
+    const inlineKeyboard = activeForChat && canChatUseTaskActions(payload, row, chatId)
+      ? mainKeyboard(taskId, refreshedViewerRow, appTz)
+      : mainKeyboardForChat(payload, taskId, refreshedViewerRow, chatId, appTz);
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(viewerRow)}\n\nВыберите действие по задаче:`,
-      reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, viewerRow, chatId, appTz) }
+      text: `${taskCaptionWithPlan(refreshedViewerRow)}\n\nВыберите действие по задаче:`,
+      reply_markup: { inline_keyboard: inlineKeyboard }
     });
     await answerOk();
     return;
@@ -2416,7 +2439,14 @@ async function handleCallback(q, pool, token) {
       let sentAtIso = "";
       if (targetChat && String(targetEmp?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен") {
         const readKeyboard = { inline_keyboard: [[{ text: "📖 Прочитать", callback_data: cb(reassignCode, "rd") }]] };
-        const targetRow = buildTaskRowForChat(payload, rqRow, targetChat);
+        const targetRow = buildTaskRowForReassign(rqRow, {
+          code: reassignCode,
+          currentStatus: "В процессе",
+          to: toName,
+          reasonText: reqEntry.reasonText || "",
+          comment: reqEntry.comment || "",
+          readAt: ""
+        }, rqTaskId);
         await tg(token, "sendMessage", {
           chat_id: targetChat,
           text: `${buildFullTaskMessage(targetRow)}\n\nВам назначена задача (${reassignCode}).`,
