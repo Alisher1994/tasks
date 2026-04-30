@@ -1866,9 +1866,9 @@ thead.table-head-has-order .table-head-order-row th.table-order-cell {
   overflow: visible;
 }
 
-.table-wrap--split .checkbox-col,
-.table-wrap--split .number-col,
-.table-wrap--split .first-visible-col {
+.table-wrap--split tbody .checkbox-col,
+.table-wrap--split tbody .number-col,
+.table-wrap--split tbody .first-visible-col {
   position: static;
   left: auto;
   z-index: auto;
