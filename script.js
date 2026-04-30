@@ -4524,7 +4524,7 @@ function attachTasksListFooterHandlers(section) {
 function attachTasksChunksInfiniteScroll(section) {
   if (section.id !== "tasks" || displaySettings.tasksListPagingMode !== "chunks") return;
   const sentinel = document.getElementById("tasksChunksScrollSentinel");
-  const wrap = sentinel?.closest(".table-wrap");
+  const wrap = sentinel?.closest(".table-main-pane") || sentinel?.closest(".table-wrap");
   if (!sentinel || !wrap) return;
   const obs = new IntersectionObserver(
     (entries) => {
@@ -5251,6 +5251,24 @@ function renderTable() {
   const isAllFilteredSelected = allFilteredEntries.length > 0
     && allFilteredEntries.every((entry) => selectedRows.has(entry.rowIndex));
 
+  if (section.id === "tasks") {
+    renderTasksSplitLayout(section, {
+      sectionGroupTabs,
+      selectedCount,
+      isTrashView,
+      sectionFilters,
+      showTasksBackBtn,
+      allFilteredEntries,
+      entriesForTbody,
+      tasksChunksSentinelHtml,
+      tasksListFooterHtml,
+      visibleColumnIndexes,
+      selectedRows,
+      isAllFilteredSelected
+    });
+    return;
+  }
+
   const showHeaderNumbers = headerNumberingBySection[section.id] !== false;
   const headRowspan = showHeaderNumbers ? ` rowspan="2"` : "";
   const trashHeadersMain = isTrashView
@@ -5416,16 +5434,20 @@ function renderSectionGroupTabs(sectionId) {
 }
 
 function updateTableStickyHeaderOffsets() {
-  const wrap = document.querySelector(".table-wrap");
-  const table = wrap?.querySelector("table");
-  if (!table) return;
-  const mainHeadRow = table.querySelector("thead.table-head-has-order .table-head-main-row");
-  if (!mainHeadRow) {
-    table.style.removeProperty("--table-sticky-main-row-h");
-    return;
-  }
-  const height = Math.max(1, Math.ceil(mainHeadRow.getBoundingClientRect().height));
-  table.style.setProperty("--table-sticky-main-row-h", `${height}px`);
+  document.querySelectorAll(".table-wrap table").forEach((table) => {
+    const mainHeadRow = table.querySelector("thead.table-head-has-order .table-head-main-row");
+    if (!mainHeadRow) {
+      table.style.removeProperty("--table-sticky-main-row-h");
+      return;
+    }
+    const height = Math.max(1, Math.ceil(mainHeadRow.getBoundingClientRect().height));
+    table.style.setProperty("--table-sticky-main-row-h", `${height}px`);
+  });
+}
+
+function getActiveTableScrollElement() {
+  return document.getElementById("tableMainPane")
+    || document.querySelector(".table-wrap");
 }
 
 function formatTrashDate(ts) {
@@ -12173,6 +12195,350 @@ function renderTasksScreenModeSwitch(section, selectedCount = 0, isTrashView = f
   `;
 }
 
+function renderTasksSplitLayout(section, options) {
+  const {
+    sectionGroupTabs,
+    selectedCount,
+    isTrashView,
+    sectionFilters,
+    showTasksBackBtn,
+    allFilteredEntries,
+    entriesForTbody,
+    tasksChunksSentinelHtml,
+    tasksListFooterHtml,
+    visibleColumnIndexes,
+    selectedRows,
+    isAllFilteredSelected
+  } = options;
+  const showHeaderNumbers = headerNumberingBySection[section.id] !== false;
+  const idVisible = visibleColumnIndexes.includes(TASK_COLUMNS.number);
+  const leftHasOrderRow = showHeaderNumbers && idVisible;
+  const checkboxHeadRowspan = leftHasOrderRow ? ` rowspan="2"` : "";
+  const mainHeadRowspan = showHeaderNumbers ? ` rowspan="2"` : "";
+  const dataHeadRowspan = showHeaderNumbers ? "" : ` rowspan="1"`;
+  const mainVisibleColumnIndexes = visibleColumnIndexes.filter((colIndex) => colIndex !== TASK_COLUMNS.number);
+  const trashHeadersMain = isTrashView
+    ? `<th class="trash-meta-col"${mainHeadRowspan}>Удалено</th><th class="trash-meta-col"${mainHeadRowspan}>До удаления</th>`
+    : "";
+  const mainHeaderCells = mainVisibleColumnIndexes.map((columnIndex) => {
+    const column = section.columns[columnIndex];
+    const statusClass = columnIndex === TASK_COLUMNS.status ? "status-col" : "";
+    const objectClass = columnIndex === TASK_COLUMNS.object ? "object-col" : "";
+    const mediaClass = isMediaColumn(columnIndex) ? "media-col" : "";
+    const objectPhotoClass = section.id === "objects" && columnIndex === OBJECT_COLUMNS.photo ? "object-photo-col" : "";
+    return `<th class="${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass}">
+      <span class="table-th-title">${escapeHtmlText(column)}</span>
+    </th>`;
+  }).join("");
+  const leftOrderHeaderCells = leftHasOrderRow
+    ? `<tr class="table-head-order-row" data-split-row-key="head-order">
+        <th class="table-order-cell"><span class="table-th-order">${visibleColumnIndexes.indexOf(TASK_COLUMNS.number) + 1}</span></th>
+      </tr>`
+    : "";
+  const mainOrderHeaderCells = showHeaderNumbers
+    ? `<tr class="table-head-order-row" data-split-row-key="head-order">
+        ${mainVisibleColumnIndexes.map((columnIndex) => `<th class="table-order-cell"><span class="table-th-order">${visibleColumnIndexes.indexOf(columnIndex) + 1}</span></th>`).join("")}
+      </tr>`
+    : "";
+  const leftThead = `
+    <thead class="${showHeaderNumbers ? "table-head-has-order" : ""}">
+      <tr class="table-head-main-row" data-split-row-key="head-main">
+        <th class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}"${checkboxHeadRowspan}>
+          <input type="checkbox" id="selectAllRows" ${isAllFilteredSelected ? "checked" : ""} />
+        </th>
+        ${idVisible ? `<th class="number-col"${dataHeadRowspan}><span class="table-th-title">${escapeHtmlText(section.columns[TASK_COLUMNS.number] || "ID")}</span></th>` : ""}
+      </tr>
+      ${leftOrderHeaderCells}
+    </thead>
+  `;
+  const mainThead = `
+    <thead class="${showHeaderNumbers ? "table-head-has-order" : ""}">
+      <tr class="table-head-main-row" data-split-row-key="head-main">
+        ${mainHeaderCells}
+        ${trashHeadersMain}
+        <th class="actions-col ${section.id === "roles" ? "roles-compact-actions-col" : ""}"${mainHeadRowspan}>Действие</th>
+      </tr>
+      ${mainOrderHeaderCells}
+    </thead>
+  `;
+
+  const leftBodyRows = [];
+  const mainBodyRows = [];
+  entriesForTbody.forEach((entry) => {
+    const row = entry.row;
+    const rowIndex = entry.rowIndex;
+    const rowFocusClass = activeRowBySection[section.id] === rowIndex ? "focused-row" : "";
+    const rowHighlightClass = getRowHighlightClass(section, row);
+    const rowClass = `${rowFocusClass} ${rowHighlightClass}`.trim();
+    const rowKey = `row-${rowIndex}`;
+    leftBodyRows.push(`
+      <tr class="${rowClass}" data-split-row-key="${rowKey}">
+        <td class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}">
+          <input type="checkbox" class="row-checkbox" data-row-index="${entry.rowIndex}" ${selectedRows.has(entry.rowIndex) ? "checked" : ""} />
+        </td>
+        ${idVisible ? `<td class="number-col editable-cell readonly-cell" data-row-index="${entry.rowIndex}" data-col-index="${TASK_COLUMNS.number}">${renderCellContent(section, entry.row, TASK_COLUMNS.number, entry.row[TASK_COLUMNS.number], entry.rowIndex)}</td>` : ""}
+      </tr>
+    `);
+
+    const mainCells = mainVisibleColumnIndexes.map((colIndex) => {
+      const cell = row[colIndex];
+      const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
+      const objectClass = colIndex === TASK_COLUMNS.object ? "object-col" : "";
+      const mediaClass = isMediaColumn(colIndex) ? "media-col" : "";
+      const objectPhotoClass = section.id === "objects" && colIndex === OBJECT_COLUMNS.photo ? "object-photo-col" : "";
+      const wideClass = getWideColumnClass(colIndex);
+      const readonlyClass = isReadonlyColumn(section, colIndex) ? "readonly-cell" : "";
+      return `<td class="editable-cell ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass} ${wideClass} ${readonlyClass}" data-row-index="${entry.rowIndex}" data-col-index="${colIndex}">${renderCellContent(section, row, colIndex, cell, entry.rowIndex)}</td>`;
+    }).join("");
+    const trashMetaCells = isTrashView
+      ? `<td class="trash-meta-col">${formatTrashDate(entry.deletedAt)}</td><td class="trash-meta-col">${formatTrashRemaining(entry.expiresAt)}</td>`
+      : "";
+    mainBodyRows.push(`
+      <tr class="${rowClass}" data-split-row-key="${rowKey}">
+        ${mainCells}
+        ${trashMetaCells}
+        <td class="actions-col ${section.id === "roles" ? "roles-compact-actions-col" : ""}">
+          ${renderRowActions(section.id, isTrashView, entry.rowIndex, row)}
+        </td>
+      </tr>
+    `);
+
+    if (section.id === "tasks" && !isTrashView) {
+      const names = parseTaskAssigneeNames(row?.[TASK_COLUMNS.assignedResponsible]);
+      const taskId = getTaskIdForMultiState(row);
+      const expanded = taskId && expandedTaskAssigneeRows.has(taskId);
+      const map = getTaskMultiAssigneeMap(taskId) || {};
+      if (expanded && names.length > 1) {
+        names.forEach((name, idx) => {
+          const subId = `${String(row[TASK_COLUMNS.number] || "—")}.${idx + 1}`;
+          const state = map?.[name] || {};
+          const subKey = `${rowKey}-sub-${idx}`;
+          leftBodyRows.push(`
+            <tr class="task-assignee-subrow" data-split-row-key="${subKey}">
+              <td class="checkbox-col"><input type="checkbox" disabled aria-label="Подзадача ${escapeHtmlAttr(subId)}" /></td>
+              ${idVisible ? `<td class="number-col task-accordion-readonly-cell">${renderTaskAccordionReadonlyCell(row, TASK_COLUMNS.number, name, state, subId)}</td>` : ""}
+            </tr>
+          `);
+          const subMainCells = mainVisibleColumnIndexes.map((colIndex) => {
+            const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
+            const objectClass = colIndex === TASK_COLUMNS.object ? "object-col" : "";
+            const mediaClass = isMediaColumn(colIndex) ? "media-col" : "";
+            const wideClass = getWideColumnClass(colIndex);
+            return `<td class="task-accordion-readonly-cell ${statusClass} ${objectClass} ${mediaClass} ${wideClass}">${renderTaskAccordionReadonlyCell(row, colIndex, name, state, subId)}</td>`;
+          }).join("");
+          mainBodyRows.push(`
+            <tr class="task-assignee-subrow" data-split-row-key="${subKey}">
+              ${subMainCells}
+              ${isTrashView ? `<td class="trash-meta-col">—</td><td class="trash-meta-col">—</td>` : ""}
+              <td class="actions-col task-accordion-actions-col">
+                <div class="action-buttons">
+                  <button type="button" class="icon-action-btn task-sub-view-btn" title="Просмотр задачи" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
+                    <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
+                  </button>
+                  <button type="button" class="icon-action-btn task-sub-send-btn" title="Отправить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
+                    <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
+                  </button>
+                  <button type="button" class="icon-action-btn danger-btn task-sub-remove-btn" title="Удалить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
+                    <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          `);
+        });
+      }
+
+      const reassignList = Array.isArray(taskReassignLog?.[String(row?.[TASK_COLUMNS.number] || "").trim()]) ? taskReassignLog[String(row?.[TASK_COLUMNS.number] || "").trim()] : [];
+      reassignList.slice(0, 8).forEach((item, idx) => {
+        const from = String(item?.from || "").trim() || "—";
+        const to = String(item?.to || "").trim() || "—";
+        const reason = String(item?.reasonText || "").trim() || "—";
+        const status = String(item?.status || "").trim();
+        const currentStatus = String(item?.currentStatus || "").trim();
+        const label = status === "approved" ? (currentStatus || "В процессе") : status === "rejected" ? "Отклонено" : "Ожидание";
+        const subId = String(item?.code || `${String(row[TASK_COLUMNS.number] || "").trim()}/R${idx + 1}`).trim();
+        const cloned = Array.isArray(row) ? row.slice() : [];
+        cloned[TASK_COLUMNS.number] = subId;
+        cloned[TASK_COLUMNS.assignedResponsible] = to;
+        cloned[TASK_COLUMNS.reassignReason] = reason;
+        cloned[TASK_COLUMNS.status] = label;
+        cloned[TASK_COLUMNS.plan] = String(item?.comment || "").trim();
+        cloned[TASK_COLUMNS.readState] = String(item?.readAt || "").trim() ? `Прочитано\n${String(item.readAt).trim()}` : "Не прочитано\n—";
+        const reassignKey = `${rowKey}-reassign-${idx}`;
+        leftBodyRows.push(`
+          <tr class="task-reassign-subrow" data-split-row-key="${reassignKey}">
+            <td class="checkbox-col"><input type="checkbox" disabled aria-label="Переназначение ${escapeHtmlAttr(subId)}" /></td>
+            ${idVisible ? `<td class="number-col">${escapeHtmlText(`↪ ${subId}`)}</td>` : ""}
+          </tr>
+        `);
+        const reassignMainCells = mainVisibleColumnIndexes.map((colIndex) => {
+          let val = cloned[colIndex];
+          if (colIndex === TASK_COLUMNS.task) val = `Переназначение: ${from} → ${to}`;
+          else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `${escapeHtmlText(to)}`;
+          else if (colIndex === TASK_COLUMNS.status) val = `<span class="status-badge status-${slugify(label)}">${escapeHtmlText(label)}</span>`;
+          else if (colIndex === TASK_COLUMNS.reassignReason) val = `${escapeHtmlText(reason)}`;
+          else if (colIndex === TASK_COLUMNS.createdAt) {
+            const t = Date.parse(String(item?.createdAt || ""));
+            val = escapeHtmlText(Number.isFinite(t) ? formatTrashDate(t) : "—");
+          }
+          const rendered = colIndex === TASK_COLUMNS.assignedResponsible || colIndex === TASK_COLUMNS.status || colIndex === TASK_COLUMNS.note
+            ? val
+            : renderCellContent({ id: "tasks" }, cloned, colIndex, val, -1);
+          const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
+          const wideClass = getWideColumnClass(colIndex);
+          return `<td class="task-reassign-subrow-cell ${statusClass} ${wideClass}">${rendered}</td>`;
+        }).join("");
+        mainBodyRows.push(`
+          <tr class="task-reassign-subrow" data-split-row-key="${reassignKey}">
+            ${reassignMainCells}
+            <td class="actions-col">—</td>
+          </tr>
+        `);
+      });
+    }
+  });
+
+  const leftEmpty = `
+    <tbody>
+      ${leftBodyRows.join("") || `<tr data-split-row-key="empty"><td class="checkbox-col"></td>${idVisible ? `<td class="number-col"></td>` : ""}</tr>`}
+    </tbody>
+  `;
+  const mainEmptyColspan = mainVisibleColumnIndexes.length + (isTrashView ? 3 : 1);
+  const mainBody = `
+    <tbody>
+      ${mainBodyRows.join("") || `<tr data-split-row-key="empty"><td colspan="${mainEmptyColspan}" class="empty-state">Нет данных по выбранным фильтрам</td></tr>`}
+    </tbody>
+  `;
+
+  const tableHeaderIconButtons = renderSectionHeaderIconButtons(section);
+  const sectionTitleH3 = `<h3>${withIcon(getSectionIcon(section.id), section.title)}</h3>`;
+  const tasksDrilldownHeader =
+    section.id === "tasks" && showTasksBackBtn
+      ? `
+      <div class="table-header table-header--tasks-drilldown">
+        <div class="table-header-drill-left">
+          <button type="button" class="secondary tasks-back-objects-btn" id="tasksBackToObjectsBtn">← К объектам</button>
+          ${sectionTitleH3}
+        </div>
+        ${tableHeaderIconButtons}
+      </div>`
+      : `
+      <div class="table-header">
+        ${sectionTitleH3}
+        ${tableHeaderIconButtons}
+      </div>`;
+
+  tableContainer.innerHTML = `
+    <section class="table-card${section.id === "tasks" && showTasksBackBtn ? " table-card--tasks-drilldown" : ""}">
+      ${tasksDrilldownHeader}
+      ${sectionGroupTabs}
+      ${renderStatusTabs(section)}
+      ${renderTasksScreenModeSwitch(section, selectedCount, isTrashView)}
+      ${renderFilters(section, sectionFilters, filterPanelOpenBySection[section.id] === true)}
+      <div class="table-wrap table-wrap--split">
+        <div class="table-split-shell">
+          <div class="table-frozen-pane" id="tableFrozenPane">
+            <table class="table-split-frozen">
+              ${leftThead}
+              ${leftEmpty}
+            </table>
+          </div>
+          <div class="table-main-pane" id="tableMainPane">
+            <table class="table-split-main">
+              ${mainThead}
+              ${mainBody}
+            </table>
+            ${tasksChunksSentinelHtml}
+          </div>
+        </div>
+      </div>
+      ${tasksListFooterHtml}
+    </section>
+  `;
+  attachFilterHandlers(section);
+  attachTableActionHandlers(section, allFilteredEntries);
+  attachEditableCellHandlers(section);
+  attachHeaderActionHandlers(section, allFilteredEntries);
+  attachMediaSlotHandlers(section);
+  attachObjectPhotoHandlers(section);
+  attachEmployeeAdminAccessHandlers(section);
+  attachTaskAccordionHandlers(section);
+  attachTasksListFooterHandlers(section);
+  attachTasksObjectPickerHandlers(section);
+  initLucideIcons();
+  syncSplitTableHeights();
+  attachSplitTableScrollSync();
+  bindSplitTableResizeSync();
+  updateTableStickyHeaderOffsets();
+}
+
+function syncSplitTableHeights() {
+  const frozenPane = document.getElementById("tableFrozenPane");
+  const mainPane = document.getElementById("tableMainPane");
+  if (!(frozenPane instanceof HTMLElement) || !(mainPane instanceof HTMLElement)) return;
+  const frozenRows = Array.from(frozenPane.querySelectorAll("[data-split-row-key]"));
+  const mainRows = new Map(Array.from(mainPane.querySelectorAll("[data-split-row-key]")).map((el) => [el.getAttribute("data-split-row-key"), el]));
+  frozenRows.forEach((leftRow) => {
+    const key = leftRow.getAttribute("data-split-row-key");
+    const rightRow = key ? mainRows.get(key) : null;
+    if (!(rightRow instanceof HTMLElement)) return;
+    leftRow.style.height = "";
+    rightRow.style.height = "";
+  });
+  frozenRows.forEach((leftRow) => {
+    const key = leftRow.getAttribute("data-split-row-key");
+    const rightRow = key ? mainRows.get(key) : null;
+    if (!(rightRow instanceof HTMLElement)) return;
+    const h = Math.max(leftRow.getBoundingClientRect().height, rightRow.getBoundingClientRect().height);
+    const px = `${Math.ceil(h)}px`;
+    leftRow.style.height = px;
+    rightRow.style.height = px;
+  });
+}
+
+function syncSplitTableScrollPositions() {
+  const frozenPane = document.getElementById("tableFrozenPane");
+  const mainPane = document.getElementById("tableMainPane");
+  if (!(frozenPane instanceof HTMLElement) || !(mainPane instanceof HTMLElement)) return;
+  frozenPane.scrollTop = mainPane.scrollTop;
+}
+
+function attachSplitTableScrollSync() {
+  const frozenPane = document.getElementById("tableFrozenPane");
+  const mainPane = document.getElementById("tableMainPane");
+  if (!(frozenPane instanceof HTMLElement) || !(mainPane instanceof HTMLElement)) return;
+  if (mainPane.dataset.splitSyncBound === "1") return;
+  mainPane.dataset.splitSyncBound = "1";
+  let syncing = false;
+  const syncTo = (source, target) => {
+    if (syncing) return;
+    syncing = true;
+    target.scrollTop = source.scrollTop;
+    requestAnimationFrame(() => {
+      syncing = false;
+    });
+  };
+  mainPane.addEventListener("scroll", () => syncTo(mainPane, frozenPane), { passive: true });
+  frozenPane.addEventListener("scroll", () => syncTo(frozenPane, mainPane), { passive: true });
+  requestAnimationFrame(() => {
+    syncSplitTableHeights();
+    syncSplitTableScrollPositions();
+  });
+}
+
+let splitTableResizeBound = false;
+function bindSplitTableResizeSync() {
+  if (splitTableResizeBound) return;
+  splitTableResizeBound = true;
+  window.addEventListener("resize", () => {
+    requestAnimationFrame(() => {
+      syncSplitTableHeights();
+      syncSplitTableScrollPositions();
+      updateTableStickyHeaderOffsets();
+    });
+  });
+}
+
 function resolveObjectPhotoSourceUrl(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -16779,7 +17145,7 @@ function restoreDisplaySettings() {
 }
 
 function captureTableUiState() {
-  const tableWrap = document.querySelector(".table-wrap");
+  const tableWrap = getActiveTableScrollElement();
   const active = document.activeElement;
   const isRestorableControl = active instanceof HTMLInputElement || active instanceof HTMLSelectElement || active instanceof HTMLTextAreaElement;
   return {
@@ -16799,11 +17165,13 @@ function captureTableUiState() {
 }
 
 function restoreTableUiState(state) {
-  const nextWrap = document.querySelector(".table-wrap");
+  const nextWrap = getActiveTableScrollElement();
   if (nextWrap) {
     nextWrap.scrollTop = Number(state?.scrollTop || 0);
     nextWrap.scrollLeft = Number(state?.scrollLeft || 0);
   }
+  syncSplitTableScrollPositions();
+  syncSplitTableHeights();
   const focus = state?.focus;
   if (!focus?.id) return;
   const nextActive = document.getElementById(focus.id);
@@ -16843,8 +17211,15 @@ function renderTablePreserveScroll() {
 function markFocusedRow(cell) {
   const table = cell.closest("table");
   if (!table) return;
-  table.querySelectorAll("tr.focused-row").forEach((row) => row.classList.remove("focused-row"));
   const row = cell.closest("tr");
+  const splitKey = row?.getAttribute("data-split-row-key");
+  const wrap = cell.closest(".table-wrap");
+  if (wrap && splitKey) {
+    wrap.querySelectorAll("tr.focused-row").forEach((item) => item.classList.remove("focused-row"));
+    wrap.querySelectorAll(`tr[data-split-row-key="${splitKey}"]`).forEach((item) => item.classList.add("focused-row"));
+    return;
+  }
+  table.querySelectorAll("tr.focused-row").forEach((item) => item.classList.remove("focused-row"));
   row?.classList.add("focused-row");
 }
 

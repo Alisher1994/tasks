@@ -1670,6 +1670,61 @@ select:focus {
   max-height: none;
 }
 
+.table-wrap--split {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.table-split-shell {
+  display: flex;
+  align-items: stretch;
+  min-width: 100%;
+  border: 1px solid #dbe2ea;
+  background: #ffffff;
+}
+
+.table-frozen-pane {
+  flex: 0 0 auto;
+  width: 102px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #ffffff;
+  scrollbar-width: none;
+}
+
+.table-frozen-pane::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.table-main-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: #b7c3d0 #eef3f8;
+}
+
+.table-main-pane::-webkit-scrollbar {
+  width: 8px;
+  height: 6px;
+}
+
+.table-main-pane::-webkit-scrollbar-track {
+  background: #eef3f8;
+  border-radius: 10px;
+}
+
+.table-main-pane::-webkit-scrollbar-thumb {
+  background: #b7c3d0;
+  border-radius: 10px;
+}
+
+.table-main-pane::-webkit-scrollbar-thumb:hover {
+  background: #9eacbc;
+}
+
 .table-wrap::-webkit-scrollbar {
   width: 8px;
   height: 6px;
@@ -1696,6 +1751,20 @@ table {
   min-width: 1100px;
 }
 
+.table-wrap--split table {
+  min-width: unset;
+  width: max-content;
+}
+
+.table-wrap--split .table-frozen-pane table {
+  width: auto;
+  min-width: 100%;
+}
+
+.table-wrap--split .table-main-pane table {
+  min-width: 1100px;
+}
+
 th,
 td {
   border-right: 1px solid #dbe2ea;
@@ -1713,6 +1782,28 @@ tbody td:first-child {
 
 thead tr:first-child th {
   border-top: 1px solid #dbe2ea;
+}
+
+.table-wrap--split thead tr:first-child th,
+.table-wrap--split tbody tr td {
+  border-top: 0;
+}
+
+.table-wrap--split .table-frozen-pane thead tr:first-child th,
+.table-wrap--split .table-frozen-pane tbody tr td,
+.table-wrap--split .table-main-pane thead tr:first-child th,
+.table-wrap--split .table-main-pane tbody tr td {
+  border-top: 0;
+}
+
+.table-wrap--split .table-frozen-pane thead th:first-child,
+.table-wrap--split .table-frozen-pane tbody td:first-child {
+  border-left: 0;
+}
+
+.table-wrap--split .table-main-pane thead th:first-child,
+.table-wrap--split .table-main-pane tbody td:first-child {
+  border-left: 0;
 }
 
 th {
@@ -1765,6 +1856,21 @@ thead.table-head-has-order .table-head-order-row th.table-order-cell {
   background: #f9fbfd;
   isolation: isolate;
   overflow: visible;
+}
+
+.table-wrap--split .checkbox-col,
+.table-wrap--split .number-col,
+.table-wrap--split .first-visible-col {
+  position: static;
+  left: auto;
+  z-index: auto;
+  isolation: auto;
+}
+
+.table-wrap--split .checkbox-col::after,
+.table-wrap--split .number-col::after,
+.table-wrap--split .number-col::before {
+  display: none;
 }
 
 .checkbox-col::after {
