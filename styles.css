@@ -1673,12 +1673,16 @@ select:focus {
 .table-wrap--split {
   overflow: hidden;
   padding-bottom: 0;
+  display: flex;
+  min-height: 0;
 }
 
 .table-split-shell {
   display: flex;
+  flex: 1 1 auto;
   align-items: stretch;
   min-width: 100%;
+  min-height: 0;
   border: 1px solid #dbe2ea;
   background: #ffffff;
 }
@@ -1686,6 +1690,8 @@ select:focus {
 .table-frozen-pane {
   flex: 0 0 auto;
   width: 102px;
+  min-height: 0;
+  height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
   background: #ffffff;
@@ -1700,6 +1706,8 @@ select:focus {
 .table-main-pane {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
   overflow: auto;
   padding-bottom: 4px;
   scrollbar-width: thin;
