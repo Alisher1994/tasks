@@ -5272,7 +5272,13 @@ function renderTable() {
   }).join("");
   const orderHeaderRow = showHeaderNumbers
     ? `<tr class="table-head-order-row">
-        ${visibleColumnIndexes.map((_, viewOrder) => `<th class="table-order-cell"><span class="table-th-order">${viewOrder + 1}</span></th>`).join("")}
+        ${visibleColumnIndexes.map((columnIndex, viewOrder) => {
+          const numberClass = columnIndex === 0 ? "number-col" : "";
+          const firstVisibleClass = section.id === "roles" && viewOrder === 0 ? "first-visible-col" : "";
+          const rolesNumberClass = section.id === "roles" && columnIndex === 0 && viewOrder === 0 ? "roles-number-col" : "";
+          const rolesFirstVisibleClass = section.id === "roles" && viewOrder === 0 ? "roles-first-visible-col" : "";
+          return `<th class="table-order-cell ${numberClass} ${firstVisibleClass} ${rolesNumberClass} ${rolesFirstVisibleClass}"><span class="table-th-order">${viewOrder + 1}</span></th>`;
+        }).join("")}
       </tr>`
     : "";
 
@@ -5366,7 +5372,8 @@ function renderTable() {
       ${renderTasksScreenModeSwitch(section, selectedCount, isTrashView)}
       ${section.id !== "tasks" ? renderBulkActions(selectedCount, isTrashView, section.id) : ""}
       ${renderFilters(section, sectionFilters, filterPanelOpenBySection[section.id] === true)}
-      <div class="table-wrap">
+      <div class="table-wrap ${section.id === "roles" ? "table-wrap--roles-left" : ""}">
+        <div class="table-left-freeze-mask" aria-hidden="true"></div>
         <table>
           ${thead}
           ${tbody}
@@ -5410,8 +5417,13 @@ function renderSectionGroupTabs(sectionId) {
 }
 
 function updateTableStickyHeaderOffsets() {
-  const table = document.querySelector(".table-wrap table");
+  const wrap = document.querySelector(".table-wrap");
+  const table = wrap?.querySelector("table");
   if (!table) return;
+  const mask = wrap?.querySelector(".table-left-freeze-mask");
+  if (mask instanceof HTMLElement) {
+    mask.style.setProperty("--table-left-freeze-mask-h", `${Math.max(wrap?.scrollHeight || 0, table.scrollHeight || 0)}px`);
+  }
   const mainHeadRow = table.querySelector("thead.table-head-has-order .table-head-main-row");
   if (!mainHeadRow) {
     table.style.removeProperty("--table-sticky-main-row-h");

@@ -1668,6 +1668,33 @@ select:focus {
   scrollbar-color: #b7c3d0 #eef3f8;
   flex: 1;
   max-height: none;
+  position: relative;
+  --table-left-freeze-w: 100px;
+}
+
+.table-wrap--roles-left {
+  --table-left-freeze-w: 86px;
+}
+
+.table-left-freeze-mask {
+  position: sticky;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 65;
+  pointer-events: none;
+}
+
+.table-left-freeze-mask::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--table-left-freeze-w, 100px);
+  height: var(--table-left-freeze-mask-h, 100%);
+  background: #ffffff;
+  border-right: 1px solid #dbe2ea;
 }
 
 .table-wrap::-webkit-scrollbar {
@@ -1852,7 +1879,7 @@ thead th.actions-col {
 
 thead.table-head-has-order .table-head-order-row th.first-visible-col,
 thead.table-head-has-order .table-head-order-row th.number-col {
-  z-index: 40;
+  z-index: 80;
 }
 
 thead.table-head-has-order .table-head-order-row th.actions-col {
