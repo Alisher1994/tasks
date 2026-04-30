@@ -1752,6 +1752,7 @@ thead.table-head-has-order .table-head-order-row th.table-order-cell {
   left: 0;
   z-index: 3;
   background: #f9fbfd;
+  isolation: isolate;
 }
 
 th.checkbox-col {
@@ -1772,6 +1773,7 @@ th.checkbox-col {
   right: 0;
   z-index: 3;
   background: #f9fbfd;
+  isolation: isolate;
 }
 
 th.actions-col {
@@ -1785,6 +1787,7 @@ th.actions-col {
   left: 44px;
   z-index: 3;
   background: #f9fbfd;
+  isolation: isolate;
 }
 
 .first-visible-col {
@@ -1830,12 +1833,12 @@ thead th.actions-col {
 /* Жёсткая фиксация sticky-колонок слева (чтобы не съезжали при горизонтальной прокрутке). */
 thead th.checkbox-col {
   left: 0;
-  z-index: 42;
+  z-index: 82;
 }
 
 thead th.number-col {
   left: 44px;
-  z-index: 41;
+  z-index: 81;
 }
 
 thead th.first-visible-col {
@@ -1844,7 +1847,7 @@ thead th.first-visible-col {
 }
 
 thead th.actions-col {
-  z-index: 34;
+  z-index: 64;
 }
 
 thead.table-head-has-order .table-head-order-row th.first-visible-col,
@@ -1858,12 +1861,12 @@ thead.table-head-has-order .table-head-order-row th.actions-col {
 
 tbody td.checkbox-col {
   left: 0;
-  z-index: 32;
+  z-index: 72;
 }
 
 tbody td.number-col {
   left: 44px;
-  z-index: 31;
+  z-index: 71;
 }
 
 tbody td.first-visible-col {
@@ -6829,6 +6832,11 @@ body.shared-report-mode .sidebar {
   min-height: 36px;
   flex: 1 1 260px;
   flex-wrap: wrap;
+}
+
+.tasks-screen-switch-left:empty {
+  display: none;
+  flex: 0 0 auto;
 }
 
 .tasks-screen-switch-group {

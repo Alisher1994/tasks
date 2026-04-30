@@ -13297,7 +13297,8 @@ function applyCellCommentDecorations(sectionId) {
 
 function openCellCommentModal(sectionId, rowIndex, colIndex) {
   const key = getCellCommentKey(sectionId, rowIndex, colIndex);
-  const ownerKey = `${getSessionUserDisplayName()}|${getSessionPhone() || "-"}`.toLowerCase();
+  const commentAuthorName = getTaskCreatorDisplayName();
+  const ownerKey = `${commentAuthorName}|${getSessionPhone() || "-"}`.toLowerCase();
   const overlay = document.createElement("div");
   overlay.className = "cell-comment-overlay";
   overlay.innerHTML = `
@@ -13383,7 +13384,7 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
   overlay.querySelector("#cellCommentSaveBtn")?.addEventListener("click", () => {
     const text = String(input?.value || "").trim();
     if (!text) return;
-    const author = getSessionUserDisplayName();
+    const author = commentAuthorName;
     const now = formatTaskHistoryWhen(Date.now());
     const next = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key].slice() : [];
     if (editingId) {
