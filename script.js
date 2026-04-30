@@ -13684,21 +13684,30 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
       <textarea id="cellCommentInput" class="cell-comment-input" placeholder="Введите комментарий..."></textarea>
       <div class="cell-comment-actions">
         <button type="button" class="secondary-btn" id="cellCommentCancelBtn">Отмена</button>
-        <button type="button" class="primary-btn" id="cellCommentSaveBtn">Сохранить</button>
+        <button type="button" class="primary-btn" id="cellCommentSaveBtn" hidden disabled>Сохранить</button>
       </div>
     </div>
   `;
   const thread = overlay.querySelector("#cellCommentThread");
   const input = overlay.querySelector("#cellCommentInput");
+  const saveBtn = overlay.querySelector("#cellCommentSaveBtn");
   let editingId = "";
   const close = () => overlay.remove();
+  const syncCommentSaveState = () => {
+    if (!(saveBtn instanceof HTMLButtonElement)) return;
+    const hasText = Boolean(String(input?.value || "").trim());
+    saveBtn.hidden = !hasText;
+    saveBtn.disabled = !hasText;
+  };
   const renderThread = () => {
     const current = Array.isArray(cellCommentsByCellKey[key]) ? cellCommentsByCellKey[key] : [];
     if (!thread) return;
     if (!current.length) {
       thread.innerHTML = "";
+      thread.hidden = true;
       return;
     }
+    thread.hidden = false;
     thread.innerHTML = current.map((item) => `
       <div class="cell-comment-item ${item?.resolved ? "is-resolved" : ""}">
         <div class="cell-comment-meta">
@@ -13716,6 +13725,8 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
     thread.scrollTop = thread.scrollHeight;
   };
   renderThread();
+  syncCommentSaveState();
+  input?.addEventListener("input", syncCommentSaveState);
   overlay.querySelector(".cell-comment-close-btn")?.addEventListener("click", close);
   overlay.querySelector("#cellCommentCancelBtn")?.addEventListener("click", close);
   overlay.addEventListener("click", (event) => {
@@ -13750,11 +13761,12 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
       editingId = id;
       if (input) {
         input.value = String(item?.text || "");
+        syncCommentSaveState();
         input.focus();
       }
     }
   });
-  overlay.querySelector("#cellCommentSaveBtn")?.addEventListener("click", () => {
+  saveBtn?.addEventListener("click", () => {
     const text = String(input?.value || "").trim();
     if (!text) return;
     const author = commentAuthorName;
