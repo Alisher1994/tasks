@@ -1685,24 +1685,22 @@ select:focus {
   background: #ffffff;
   font-size: 13px;
   font-family: inherit;
-  color: #22324a;
 }
 
 .tasks-tabulator-host .tabulator-header {
-  border-bottom: 1px solid #dbe2ea !important;
-  background: #f0f4f8 !important;
+  border-bottom: 1px solid #dbe2ea;
+  background: #f0f4f8;
 }
 
 .tasks-tabulator-host .tabulator-header .tabulator-col,
 .tasks-tabulator-host .tabulator-row .tabulator-cell {
-  border-right: 1px solid #dbe2ea !important;
+  border-right: 1px solid #dbe2ea;
 }
 
 .tasks-tabulator-host .tabulator-header .tabulator-col {
-  background: #f0f4f8 !important;
-  border-bottom: 1px solid #dbe2ea !important;
+  background: #f0f4f8;
+  border-bottom: 1px solid #dbe2ea;
   padding: 0;
-  color: #22324a !important;
 }
 
 .tasks-tabulator-host .tabulator-header .tabulator-col:last-child,
@@ -1728,7 +1726,6 @@ select:focus {
   min-height: 19px;
   font-weight: 600;
   color: #0f172a;
-  white-space: normal;
 }
 
 .task-tabulator-headcell-order {
@@ -1755,14 +1752,14 @@ select:focus {
 
 .tasks-tabulator-host .tabulator-row .tabulator-cell {
   padding: 0;
-  border-bottom: 1px solid #dbe2ea !important;
-  background: inherit !important;
+  border-bottom: 1px solid #dbe2ea;
+  background: inherit;
   overflow: visible;
 }
 
 .tasks-tabulator-host .tabulator-row .tabulator-cell.tabulator-frozen,
 .tasks-tabulator-host .tabulator-header .tabulator-col.tabulator-frozen {
-  background: inherit !important;
+  background: inherit;
 }
 
 .task-tabulator-cell-inner {
@@ -1771,7 +1768,6 @@ select:focus {
   position: relative;
   display: block;
   background: inherit;
-  color: inherit;
 }
 
 .task-tabulator-select-cell,

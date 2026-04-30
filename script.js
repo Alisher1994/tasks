@@ -12498,7 +12498,6 @@ function renderTasksTabulatorSection(section, options) {
       ${tasksListFooterHtml}
     </section>
   `;
-  initLucideIcons();
   attachFilterHandlers(section);
   attachHeaderActionHandlers(section, allFilteredEntries);
   attachTasksListFooterHandlers(section);
@@ -13840,41 +13839,8 @@ function showCellContextMenu(sectionId, rowIndex, colIndex, pageX, pageY) {
 }
 
 function attachEditableCellHandlers(section) {
-  applyCellCommentDecorations(section.id);
-
-  const tabulatorHost = document.querySelector(".tasks-tabulator-host");
-  if (section.id === "tasks" && tabulatorHost instanceof HTMLElement) {
-    if (tabulatorHost.dataset.editableBound === "1") return;
-    tabulatorHost.dataset.editableBound = "1";
-
-    tabulatorHost.addEventListener("contextmenu", (event) => {
-      const cell = event.target instanceof HTMLElement ? event.target.closest(".editable-cell") : null;
-      if (!(cell instanceof HTMLElement)) return;
-      const rowIndex = Number(cell.dataset.rowIndex);
-      const colIndex = Number(cell.dataset.colIndex);
-      if (!Number.isFinite(rowIndex) || !Number.isFinite(colIndex)) return;
-      event.preventDefault();
-      showCellContextMenu(section.id, rowIndex, colIndex, event.pageX, event.pageY);
-    });
-
-    tabulatorHost.addEventListener("click", (event) => {
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (!target) return;
-      if (target.closest("button, a, input, select, textarea, .cell-editor, .media-slot, .object-photo-add, .object-photo-remove")) return;
-      const cell = target.closest(".editable-cell");
-      if (!(cell instanceof HTMLElement)) return;
-      if (cell.querySelector(".cell-editor")) return;
-      if (cell.isContentEditable) return;
-      const rowIndex = Number(cell.dataset.rowIndex);
-      const colIndex = Number(cell.dataset.colIndex);
-      if (!Number.isFinite(rowIndex) || !Number.isFinite(colIndex)) return;
-      if (isReadonlyColumn(section, colIndex)) return;
-      openCellEditor(section, cell, rowIndex, colIndex);
-    });
-    return;
-  }
-
   const editableCells = Array.from(document.querySelectorAll(".editable-cell"));
+  applyCellCommentDecorations(section.id);
 
   editableCells.forEach((cell) => {
     cell.addEventListener("contextmenu", (event) => {
@@ -17254,18 +17220,15 @@ function restoreTableUiState(state) {
 }
 
 function renderTablePreserveScroll() {
-  const shouldUseLoader = !(activeSectionId === "tasks" && typeof Tabulator === "function");
-  if (shouldUseLoader) startTurboLoader();
+  startTurboLoader();
   const uiState = captureTableUiState();
   renderTable();
   restoreTableUiState(uiState);
-  if (shouldUseLoader) {
+  requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        finishTurboLoader();
-      });
+      finishTurboLoader();
     });
-  }
+  });
 }
 
 function markFocusedRow(cell) {
