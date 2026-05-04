@@ -44,6 +44,7 @@ const TASK_RESPONSIBLE_COL = 9;
 const TASK_ASSIGNED_COL = 10;
 const TASK_NOTE_COL = 11;
 const TASK_PLAN_COL = 12;
+const TASK_DUE_DATE_COL = 14;
 const TASK_CLOSED_DATE_COL = 15;
 const TASK_MEDIA_AFTER_COL = 17;
 const TASK_READ_STATE_COL = 18;
@@ -58,6 +59,9 @@ const EMPLOYEE_CHAT_ID_COL = 6;
 const CHAT_CLEAR_CODE_TTL_MS = 10 * 60 * 1000;
 const CHAT_CLEAR_DELETE_SCAN_BEFORE = 3000;
 const CHAT_CLEAR_DELETE_SCAN_AFTER = 40;
+const OVERDUE_DIGEST_INTERVAL_MS = 60 * 1000;
+let overdueDigestTickInFlight = false;
+let overdueDigestTimer = null;
 
 function normalizePhone(raw) {
   const src = String(raw || "").trim();
@@ -195,6 +199,226 @@ async function tgSendMessage(token, chatId, text) {
     description: String(j?.description || ""),
     messageId: Number(j?.result?.message_id) || 0
   };
+}
+
+async function tgSendMessageWithMarkup(token, chatId, text, replyMarkup = null) {
+  const body = { chat_id: String(chatId || "").trim(), text: String(text || "") };
+  if (replyMarkup && typeof replyMarkup === "object") body.reply_markup = replyMarkup;
+  const r = await fetch(buildBotApiUrl(token, "sendMessage"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const j = await r.json().catch(() => ({}));
+  return {
+    ok: r.ok && j?.ok === true,
+    description: String(j?.description || ""),
+    messageId: Number(j?.result?.message_id) || 0
+  };
+}
+
+function normalizePersonName(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function findEmployeeByFullNameInPayload(payload, fullName) {
+  const employees = getEmployeesSection(payload);
+  const rows = Array.isArray(employees?.rows) ? employees.rows : [];
+  const want = normalizePersonName(fullName).toLowerCase();
+  if (!want) return null;
+  return rows.find((row) => normalizePersonName(row?.[EMPLOYEE_FULL_NAME_COL] || "").toLowerCase() === want) || null;
+}
+
+function getDuplicateRecipientChatIds(payload) {
+  const ds = payload?.displaySettings || {};
+  const allowIds = new Set(
+    Array.isArray(ds.telegramGlobalDuplicateRecipientIds)
+      ? ds.telegramGlobalDuplicateRecipientIds.map((x) => String(x || "").trim()).filter(Boolean)
+      : []
+  );
+  if (!allowIds.size) return [];
+  const employees = getEmployeesSection(payload);
+  const rows = Array.isArray(employees?.rows) ? employees.rows : [];
+  const out = new Set();
+  for (const row of rows) {
+    const id = String(row?.[0] || "").trim();
+    if (!id || !allowIds.has(id)) continue;
+    if (String(row?.[EMPLOYEE_TELEGRAM_COL] || "").trim() !== "Подключен") continue;
+    const chatId = String(row?.[EMPLOYEE_CHAT_ID_COL] || "").trim();
+    if (chatId) out.add(chatId);
+  }
+  return Array.from(out);
+}
+
+function collectTaskTelegramRecipientNames(row) {
+  const out = new Set();
+  parseTaskAssigneeNames(row?.[TASK_ASSIGNED_COL] || "").forEach((x) => out.add(x));
+  const responsible = normalizePersonName(row?.[TASK_RESPONSIBLE_COL] || "");
+  if (responsible) out.add(responsible);
+  return Array.from(out);
+}
+
+function resolveTaskRecipientChatIds(payload, row) {
+  const chats = new Set();
+  const recipientNames = collectTaskTelegramRecipientNames(row);
+  recipientNames.forEach((name) => {
+    const emp = findEmployeeByFullNameInPayload(payload, name);
+    if (!emp) return;
+    if (String(emp?.[EMPLOYEE_TELEGRAM_COL] || "").trim() !== "Подключен") return;
+    const chatId = String(emp?.[EMPLOYEE_CHAT_ID_COL] || "").trim();
+    if (chatId) chats.add(chatId);
+  });
+  getDuplicateRecipientChatIds(payload).forEach((chatId) => chats.add(chatId));
+  return Array.from(chats);
+}
+
+function resolveServerTimeZone(payload) {
+  const tz = String(payload?.displaySettings?.serverTimezone || "").trim();
+  return tz || "UTC";
+}
+
+function formatYmdInTimeZone(date, timeZone) {
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  return dtf.format(date);
+}
+
+function getMinutesInTimeZone(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+  const hh = Number(parts.find((p) => p.type === "hour")?.value || 0);
+  const mm = Number(parts.find((p) => p.type === "minute")?.value || 0);
+  return hh * 60 + mm;
+}
+
+function parseRuDateToYmd(rawValue) {
+  const s = String(rawValue || "").trim();
+  const m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  const year = Number(m[3]);
+  if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year)) return null;
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > 31) return null;
+  return { year, month, day };
+}
+
+function compareYmd(a, b) {
+  if (a.year !== b.year) return a.year - b.year;
+  if (a.month !== b.month) return a.month - b.month;
+  return a.day - b.day;
+}
+
+function normalizeOverdueNotifyTimeValue(value) {
+  const match = String(value || "").trim().match(/^(\d{1,2}):(\d{1,2})$/);
+  if (!match) return "09:00";
+  const h = Math.max(0, Math.min(23, Number(match[1]) || 0));
+  const m = Math.max(0, Math.min(59, Number(match[2]) || 0));
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function buildOverdueDigestText(totalCount) {
+  const count = Math.max(0, Number(totalCount) || 0);
+  return [
+    "⚠️ Уведомление",
+    "",
+    `Количество просроченных задач: ${count} шт.`,
+    "Нажмите «Посмотреть», чтобы открыть список."
+  ].join("\n");
+}
+
+function buildOverdueDigestInlineKeyboard() {
+  return {
+    inline_keyboard: [[{ text: "📋 Посмотреть", callback_data: "ov|ls" }]]
+  };
+}
+
+async function runOverdueDigestSchedulerTick() {
+  if (overdueDigestTickInFlight) return;
+  overdueDigestTickInFlight = true;
+  try {
+    const payload = await loadAppPayload();
+    const ds = payload?.displaySettings || {};
+    if (ds.overdueNotificationsEnabled !== true) return;
+    const token = String(ds.telegramBotToken || "").trim();
+    if (!token) return;
+
+    const tz = resolveServerTimeZone(payload);
+    const now = new Date();
+    const nowMinutes = getMinutesInTimeZone(now, tz);
+    const [hh, mm] = normalizeOverdueNotifyTimeValue(ds.overdueNotificationsTime).split(":").map(Number);
+    const targetMinutes = hh * 60 + mm;
+    if (nowMinutes < targetMinutes) return;
+
+    const runtimeStore = ensureObjectStore(payload, "serverSchedulers");
+    const overdueRuntime = runtimeStore.overdueDigest && typeof runtimeStore.overdueDigest === "object"
+      ? runtimeStore.overdueDigest
+      : {};
+    const today = formatYmdInTimeZone(now, tz);
+    if (String(overdueRuntime.lastRunDate || "").trim() === today) return;
+
+    const tasks = getTaskRows(payload);
+    const todayRu = new Intl.DateTimeFormat("ru-RU", {
+      timeZone: tz,
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    }).format(now);
+    const todayParts = parseRuDateToYmd(todayRu);
+    if (!todayParts) return;
+
+    const byChat = new Map();
+    for (const row of tasks) {
+      if (!Array.isArray(row)) continue;
+      const status = String(row[TASK_STATUS_COL] || "").trim();
+      if (status === "Закрыт") continue;
+      const due = parseRuDateToYmd(String(row[TASK_DUE_DATE_COL] || "").trim());
+      if (!due) continue;
+      const diff = compareYmd(todayParts, due);
+      if (diff <= 0) continue;
+      const taskId = String(row[TASK_NUMBER_COL] || "").trim();
+      if (!taskId) continue;
+      const chatIds = resolveTaskRecipientChatIds(payload, row);
+      chatIds.forEach((chatId) => {
+        if (!byChat.has(chatId)) byChat.set(chatId, new Set());
+        byChat.get(chatId).add(taskId);
+      });
+    }
+
+    for (const [chatId, taskIds] of byChat.entries()) {
+      const text = buildOverdueDigestText(taskIds.size);
+      await tgSendMessageWithMarkup(token, chatId, text, buildOverdueDigestInlineKeyboard());
+    }
+
+    runtimeStore.overdueDigest = {
+      lastRunDate: today,
+      lastRunAt: now.toISOString(),
+      timeZone: tz,
+      sentChats: byChat.size
+    };
+    await saveAppPayload(payload);
+  } catch (e) {
+    console.error("overdue digest scheduler", e);
+  } finally {
+    overdueDigestTickInFlight = false;
+  }
+}
+
+function startOverdueDigestScheduler() {
+  clearInterval(overdueDigestTimer);
+  overdueDigestTimer = setInterval(() => {
+    runOverdueDigestSchedulerTick().catch(() => {});
+  }, OVERDUE_DIGEST_INTERVAL_MS);
+  runOverdueDigestSchedulerTick().catch(() => {});
 }
 
 async function tgDeleteMessage(token, chatId, messageId) {
@@ -1418,6 +1642,7 @@ async function main() {
   await runMigrations(pool);
   await seedAdminFromEnv();
   startGoogleSheetsAutoSync(pool);
+  startOverdueDigestScheduler();
   console.log("Миграции и сид пользователей выполнены.");
 
   if (JWT_SECRET === "change-me-in-production" && NODE_ENV === "production") {

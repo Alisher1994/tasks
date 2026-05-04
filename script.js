@@ -5055,6 +5055,9 @@ async function triggerOverdueTaskManualNotifications() {
 function startOverdueTaskNotificationsScheduler() {
   clearInterval(overdueNotifyTimer);
   overdueNotifyTimer = null;
+  // В hosted-среде Railway уведомления о просрочке отправляет серверный scheduler.
+  // Это исключает отправку "по факту входа в сайт" из браузера пользователя.
+  if (isHostedRuntime()) return;
   if (!isHostedRuntime() || !getAuthToken()) return;
   overdueNotifyTimer = setInterval(() => {
     if (document.hidden) return;
@@ -16794,7 +16797,9 @@ function attachOtherSettingsHandlers() {
     }
     saveDisplaySettings();
     startOverdueTaskNotificationsScheduler();
-    runOverdueTaskNotificationTick().catch(() => {});
+    if (!isHostedRuntime()) {
+      runOverdueTaskNotificationTick().catch(() => {});
+    }
     updateOverdueSaveBtnState();
   };
   overdueEnabledEl?.addEventListener("change", commitOverdueNotificationsSettings);
