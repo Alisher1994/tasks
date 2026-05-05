@@ -5553,7 +5553,21 @@ function initPhaseSubsectionsTabulator(section, entries, isTrashView, selectedRo
         headerSort: true,
         formatter: (cell) => {
           const d = cell.getData();
-          return `<div class="editable-cell" data-row-index="${Number(d.__rowIndex)}" data-col-index="1">${escapeHtmlText(String(d.subsection || ""))}</div>`;
+          return `<div class="tabulator-subsection-cell">${escapeHtmlText(String(d.subsection || ""))}</div>`;
+        },
+        cellClick: (e, cell) => {
+          const d = cell.getData();
+          const rowIndex = Number(d.__rowIndex);
+          const row = section.rows[rowIndex];
+          if (!row) return;
+          const currentValue = String(row[1] || "").trim();
+          const nextValue = window.prompt("Введите новое значение подраздела:", currentValue);
+          if (nextValue == null) return;
+          const clean = String(nextValue).trim();
+          if (!clean || clean === currentValue) return;
+          row[1] = clean;
+          saveSectionsData();
+          renderTablePreserveScroll();
         }
       },
       {
@@ -5572,7 +5586,7 @@ function initPhaseSubsectionsTabulator(section, entries, isTrashView, selectedRo
             return `
               <div class="action-buttons">
                 <button type="button" class="icon-action-btn restore-row-btn" title="Восстановить" data-row-index="${rowIndex}">
-                  ↺
+                  <i data-lucide="rotate-ccw" class="lucide-icon" aria-hidden="true"></i>
                 </button>
               </div>
             `;
@@ -5580,10 +5594,10 @@ function initPhaseSubsectionsTabulator(section, entries, isTrashView, selectedRo
           return `
             <div class="action-buttons">
               <button type="button" class="icon-action-btn edit-row-btn" title="Редактировать" data-row-index="${rowIndex}">
-                ✎
+                <i data-lucide="pencil" class="lucide-icon" aria-hidden="true"></i>
               </button>
               <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
-                🗑
+                <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
               </button>
             </div>
           `;
@@ -5610,11 +5624,95 @@ function initPhaseSubsectionsTabulator(section, entries, isTrashView, selectedRo
       selectAll.checked = isAllFilteredSelected;
     }
     attachTableActionHandlers(section, allFilteredEntries);
-    attachEditableCellHandlers(section);
+    bindPhaseSubsectionsHostHandlers(host, section, selectedRows);
     initLucideIcons();
   });
 
   return true;
+}
+
+function bindPhaseSubsectionsHostHandlers(host, section, selectedRows) {
+  if (!host || host.dataset.boundHandlers === "1") return;
+  host.dataset.boundHandlers = "1";
+  host.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const selectAll = target.closest("#selectAllRows");
+    if (selectAll instanceof HTMLInputElement) {
+      event.preventDefault();
+      event.stopPropagation();
+      const checked = selectAll.checked;
+      const rows = phaseSubsectionsTabulator ? phaseSubsectionsTabulator.getData() : [];
+      rows.forEach((item) => {
+        const idx = Number(item?.__rowIndex);
+        if (!Number.isFinite(idx)) return;
+        if (checked) selectedRows.add(idx);
+        else selectedRows.delete(idx);
+      });
+      renderTablePreserveScroll();
+      return;
+    }
+    const rowCb = target.closest(".row-checkbox");
+    if (rowCb instanceof HTMLInputElement) {
+      event.stopPropagation();
+      const rowIndex = Number(rowCb.dataset.rowIndex);
+      if (!Number.isFinite(rowIndex)) return;
+      if (rowCb.checked) selectedRows.add(rowIndex);
+      else selectedRows.delete(rowIndex);
+      return;
+    }
+    const editBtn = target.closest(".edit-row-btn");
+    if (editBtn instanceof HTMLButtonElement) {
+      event.preventDefault();
+      event.stopPropagation();
+      const rowIndex = Number(editBtn.dataset.rowIndex);
+      const row = section.rows[rowIndex];
+      if (!row) return;
+      const currentValue = String(row[1] || "").trim();
+      const nextValue = window.prompt("Введите новое значение подраздела:", currentValue);
+      if (nextValue == null) return;
+      const clean = String(nextValue).trim();
+      if (!clean || clean === currentValue) return;
+      row[1] = clean;
+      saveSectionsData();
+      renderTablePreserveScroll();
+      return;
+    }
+    const deleteBtn = target.closest(".delete-row-btn");
+    if (deleteBtn instanceof HTMLButtonElement) {
+      event.preventDefault();
+      event.stopPropagation();
+      const rowIndex = Number(deleteBtn.dataset.rowIndex);
+      const guardResult = getDeleteGuardMessage(section.id, rowIndex);
+      if (guardResult) {
+        window.alert(guardResult);
+        return;
+      }
+      confirmAction({
+        message: "Перенести запись в корзину?",
+        confirmLabel: "Да",
+        onConfirm: () => {
+          moveTaskToTrash(section.id, rowIndex);
+          normalizeSelectedRowsAfterDelete(getSelectionKey(section.id), rowIndex);
+          saveSectionsData();
+          saveTrashData();
+          renderTable();
+        }
+      });
+      return;
+    }
+    const restoreBtn = target.closest(".restore-row-btn");
+    if (restoreBtn instanceof HTMLButtonElement) {
+      event.preventDefault();
+      event.stopPropagation();
+      const rowIndex = Number(restoreBtn.dataset.rowIndex);
+      restoreTaskFromTrash(section.id, rowIndex);
+      normalizeSelectedRowsAfterDelete(getSelectionKey(section.id), rowIndex);
+      saveSectionsData();
+      saveTrashData();
+      renderTable();
+    }
+  }, true);
 }
 
 function updateTableStickyHeaderOffsets() {
@@ -13591,7 +13689,6 @@ function attachTableActionHandlers(section, filteredEntries) {
   const viewButtons = Array.from(document.querySelectorAll(".view-row-btn"));
   const restoreButtons = Array.from(document.querySelectorAll(".restore-row-btn"));
   const sendButtons = Array.from(document.querySelectorAll(".send-row-btn"));
-  const editButtons = Array.from(document.querySelectorAll(".edit-row-btn"));
   const copyEmployeeMsgButtons = Array.from(document.querySelectorAll(".copy-employee-msg-btn"));
   const clearEmployeeChatButtons = Array.from(document.querySelectorAll(".clear-employee-chat-btn"));
   const deleteButtons = Array.from(document.querySelectorAll(".delete-row-btn"));
@@ -13634,23 +13731,6 @@ function attachTableActionHandlers(section, filteredEntries) {
       const row = section.rows[rowIndex];
       if (!row) return;
       openTaskDetailsModal(section, row, rowIndex);
-    });
-  });
-
-  editButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      if (section.id !== "phaseSubsections") return;
-      const rowIndex = Number(button.dataset.rowIndex);
-      const row = section.rows[rowIndex];
-      if (!row) return;
-      const currentValue = String(row[1] || "").trim();
-      const nextValue = window.prompt("Введите новое значение подраздела:", currentValue);
-      if (nextValue == null) return;
-      const clean = String(nextValue).trim();
-      if (!clean || clean === currentValue) return;
-      row[1] = clean;
-      saveSectionsData();
-      renderTablePreserveScroll();
     });
   });
 

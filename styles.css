@@ -1850,6 +1850,12 @@ table {
   line-height: 1;
 }
 
+.table-card--tabulator .action-buttons .icon-action-btn .lucide-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+
 th,
 td {
   border-right: 1px solid #dbe2ea;
