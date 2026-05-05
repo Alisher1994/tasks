@@ -5682,13 +5682,11 @@ function openSubsectionEditModal(currentValue, onSubmit) {
 function bindPhaseSubsectionsHostHandlers(host, section, selectedRows) {
   if (!host || host.dataset.boundHandlers === "1") return;
   host.dataset.boundHandlers = "1";
-  host.addEventListener("click", (event) => {
+  host.addEventListener("change", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
     const selectAll = target.closest("#selectAllRows");
     if (selectAll instanceof HTMLInputElement) {
-      event.preventDefault();
-      event.stopPropagation();
       const checked = selectAll.checked;
       const rows = phaseSubsectionsTabulator ? phaseSubsectionsTabulator.getData() : [];
       rows.forEach((item) => {
@@ -5702,13 +5700,16 @@ function bindPhaseSubsectionsHostHandlers(host, section, selectedRows) {
     }
     const rowCb = target.closest(".row-checkbox");
     if (rowCb instanceof HTMLInputElement) {
-      event.stopPropagation();
       const rowIndex = Number(rowCb.dataset.rowIndex);
       if (!Number.isFinite(rowIndex)) return;
       if (rowCb.checked) selectedRows.add(rowIndex);
       else selectedRows.delete(rowIndex);
-      return;
+      renderTablePreserveScroll();
     }
+  });
+  host.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
     const editBtn = target.closest(".edit-row-btn");
     if (editBtn instanceof HTMLButtonElement) {
       event.preventDefault();
