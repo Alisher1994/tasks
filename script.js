@@ -4144,7 +4144,6 @@ let telegramReassignRequests = {};
 let taskReassignLog = {};
 let cellCommentsByCellKey = {};
 const expandedTaskAssigneeRows = new Set();
-let phaseSubsectionsTabulator = null;
 
 function iconSvg(name) {
   const attrs = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide-icon" aria-hidden="true"';
@@ -5107,7 +5106,6 @@ function detachTasksChunksObserver() {
 function renderTable() {
   detachTasksChunksObserver();
   destroyReportCharts();
-  destroyPhaseSubsectionsTabulator();
 
   if (activeSectionId === "otherSettings") {
     tableContainer.innerHTML = renderOtherSettingsPanel();
@@ -5277,35 +5275,6 @@ function renderTable() {
       selectedRows,
       isAllFilteredSelected
     });
-    return;
-  }
-
-  if (section.id === "phaseSubsections") {
-    const tableHeaderIconButtons = renderSectionHeaderIconButtons(section);
-    const sectionTitleH3 = `<h3>${withIcon(getSectionIcon(section.id), section.title)}</h3>`;
-    tableContainer.innerHTML = `
-      <section class="table-card table-card--phaseSubsections table-card--tabulator">
-        <div class="table-header">
-          ${sectionTitleH3}
-          ${tableHeaderIconButtons}
-        </div>
-        ${sectionGroupTabs}
-        ${renderStatusTabs(section)}
-        ${renderTasksScreenModeSwitch(section, selectedCount, isTrashView)}
-        ${renderBulkActions(selectedCount, isTrashView, section.id)}
-        ${renderFilters(section, sectionFilters, filterPanelOpenBySection[section.id] === true)}
-        <div class="table-wrap table-wrap--tabulator">
-          <div id="phaseSubsectionsTabulator"></div>
-        </div>
-      </section>
-    `;
-    attachFilterHandlers(section);
-    attachHeaderActionHandlers(section, allFilteredEntries);
-    const mounted = initPhaseSubsectionsTabulator(section, entriesForTbody, isTrashView, selectedRows, allFilteredEntries);
-    if (!mounted) {
-      tableContainer.innerHTML = `<section class="table-card"><div class="empty-state">Не удалось загрузить компонент таблицы. Проверьте подключение к CDN.</div></section>`;
-      return;
-    }
     return;
   }
 
@@ -5484,282 +5453,6 @@ function renderSectionGroupTabs(sectionId) {
     return `<button type="button" class="section-subtab-btn ${isActive ? "active" : ""}" data-section-tab="${id}">${section.title}</button>`;
   }).join("");
   return `<div class="section-subtabs-row">${tabsHtml}</div>`;
-}
-
-function destroyPhaseSubsectionsTabulator() {
-  if (!phaseSubsectionsTabulator) return;
-  try {
-    phaseSubsectionsTabulator.destroy();
-  } catch (_) {
-    /* noop */
-  }
-  phaseSubsectionsTabulator = null;
-}
-
-function initPhaseSubsectionsTabulator(section, entries, isTrashView, selectedRows, allFilteredEntries) {
-  const host = document.getElementById("phaseSubsectionsTabulator");
-  if (!host) return false;
-  if (typeof Tabulator === "undefined") return false;
-
-  destroyPhaseSubsectionsTabulator();
-
-  const data = entries.map((entry) => ({
-    __rowIndex: entry.rowIndex,
-    __row: entry.row,
-    id: String(entry.row?.[0] ?? ""),
-    subsection: String(entry.row?.[1] ?? "")
-  }));
-
-  phaseSubsectionsTabulator = new Tabulator(host, {
-    data,
-    layout: "fitColumns",
-    reactiveData: false,
-    height: "100%",
-    selectableRows: false,
-    columnHeaderVertAlign: "middle",
-    placeholder: "Нет данных по выбранным фильтрам",
-    resizableColumns: true,
-    columns: [
-      {
-        title: '<input type="checkbox" id="selectAllRows" />',
-        field: "__select",
-        width: 46,
-        minWidth: 46,
-        maxWidth: 46,
-        headerSort: false,
-        hozAlign: "center",
-        headerHozAlign: "center",
-        formatter: (cell) => {
-          const d = cell.getData();
-          const checked = selectedRows.has(Number(d.__rowIndex)) ? "checked" : "";
-          return `<input type="checkbox" class="row-checkbox" data-row-index="${Number(d.__rowIndex)}" ${checked} />`;
-        }
-      },
-      {
-        title: "ID",
-        field: "id",
-        width: 80,
-        minWidth: 70,
-        hozAlign: "center",
-        headerHozAlign: "center",
-        headerSort: true,
-        formatter: (cell) => {
-          const d = cell.getData();
-          return `<div class="tabulator-id-cell">${escapeHtmlText(String(d.id || ""))}</div>`;
-        }
-      },
-      {
-        title: "Подраздел",
-        field: "subsection",
-        minWidth: 260,
-        widthGrow: 1,
-        headerSort: true,
-        formatter: (cell) => {
-          const d = cell.getData();
-          return `<div class="tabulator-subsection-cell">${escapeHtmlText(String(d.subsection || ""))}</div>`;
-        },
-        cellClick: (e, cell) => {
-          const d = cell.getData();
-          const rowIndex = Number(d.__rowIndex);
-          const row = section.rows[rowIndex];
-          if (!row) return;
-          const currentValue = String(row[1] || "").trim();
-          openSubsectionEditModal(currentValue, (nextValue) => {
-            row[1] = nextValue;
-            saveSectionsData();
-            renderTablePreserveScroll();
-          });
-        }
-      },
-      {
-        title: "Действие",
-        field: "__actions",
-        width: 120,
-        minWidth: 110,
-        maxWidth: 130,
-        headerSort: false,
-        hozAlign: "center",
-        headerHozAlign: "center",
-        formatter: (cell) => {
-          const d = cell.getData();
-          const rowIndex = Number(d.__rowIndex);
-          if (isTrashView) {
-            return `
-              <div class="action-buttons">
-                <button type="button" class="icon-action-btn restore-row-btn" title="Восстановить" data-row-index="${rowIndex}">
-                  ${iconSvg("rotate-ccw")}
-                </button>
-              </div>
-            `;
-          }
-          return `
-            <div class="action-buttons">
-              <button type="button" class="icon-action-btn edit-row-btn" title="Редактировать" data-row-index="${rowIndex}">
-                ${iconSvg("pencil")}
-              </button>
-              <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
-                ${iconSvg("trash-2")}
-              </button>
-            </div>
-          `;
-        }
-      }
-    ],
-    rowFormatter: (row) => {
-      const el = row.getElement();
-      const d = row.getData();
-      const rowIndex = Number(d.__rowIndex);
-      if (selectedRows.has(rowIndex)) el.classList.add("tabulator-row--selected-soft");
-      else el.classList.remove("tabulator-row--selected-soft");
-    },
-    renderComplete: () => {
-      initLucideIcons();
-    }
-  });
-
-  requestAnimationFrame(() => {
-    const selectAll = document.getElementById("selectAllRows");
-    if (selectAll instanceof HTMLInputElement) {
-      const isAllFilteredSelected = allFilteredEntries.length > 0
-        && allFilteredEntries.every((entry) => selectedRows.has(entry.rowIndex));
-      selectAll.checked = isAllFilteredSelected;
-    }
-    attachTableActionHandlers(section, allFilteredEntries);
-    bindPhaseSubsectionsHostHandlers(host, section, selectedRows);
-    initLucideIcons();
-  });
-
-  return true;
-}
-
-function openSubsectionEditModal(currentValue, onSubmit) {
-  const overlay = document.createElement("div");
-  overlay.className = "unsaved-confirm";
-  overlay.innerHTML = `
-    <div class="unsaved-confirm-box">
-      <h4>Редактирование подраздела</h4>
-      <p>Введите новое значение:</p>
-      <input type="text" class="cell-editor subsection-edit-input" value="${escapeHtmlAttr(String(currentValue || ""))}" />
-      <div class="unsaved-confirm-actions">
-        <button type="button" class="confirm-btn confirm-cancel-btn">Отмена</button>
-        <button type="button" class="confirm-btn confirm-close-btn">Сохранить</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-  const input = overlay.querySelector(".subsection-edit-input");
-  const close = () => overlay.remove();
-  const apply = () => {
-    const nextValue = String(input?.value || "").trim();
-    if (!nextValue || nextValue === String(currentValue || "").trim()) {
-      close();
-      return;
-    }
-    close();
-    onSubmit?.(nextValue);
-  };
-  overlay.querySelector(".confirm-cancel-btn")?.addEventListener("click", close);
-  overlay.querySelector(".confirm-close-btn")?.addEventListener("click", apply);
-  input?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      apply();
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      close();
-    }
-  });
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) close();
-  });
-  if (input instanceof HTMLInputElement) {
-    input.focus();
-    input.select();
-  }
-}
-
-function bindPhaseSubsectionsHostHandlers(host, section, selectedRows) {
-  if (!host || host.dataset.boundHandlers === "1") return;
-  host.dataset.boundHandlers = "1";
-  host.addEventListener("change", (event) => {
-    const target = event.target instanceof Element ? event.target : null;
-    if (!target) return;
-    const selectAll = target.closest("#selectAllRows");
-    if (selectAll instanceof HTMLInputElement) {
-      const checked = selectAll.checked;
-      const rows = phaseSubsectionsTabulator ? phaseSubsectionsTabulator.getData() : [];
-      rows.forEach((item) => {
-        const idx = Number(item?.__rowIndex);
-        if (!Number.isFinite(idx)) return;
-        if (checked) selectedRows.add(idx);
-        else selectedRows.delete(idx);
-      });
-      renderTablePreserveScroll();
-      return;
-    }
-    const rowCb = target.closest(".row-checkbox");
-    if (rowCb instanceof HTMLInputElement) {
-      const rowIndex = Number(rowCb.dataset.rowIndex);
-      if (!Number.isFinite(rowIndex)) return;
-      if (rowCb.checked) selectedRows.add(rowIndex);
-      else selectedRows.delete(rowIndex);
-      renderTablePreserveScroll();
-    }
-  });
-  host.addEventListener("click", (event) => {
-    const target = event.target instanceof Element ? event.target : null;
-    if (!target) return;
-    const editBtn = target.closest(".edit-row-btn");
-    if (editBtn instanceof HTMLButtonElement) {
-      event.preventDefault();
-      event.stopPropagation();
-      const rowIndex = Number(editBtn.dataset.rowIndex);
-      const row = section.rows[rowIndex];
-      if (!row) return;
-      const currentValue = String(row[1] || "").trim();
-      openSubsectionEditModal(currentValue, (nextValue) => {
-        row[1] = nextValue;
-        saveSectionsData();
-        renderTablePreserveScroll();
-      });
-      return;
-    }
-    const deleteBtn = target.closest(".delete-row-btn");
-    if (deleteBtn instanceof HTMLButtonElement) {
-      event.preventDefault();
-      event.stopPropagation();
-      const rowIndex = Number(deleteBtn.dataset.rowIndex);
-      const guardResult = getDeleteGuardMessage(section.id, rowIndex);
-      if (guardResult) {
-        window.alert(guardResult);
-        return;
-      }
-      confirmAction({
-        message: "Перенести запись в корзину?",
-        confirmLabel: "Да",
-        onConfirm: () => {
-          moveTaskToTrash(section.id, rowIndex);
-          normalizeSelectedRowsAfterDelete(getSelectionKey(section.id), rowIndex);
-          saveSectionsData();
-          saveTrashData();
-          renderTable();
-        }
-      });
-      return;
-    }
-    const restoreBtn = target.closest(".restore-row-btn");
-    if (restoreBtn instanceof HTMLButtonElement) {
-      event.preventDefault();
-      event.stopPropagation();
-      const rowIndex = Number(restoreBtn.dataset.rowIndex);
-      restoreTaskFromTrash(section.id, rowIndex);
-      normalizeSelectedRowsAfterDelete(getSelectionKey(section.id), rowIndex);
-      saveSectionsData();
-      saveTrashData();
-      renderTable();
-    }
-  }, true);
 }
 
 function updateTableStickyHeaderOffsets() {
@@ -13731,7 +13424,6 @@ function normalizeSelectedRowsAfterDelete(sectionId, deletedIndex) {
 }
 
 function attachTableActionHandlers(section, filteredEntries) {
-  const isPhaseSubsectionsTabulator = section.id === "phaseSubsections";
   const selectAllCheckbox = document.getElementById("selectAllRows");
   const rowCheckboxes = Array.from(document.querySelectorAll(".row-checkbox"));
   const viewButtons = Array.from(document.querySelectorAll(".view-row-btn"));
@@ -13746,7 +13438,7 @@ function attachTableActionHandlers(section, filteredEntries) {
   const selectedRows = getSelectedRowsSet(getSelectionKey(section.id));
   const trashView = isTrashTab(section.id);
 
-  if (!isPhaseSubsectionsTabulator && selectAllCheckbox) {
+  if (selectAllCheckbox) {
     selectAllCheckbox.addEventListener("change", () => {
       const checked = selectAllCheckbox.checked;
       filteredEntries.forEach((entry) => {
@@ -13760,19 +13452,17 @@ function attachTableActionHandlers(section, filteredEntries) {
     });
   }
 
-  if (!isPhaseSubsectionsTabulator) {
-    rowCheckboxes.forEach((checkbox) => {
-      checkbox.addEventListener("change", () => {
-        const rowIndex = Number(checkbox.dataset.rowIndex);
-        if (checkbox.checked) {
-          selectedRows.add(rowIndex);
-        } else {
-          selectedRows.delete(rowIndex);
-        }
-        renderTable();
-      });
+  rowCheckboxes.forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const rowIndex = Number(checkbox.dataset.rowIndex);
+      if (checkbox.checked) {
+        selectedRows.add(rowIndex);
+      } else {
+        selectedRows.delete(rowIndex);
+      }
+      renderTable();
     });
-  }
+  });
 
   viewButtons.forEach((button) => {
     button.addEventListener("click", () => {
