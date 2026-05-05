@@ -15795,9 +15795,10 @@ function openTaskAssignedMultiSelectModal(taskRow, onApply) {
   search?.focus();
 }
 
-function openEmployeeLookupModal(title, currentValue, onApply, historyCtx) {
+function openEmployeeLookupModal(title, currentValue, onApply, historyCtx, modalOptions = {}) {
   const employees = getEmployeesForSelection();
   let selectedValue = String(currentValue || "").trim();
+  const allowClear = Boolean(modalOptions?.allowClear);
 
   const overlay = document.createElement("div");
   overlay.className = "responsible-modal-overlay";
@@ -15821,6 +15822,7 @@ function openEmployeeLookupModal(title, currentValue, onApply, historyCtx) {
   const list = overlay.querySelector(".responsible-modal-list");
   const search = overlay.querySelector(".responsible-modal-search");
   const positionFilter = overlay.querySelector(".responsible-modal-position-filter");
+  const clearBtn = overlay.querySelector(".responsible-clear-btn");
   const cancelBtn = overlay.querySelector(".responsible-cancel-btn");
   const applyBtn = overlay.querySelector(".responsible-apply-btn");
 
@@ -15861,6 +15863,13 @@ function openEmployeeLookupModal(title, currentValue, onApply, historyCtx) {
 
   search?.addEventListener("input", renderOptions);
   positionFilter?.addEventListener("change", renderOptions);
+  clearBtn?.addEventListener("click", () => {
+    selectedValue = "";
+    onApply?.("");
+    saveSectionsData();
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
   cancelBtn?.addEventListener("click", () => {
     overlay.remove();
     renderTablePreserveScroll();
