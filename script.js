@@ -12989,8 +12989,8 @@ function renderMediaSlots(value) {
     .map((slot, index) => {
       const isFilled = slot !== "+";
       const slotClass = isFilled ? "media-slot filled" : "media-slot";
-      const slotLabel = isFilled ? "Удалить файл" : "Выбрать файл";
-      const text = isFilled ? "x" : "+";
+      const slotLabel = isFilled ? "Заменить файл" : "Выбрать файл";
+      const text = "+";
       return `<button type="button" class="${slotClass}" data-media-slot="${index}" title="${slotLabel}">${text}</button>`;
     })
     .join("")}</div>`;
@@ -20690,3 +20690,4 @@ if (initialShareIdBoot) {
     }
   })();
 }
+
