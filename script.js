@@ -4006,6 +4006,7 @@ const PHASE_CATALOG_DEFAULT_ROWS = Object.fromEntries(
 
 let activeSectionId = "tasks";
 let isSettingsOpen = false;
+const sectionSortState = {};
 const filtersBySection = {};
 const selectedRowsBySection = {};
 const filterPanelOpenBySection = {};
@@ -5220,6 +5221,7 @@ function renderTable() {
     }
   }
 
+  allFilteredEntries = applySectionSorting(section, allFilteredEntries);
   let entriesForTbody = allFilteredEntries;
   if (section.id === "tasks") {
     const pageSize = getTasksListPageSize();
@@ -5277,6 +5279,7 @@ function renderTable() {
   const trashHeadersMain = isTrashView
     ? `<th class="trash-meta-col"${headRowspan}>Удалено</th><th class="trash-meta-col"${headRowspan}>До удаления</th>`
     : "";
+  const sectionSort = sectionSortState[section.id] || null;
   const titleHeaderCells = visibleColumnIndexes.map((columnIndex, viewOrder) => {
     const column = section.columns[columnIndex];
     const firstVisibleClass = section.id === "roles" && viewOrder === 0 ? "first-visible-col" : "";
@@ -5287,9 +5290,18 @@ function renderTable() {
     const objectClass = columnIndex === TASK_COLUMNS.object ? "object-col" : "";
     const mediaClass = isMediaColumn(columnIndex) ? "media-col" : "";
     const objectPhotoClass = section.id === "objects" && columnIndex === OBJECT_COLUMNS.photo ? "object-photo-col" : "";
-    return `<th class="${firstVisibleClass} ${numberClass} ${rolesNumberClass} ${rolesFirstVisibleClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass}">
-      <span class="table-th-title">${escapeHtmlText(column)}</span>
-    </th>`;
+    const sortable = isSectionHeaderSortable(section.id);
+    const isSorted = sortable && sectionSort && sectionSort.colIndex === columnIndex;
+    const sortDir = isSorted ? sectionSort.direction : "";
+    const sortGlyph = sortDir === "asc" ? "▲" : sortDir === "desc" ? "▼" : "↕";
+    const sortClass = sortDir ? ` is-${sortDir}` : "";
+    const titleHtml = sortable
+      ? `<button type="button" class="table-sort-btn${sortClass}" data-sort-col-index="${columnIndex}">
+          <span class="table-th-title">${escapeHtmlText(column)}</span>
+          <span class="table-sort-indicator" aria-hidden="true">${sortGlyph}</span>
+        </button>`
+      : `<span class="table-th-title">${escapeHtmlText(column)}</span>`;
+    return `<th class="${firstVisibleClass} ${numberClass} ${rolesNumberClass} ${rolesFirstVisibleClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass}">${titleHtml}</th>`;
   }).join("");
   const orderHeaderRow = showHeaderNumbers
     ? `<tr class="table-head-order-row">
@@ -12218,6 +12230,76 @@ function renderTasksScreenModeSwitch(section, selectedCount = 0, isTrashView = f
   `;
 }
 
+function isSectionHeaderSortable(sectionId) {
+  return sectionId === "employees"
+    || sectionId === "responsible"
+    || sectionId === "departments"
+    || sectionId === "roles"
+    || sectionId === "objects";
+}
+
+function parseSortDateValue(raw) {
+  const value = String(raw || "").trim();
+  const ru = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(value);
+  if (ru) {
+    const day = Number(ru[1]);
+    const month = Number(ru[2]);
+    const year = Number(ru[3]);
+    return year * 10000 + month * 100 + day;
+  }
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (iso) {
+    const year = Number(iso[1]);
+    const month = Number(iso[2]);
+    const day = Number(iso[3]);
+    return year * 10000 + month * 100 + day;
+  }
+  return null;
+}
+
+function normalizeSortPrimitive(raw) {
+  const value = String(raw ?? "").trim();
+  if (!value) return { kind: "empty", value: "" };
+  const dateValue = parseSortDateValue(value);
+  if (dateValue !== null) return { kind: "number", value: dateValue };
+  const num = Number(value.replace(/\s+/g, "").replace(",", "."));
+  if (Number.isFinite(num) && /^[-+]?\d+([.,]\d+)?$/.test(value.replace(/\s+/g, ""))) {
+    return { kind: "number", value: num };
+  }
+  return { kind: "string", value: value.toLowerCase() };
+}
+
+function compareSortPrimitives(a, b) {
+  if (a.kind === "empty" && b.kind === "empty") return 0;
+  if (a.kind === "empty") return 1;
+  if (b.kind === "empty") return -1;
+  if (a.kind === "number" && b.kind === "number") return a.value - b.value;
+  return String(a.value).localeCompare(String(b.value), "ru", { numeric: true, sensitivity: "base" });
+}
+
+function applySectionSorting(section, entries) {
+  if (!isSectionHeaderSortable(section.id)) return entries;
+  const sort = sectionSortState[section.id];
+  if (!sort || !Number.isInteger(sort.colIndex) || !["asc", "desc"].includes(sort.direction)) {
+    return entries;
+  }
+  const dir = sort.direction === "desc" ? -1 : 1;
+  const colIndex = sort.colIndex;
+  return [...entries].sort((a, b) => {
+    const left = normalizeSortPrimitive(a?.row?.[colIndex]);
+    const right = normalizeSortPrimitive(b?.row?.[colIndex]);
+    const base = compareSortPrimitives(left, right);
+    if (base !== 0) return base * dir;
+    return a.rowIndex - b.rowIndex;
+  });
+}
+
+function nextSortDirection(current) {
+  if (current === "asc") return "desc";
+  if (current === "desc") return "";
+  return "asc";
+}
+
 function renderTasksSplitLayout(section, options) {
   const {
     sectionGroupTabs,
@@ -12492,6 +12574,7 @@ function renderTasksSplitLayout(section, options) {
   attachFilterHandlers(section);
   attachTableActionHandlers(section, allFilteredEntries);
   attachEditableCellHandlers(section);
+  attachTableSortHandlers(section);
   attachHeaderActionHandlers(section, allFilteredEntries);
   attachMediaSlotHandlers(section);
   attachObjectPhotoHandlers(section);
@@ -14157,7 +14240,7 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
     return;
   }
   if (section.id === "objects" && (colIndex === OBJECT_COLUMNS.rp || colIndex === OBJECT_COLUMNS.zrp)) {
-    openEmployeeSingleSelectModal(section, rowIndex, colIndex);
+    openEmployeeSingleSelectModal(section, rowIndex, colIndex, { multi: colIndex === OBJECT_COLUMNS.zrp });
     return;
   }
 
@@ -15058,12 +15141,13 @@ function openResponsibleMultiSelectModal(section, rowIndex) {
   search?.focus();
 }
 
-function openEmployeeSingleSelectModal(section, rowIndex, colIndex) {
+function openEmployeeSingleSelectModal(section, rowIndex, colIndex, options = {}) {
   const row = section.rows[rowIndex];
   if (!row) return;
   const currentValue = String(row[colIndex] || "").trim();
+  const multi = Boolean(options?.multi);
   const requiredRole = colIndex === OBJECT_COLUMNS.rp ? "РП" : "ЗРП";
-  const options = getEmployeesForSelection().filter((item) => item.role === requiredRole);
+  const employeesForRole = getEmployeesForSelection().filter((item) => item.role === requiredRole);
 
   const overlay = document.createElement("div");
   overlay.className = "responsible-modal-overlay";
@@ -15073,6 +15157,7 @@ function openEmployeeSingleSelectModal(section, rowIndex, colIndex) {
       <input type="text" class="responsible-modal-search" placeholder="Поиск сотрудника..." />
       <div class="responsible-modal-list"></div>
       <div class="responsible-modal-actions">
+        <button type="button" class="secondary responsible-clear-btn">Сбросить</button>
         <button type="button" class="secondary responsible-cancel-btn">Отмена</button>
         <button type="button" class="responsible-apply-btn">Выбрать</button>
       </div>
@@ -15082,20 +15167,27 @@ function openEmployeeSingleSelectModal(section, rowIndex, colIndex) {
   document.body.appendChild(overlay);
   const list = overlay.querySelector(".responsible-modal-list");
   const search = overlay.querySelector(".responsible-modal-search");
+  const clearBtn = overlay.querySelector(".responsible-clear-btn");
   const cancelBtn = overlay.querySelector(".responsible-cancel-btn");
   const applyBtn = overlay.querySelector(".responsible-apply-btn");
   let selectedName = currentValue;
+  let selectedNames = new Set(
+    currentValue
+      .split(",")
+      .map((name) => normalizePersonName(name))
+      .filter(Boolean)
+  );
 
   const renderOptions = (query = "") => {
     const normalized = String(query).trim().toLowerCase();
-    const filtered = options.filter((item) => (
+    const filtered = employeesForRole.filter((item) => (
       item.fullName.toLowerCase().includes(normalized)
       || item.role.toLowerCase().includes(normalized)
     ));
     list.innerHTML = filtered.length
       ? filtered.map((item) => `
         <label class="responsible-option-item">
-          <input type="radio" name="singleEmployeeSelect" value="${item.fullName}" ${item.fullName === selectedName ? "checked" : ""} />
+          <input type="${multi ? "checkbox" : "radio"}" name="singleEmployeeSelect" value="${item.fullName}" ${multi ? (selectedNames.has(item.fullName) ? "checked" : "") : (item.fullName === selectedName ? "checked" : "")} />
           <span class="responsible-option-name">${item.fullName}</span>
           <span class="responsible-option-role">${item.role || "-"}</span>
         </label>
@@ -15105,17 +15197,32 @@ function openEmployeeSingleSelectModal(section, rowIndex, colIndex) {
 
   list.addEventListener("change", (event) => {
     const target = event.target;
-    if (!(target instanceof HTMLInputElement) || target.type !== "radio") return;
-    selectedName = target.value;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (multi && target.type === "checkbox") {
+      if (target.checked) selectedNames.add(target.value);
+      else selectedNames.delete(target.value);
+      return;
+    }
+    if (!multi && target.type === "radio") {
+      selectedName = target.value;
+    }
   });
 
   search?.addEventListener("input", () => renderOptions(search.value));
+  clearBtn?.addEventListener("click", () => {
+    selectedName = "";
+    selectedNames = new Set();
+    row[colIndex] = "";
+    saveSectionsData();
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
   cancelBtn?.addEventListener("click", () => {
     overlay.remove();
     renderTablePreserveScroll();
   });
   applyBtn?.addEventListener("click", () => {
-    row[colIndex] = selectedName || "";
+    row[colIndex] = multi ? Array.from(selectedNames).join(", ") : (selectedName || "");
     saveSectionsData();
     overlay.remove();
     renderTablePreserveScroll();
@@ -17267,6 +17374,26 @@ function captureTableUiState() {
       }
       : null
   };
+}
+
+function attachTableSortHandlers(section) {
+  if (!isSectionHeaderSortable(section.id)) return;
+  const sortButtons = Array.from(document.querySelectorAll(".table-sort-btn[data-sort-col-index]"));
+  sortButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const colIndex = Number(button.getAttribute("data-sort-col-index"));
+      if (!Number.isInteger(colIndex)) return;
+      const prev = sectionSortState[section.id];
+      const prevDir = prev && prev.colIndex === colIndex ? String(prev.direction || "") : "";
+      const nextDir = nextSortDirection(prevDir);
+      if (!nextDir) {
+        delete sectionSortState[section.id];
+      } else {
+        sectionSortState[section.id] = { colIndex, direction: nextDir };
+      }
+      renderTablePreserveScroll();
+    });
+  });
 }
 
 function restoreTableUiState(state) {

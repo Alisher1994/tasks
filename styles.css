@@ -1827,6 +1827,30 @@ th {
   min-height: 19px;
 }
 
+.table-sort-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.table-sort-indicator {
+  font-size: 11px;
+  color: #7a8ba4;
+}
+
+.table-sort-btn.is-asc .table-sort-indicator,
+.table-sort-btn.is-desc .table-sort-indicator {
+  color: #3f43ad;
+}
+
 thead.table-head-has-order .table-head-main-row th {
   top: 0;
   z-index: 22;
