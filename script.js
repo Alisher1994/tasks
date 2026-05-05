@@ -5537,11 +5537,12 @@ function initPhaseSubsectionsTabulator(section, entries, isTrashView, selectedRo
         field: "id",
         width: 80,
         minWidth: 70,
-        hozAlign: "left",
+        hozAlign: "center",
+        headerHozAlign: "center",
         headerSort: true,
         formatter: (cell) => {
           const d = cell.getData();
-          return `<div class="editable-cell readonly-cell" data-row-index="${Number(d.__rowIndex)}" data-col-index="0">${escapeHtmlText(String(d.id || ""))}</div>`;
+          return `<div class="tabulator-id-cell">${escapeHtmlText(String(d.id || ""))}</div>`;
         }
       },
       {
@@ -5571,15 +5572,18 @@ function initPhaseSubsectionsTabulator(section, entries, isTrashView, selectedRo
             return `
               <div class="action-buttons">
                 <button type="button" class="icon-action-btn restore-row-btn" title="Восстановить" data-row-index="${rowIndex}">
-                  ${iconSvg("rotate-ccw")}
+                  ↺
                 </button>
               </div>
             `;
           }
           return `
             <div class="action-buttons">
+              <button type="button" class="icon-action-btn edit-row-btn" title="Редактировать" data-row-index="${rowIndex}">
+                ✎
+              </button>
               <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
-                ${iconSvg("trash-2")}
+                🗑
               </button>
             </div>
           `;
@@ -13587,6 +13591,7 @@ function attachTableActionHandlers(section, filteredEntries) {
   const viewButtons = Array.from(document.querySelectorAll(".view-row-btn"));
   const restoreButtons = Array.from(document.querySelectorAll(".restore-row-btn"));
   const sendButtons = Array.from(document.querySelectorAll(".send-row-btn"));
+  const editButtons = Array.from(document.querySelectorAll(".edit-row-btn"));
   const copyEmployeeMsgButtons = Array.from(document.querySelectorAll(".copy-employee-msg-btn"));
   const clearEmployeeChatButtons = Array.from(document.querySelectorAll(".clear-employee-chat-btn"));
   const deleteButtons = Array.from(document.querySelectorAll(".delete-row-btn"));
@@ -13629,6 +13634,23 @@ function attachTableActionHandlers(section, filteredEntries) {
       const row = section.rows[rowIndex];
       if (!row) return;
       openTaskDetailsModal(section, row, rowIndex);
+    });
+  });
+
+  editButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      if (section.id !== "phaseSubsections") return;
+      const rowIndex = Number(button.dataset.rowIndex);
+      const row = section.rows[rowIndex];
+      if (!row) return;
+      const currentValue = String(row[1] || "").trim();
+      const nextValue = window.prompt("Введите новое значение подраздела:", currentValue);
+      if (nextValue == null) return;
+      const clean = String(nextValue).trim();
+      if (!clean || clean === currentValue) return;
+      row[1] = clean;
+      saveSectionsData();
+      renderTablePreserveScroll();
     });
   });
 
@@ -14053,6 +14075,7 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
   });
+
   thread?.addEventListener("click", (event) => {
     const clickedInsideMenu = event.target instanceof HTMLElement ? event.target.closest(".cell-comment-menu-wrap") : null;
     if (!clickedInsideMenu) hideCommentMenus();

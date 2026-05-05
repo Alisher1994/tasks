@@ -1830,6 +1830,26 @@ table {
   border-top: 1px solid #dbe2ea;
 }
 
+.table-card--tabulator .tabulator-id-cell {
+  text-align: center;
+  background: transparent;
+}
+
+.table-card--tabulator .action-buttons {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.table-card--tabulator .action-buttons .icon-action-btn {
+  min-width: 34px;
+  width: 34px;
+  height: 34px;
+  font-size: 16px;
+  line-height: 1;
+}
+
 th,
 td {
   border-right: 1px solid #dbe2ea;
