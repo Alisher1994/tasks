@@ -2133,6 +2133,11 @@ tbody td.first-visible-col {
   width: 180px;
 }
 
+/* Все таблицы, кроме задач — фиксированная раскладка для стабильной геометрии */
+.table-card:not(.table-card--tasks) table {
+  table-layout: fixed;
+}
+
 /* Неродительские таблицы (кроме задач): более ровная сетка для ID/чекбокса */
 .table-card--employees .checkbox-col,
 .table-card--roles .checkbox-col,
@@ -2158,6 +2163,12 @@ tbody td.first-visible-col {
 .table-card--delayReasons .number-col {
   width: 64px;
   min-width: 64px;
+}
+
+.table-card:not(.table-card--tasks) tbody td.checkbox-col,
+.table-card:not(.table-card--tasks) tbody td.number-col {
+  box-shadow: inset 0 -1px 0 #d7dfea;
+  border-bottom: 1px solid #d7dfea;
 }
 
 /* Справочники: ограничиваем избыточный разлет колонок */
@@ -2204,6 +2215,56 @@ tbody td.first-visible-col {
 .table-card--data td:nth-child(7) {
   width: 240px;
 }
+
+/* Узкие справочники: ID + основная колонка + действие */
+.table-card--phases th:nth-child(3),
+.table-card--phases td:nth-child(3),
+.table-card--phaseSections th:nth-child(3),
+.table-card--phaseSections td:nth-child(3),
+.table-card--phaseSubsections th:nth-child(3),
+.table-card--phaseSubsections td:nth-child(3),
+.table-card--delayReasons th:nth-child(3),
+.table-card--delayReasons td:nth-child(3) {
+  width: 300px;
+}
+
+/* Пользователи: читаемые фиксированные пропорции */
+.table-card--employees th:nth-child(3),
+.table-card--employees td:nth-child(3) { width: 180px; }
+.table-card--employees th:nth-child(4),
+.table-card--employees td:nth-child(4) { width: 170px; }
+.table-card--employees th:nth-child(5),
+.table-card--employees td:nth-child(5) { width: 180px; }
+.table-card--employees th:nth-child(6),
+.table-card--employees td:nth-child(6) { width: 120px; }
+.table-card--employees th:nth-child(7),
+.table-card--employees td:nth-child(7) { width: 100px; }
+.table-card--employees th:nth-child(8),
+.table-card--employees td:nth-child(8) { width: 90px; }
+.table-card--employees th:nth-child(9),
+.table-card--employees td:nth-child(9) { width: 90px; }
+.table-card--employees th:nth-child(10),
+.table-card--employees td:nth-child(10) { width: 170px; }
+
+/* Должности и Отдел: убираем чрезмерную ширину одной колонки */
+.table-card--roles th:nth-child(3),
+.table-card--roles td:nth-child(3) { width: 340px; }
+.table-card--departments th:nth-child(3),
+.table-card--departments td:nth-child(3) { width: 220px; }
+.table-card--departments th:nth-child(4),
+.table-card--departments td:nth-child(4) { width: 220px; }
+
+/* Объекты: ровные ширины колонок */
+.table-card--objects th:nth-child(3),
+.table-card--objects td:nth-child(3) { width: 180px; }
+.table-card--objects th:nth-child(4),
+.table-card--objects td:nth-child(4) { width: 220px; }
+.table-card--objects th:nth-child(5),
+.table-card--objects td:nth-child(5) { width: 120px; }
+.table-card--objects th:nth-child(6),
+.table-card--objects td:nth-child(6) { width: 170px; }
+.table-card--objects th:nth-child(7),
+.table-card--objects td:nth-child(7) { width: 170px; }
 
 .action-buttons {
   display: flex;
