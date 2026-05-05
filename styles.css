@@ -1819,6 +1819,12 @@ table {
   background: #f7f0c9;
 }
 
+.table-card--tabulator .tabulator-row.tabulator-selected,
+.table-card--tabulator .tabulator-row.tabulator-selected:hover,
+.table-card--tabulator .tabulator-row:hover {
+  background: inherit;
+}
+
 .table-card--tabulator .tabulator-footer {
   background: #fff;
   border-top: 1px solid #dbe2ea;

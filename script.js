@@ -5509,9 +5509,10 @@ function initPhaseSubsectionsTabulator(section, entries, isTrashView, selectedRo
 
   phaseSubsectionsTabulator = new Tabulator(host, {
     data,
-    layout: "fitDataStretch",
+    layout: "fitColumns",
     reactiveData: false,
     height: "100%",
+    selectableRows: false,
     columnHeaderVertAlign: "middle",
     placeholder: "Нет данных по выбранным фильтрам",
     resizableColumns: true,
@@ -5565,7 +5566,23 @@ function initPhaseSubsectionsTabulator(section, entries, isTrashView, selectedRo
         headerHozAlign: "center",
         formatter: (cell) => {
           const d = cell.getData();
-          return renderRowActions(section.id, isTrashView, Number(d.__rowIndex), d.__row);
+          const rowIndex = Number(d.__rowIndex);
+          if (isTrashView) {
+            return `
+              <div class="action-buttons">
+                <button type="button" class="icon-action-btn restore-row-btn" title="Восстановить" data-row-index="${rowIndex}">
+                  ${iconSvg("rotate-ccw")}
+                </button>
+              </div>
+            `;
+          }
+          return `
+            <div class="action-buttons">
+              <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
+                ${iconSvg("trash-2")}
+              </button>
+            </div>
+          `;
         }
       }
     ],
@@ -5575,6 +5592,9 @@ function initPhaseSubsectionsTabulator(section, entries, isTrashView, selectedRo
       const rowIndex = Number(d.__rowIndex);
       if (selectedRows.has(rowIndex)) el.classList.add("tabulator-row--selected-soft");
       else el.classList.remove("tabulator-row--selected-soft");
+    },
+    renderComplete: () => {
+      initLucideIcons();
     }
   });
 
