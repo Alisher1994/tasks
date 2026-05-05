@@ -48,6 +48,7 @@ const TASK_CLOSE_META_STORAGE_KEY = "mbc_task_close_meta";
 const TASK_ATTACHMENTS_STORAGE_KEY = "mbc_task_attachments";
 const TASK_REASSIGN_REQUESTS_STORAGE_KEY = "mbc_task_reassign_requests";
 const TASK_REASSIGN_LOG_STORAGE_KEY = "mbc_task_reassign_log";
+const TABLE_LAYOUT_STORAGE_KEY = "mbc_table_layout_state_v1";
 const CELL_COMMENTS_STORAGE_KEY = "mbc_cell_comments";
 const TASK_HISTORY_MAX_PER_TASK = 300;
 const REPORT_CHART_ORDER_STORAGE_KEY = "mbc_report_chart_tile_order";
@@ -17229,6 +17230,38 @@ function saveDisplaySettings(opts = {}) {
   }
 }
 
+function saveTableLayoutState() {
+  const payload = {
+    visibleColumnsBySection,
+    columnOrderBySection,
+    headerNumberingBySection
+  };
+  try {
+    localStorage.setItem(buildUserScopedStorageKey(TABLE_LAYOUT_STORAGE_KEY), JSON.stringify(payload));
+  } catch (_) {
+    /* noop */
+  }
+}
+
+function restoreTableLayoutState() {
+  try {
+    const raw = localStorage.getItem(buildUserScopedStorageKey(TABLE_LAYOUT_STORAGE_KEY));
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed?.visibleColumnsBySection && typeof parsed.visibleColumnsBySection === "object") {
+      Object.assign(visibleColumnsBySection, parsed.visibleColumnsBySection);
+    }
+    if (parsed?.columnOrderBySection && typeof parsed.columnOrderBySection === "object") {
+      Object.assign(columnOrderBySection, parsed.columnOrderBySection);
+    }
+    if (parsed?.headerNumberingBySection && typeof parsed.headerNumberingBySection === "object") {
+      Object.assign(headerNumberingBySection, parsed.headerNumberingBySection);
+    }
+  } catch (_) {
+    /* noop */
+  }
+}
+
 function restoreDisplaySettings() {
   const raw = localStorage.getItem(DISPLAY_SETTINGS_KEY);
   if (!raw) return;
@@ -17641,6 +17674,28 @@ function openTaskDetailsModal(section, row, rowIndex) {
   requestAnimationFrame(() => {
     modal.querySelector(".status-stepper")?.classList.add("animated");
     modal.focus();
+  });
+  modal.querySelectorAll(".task-reassign-approve-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = String(btn.getAttribute("data-reassign-id") || "").trim();
+      if (!id) return;
+      btn.setAttribute("disabled", "disabled");
+      const r = await decideTaskReassignRequest(id, "approve");
+      if (!r.ok) window.alert(r.error || "Не удалось подтвердить заявку");
+      modal.remove();
+      renderTablePreserveScroll();
+    });
+  });
+  modal.querySelectorAll(".task-reassign-reject-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = String(btn.getAttribute("data-reassign-id") || "").trim();
+      if (!id) return;
+      btn.setAttribute("disabled", "disabled");
+      const r = await decideTaskReassignRequest(id, "reject");
+      if (!r.ok) window.alert(r.error || "Не удалось отклонить заявку");
+      modal.remove();
+      renderTablePreserveScroll();
+    });
   });
 
   let activeMediaTarget = null;
@@ -18195,6 +18250,15 @@ function resolveMediaPreviewForSlot(storedName, preview) {
   }
   const name = String(storedName || "").trim();
   if (!mediaNameLooksLikeImage(name)) return preview || null;
+  const looksLikeTelegramFilePath =
+    name.includes("/")
+    && !/^https?:\/\//i.test(name)
+    && !name.startsWith("/media/")
+    && !name.startsWith("media/");
+  if (looksLikeTelegramFilePath) {
+    const tgUrlDirect = buildTelegramMediaPreviewUrl(name);
+    if (tgUrlDirect) return { name, type: "image/telegram", url: tgUrlDirect };
+  }
   const directUrl = toAbsoluteMediaUrl(name);
   if (directUrl) {
     return { name, type: "image/url", url: directUrl };
@@ -18465,26 +18529,6 @@ function openExportFormatModal(section, filteredEntries) {
   `;
   document.body.appendChild(overlay);
   initLucideIcons();
-  modal.querySelectorAll(".task-reassign-approve-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const id = String(btn.getAttribute("data-reassign-id") || "").trim();
-      if (!id) return;
-      btn.setAttribute("disabled", "disabled");
-      const r = await decideTaskReassignRequest(id, "approve");
-      if (!r.ok) window.alert(r.error || "Не удалось подтвердить заявку");
-      modal.remove();
-    });
-  });
-  modal.querySelectorAll(".task-reassign-reject-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const id = String(btn.getAttribute("data-reassign-id") || "").trim();
-      if (!id) return;
-      btn.setAttribute("disabled", "disabled");
-      const r = await decideTaskReassignRequest(id, "reject");
-      if (!r.ok) window.alert(r.error || "Не удалось отклонить заявку");
-      modal.remove();
-    });
-  });
 
   const close = () => overlay.remove();
   overlay.querySelector(".export-format-pdf-btn")?.addEventListener("click", () => {
@@ -19158,6 +19202,7 @@ function openTableSettingsModal(section) {
       ? normalizeTasksTailColumnsOrder(draftOrder)
       : [...draftOrder];
     headerNumberingBySection[section.id] = headerNumbersAllowed ? draftHeaderNumbers : false;
+    saveTableLayoutState();
     overlay.remove();
     renderTablePreserveScroll();
   });
@@ -20597,6 +20642,7 @@ loginBtn.innerHTML = withLucideIcon("log-in", "Войти");
 logoutBtn.innerHTML = withLucideIcon("log-out", "Выйти");
 restoreDisplaySettings();
 restoreSectionsData();
+restoreTableLayoutState();
 restoreTaskMultiState();
 restoreTaskCloseMeta();
 restoreTaskAttachmentsData();

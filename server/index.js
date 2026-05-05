@@ -626,6 +626,16 @@ function latestTelegramHistoryTs(store, taskId) {
   return maxTs;
 }
 
+function latestHistoryTs(store, taskId) {
+  const list = Array.isArray(store?.[String(taskId || "").trim()]) ? store[String(taskId || "").trim()] : [];
+  let maxTs = 0;
+  for (const item of list) {
+    const t = Number(item?.t) || 0;
+    if (t > maxTs) maxTs = t;
+  }
+  return maxTs;
+}
+
 function appendTaskHistory(payload, taskId, who, actionText) {
   const id = String(taskId ?? "").trim() || "—";
   const actor = String(who || "").trim() || "Система";
@@ -658,6 +668,9 @@ function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
     const curTgTs = latestTelegramHistoryTs(currentPayload?.taskHistory, taskId);
     const inTgTs = latestTelegramHistoryTs(next?.taskHistory, taskId);
     const currentHasNewerTelegramUpdates = curTgTs > inTgTs;
+    const curAnyTs = latestHistoryTs(currentPayload?.taskHistory, taskId);
+    const inAnyTs = latestHistoryTs(next?.taskHistory, taskId);
+    const incomingHasNewerManualEdits = inAnyTs > curAnyTs;
     if (isReadStateValue(currentRow[TASK_READ_STATE_COL]) && !isReadStateValue(row[TASK_READ_STATE_COL])) {
       row[TASK_READ_STATE_COL] = currentRow[TASK_READ_STATE_COL];
     }
@@ -671,7 +684,9 @@ function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
       row[TASK_STATUS_COL] = currentRow[TASK_STATUS_COL];
       row[TASK_PLAN_COL] = currentRow[TASK_PLAN_COL];
       row[TASK_CLOSED_DATE_COL] = currentRow[TASK_CLOSED_DATE_COL];
-      row[TASK_MEDIA_AFTER_COL] = currentRow[TASK_MEDIA_AFTER_COL];
+      if (!incomingHasNewerManualEdits) {
+        row[TASK_MEDIA_AFTER_COL] = currentRow[TASK_MEDIA_AFTER_COL];
+      }
       row[TASK_READ_STATE_COL] = currentRow[TASK_READ_STATE_COL];
       row[TASK_LAST_SENT_AT_COL] = currentRow[TASK_LAST_SENT_AT_COL];
       row[TASK_DELAY_REASON_COL] = currentRow[TASK_DELAY_REASON_COL];
@@ -1193,23 +1208,65 @@ app.post("/api/tasks/reassign/decision", authMiddleware, requireAdmin, async (re
 
     const actorName = String(req.user?.name || "").trim() || "Администратор";
     const nowIso = new Date().toISOString();
+    const token = String(payload?.displaySettings?.telegramBotToken || "").trim();
     const logStore = ensureObjectStore(payload, "taskReassignLog");
     if (!Array.isArray(logStore[taskId])) logStore[taskId] = [];
 
     if (decision === "approve") {
       const fromName = String(reqEntry.fromEmployeeName || "").trim();
       const toName = String(reqEntry.toEmployeeName || "").trim();
+      const reassignCode = String(reqEntry.code || `${taskId}/1`).trim();
       row[TASK_STATUS_COL] = "Передано";
       row[TASK_REASSIGN_REASON_COL] = String(reqEntry.reasonText || "").trim();
       reqEntry.status = "approved";
       reqEntry.decidedAt = nowIso;
       reqEntry.decidedBy = actorName;
       appendTaskHistory(payload, taskId, actorName, `Переназначение подтверждено: ${fromName || "—"} → ${toName || "—"}`);
+      if (token) {
+        const requester = findEmployeeByFullNameInPayload(payload, String(reqEntry.requesterName || "").trim());
+        const target = findEmployeeByFullNameInPayload(payload, toName);
+        const requesterChat = String(requester?.[EMPLOYEE_CHAT_ID_COL] || "").trim();
+        const targetChat = String(target?.[EMPLOYEE_CHAT_ID_COL] || "").trim();
+        const notifyTextRequester = [
+          `✅ Переназначение подтверждено`,
+          `Задача: ${reassignCode}`,
+          `Кому: ${toName || "—"}`,
+          `Подтвердил: ${actorName}`,
+          `Дата/время: ${nowIso}`
+        ].join("\n");
+        const notifyTextTarget = [
+          `📌 Вам назначена задача (переназначение)`,
+          `Задача: ${reassignCode}`,
+          `От кого: ${fromName || "—"}`,
+          `Причина: ${String(reqEntry.reasonText || "").trim() || "—"}`,
+          `Подтвердил: ${actorName}`
+        ].join("\n");
+        if (requesterChat) {
+          await tgSendMessage(token, requesterChat, notifyTextRequester);
+        }
+        if (targetChat) {
+          await tgSendMessage(token, targetChat, notifyTextTarget);
+        }
+      }
     } else {
       reqEntry.status = "rejected";
       reqEntry.decidedAt = nowIso;
       reqEntry.decidedBy = actorName;
       appendTaskHistory(payload, taskId, actorName, "Переназначение отклонено");
+      if (token) {
+        const requester = findEmployeeByFullNameInPayload(payload, String(reqEntry.requesterName || "").trim());
+        const requesterChat = String(requester?.[EMPLOYEE_CHAT_ID_COL] || "").trim();
+        const reassignCode = String(reqEntry.code || `${taskId}/1`).trim();
+        if (requesterChat) {
+          const rejectText = [
+            `❌ Переназначение отклонено`,
+            `Задача: ${reassignCode}`,
+            `Отклонил: ${actorName}`,
+            `Дата/время: ${nowIso}`
+          ].join("\n");
+          await tgSendMessage(token, requesterChat, rejectText);
+        }
+      }
     }
 
     logStore[taskId].unshift({
