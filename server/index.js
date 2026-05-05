@@ -1427,52 +1427,57 @@ app.put("/api/data", authMiddleware, async (req, res) => {
       `INSERT INTO app_state (id, payload, updated_at)
        VALUES (1, $1::jsonb, NOW())
        ON CONFLICT (id) DO UPDATE SET
-         payload = jsonb_set(
-           jsonb_set(
-             jsonb_set(
-               jsonb_set(
-                 jsonb_set(
-                   jsonb_set(
-                     jsonb_set(
-                       jsonb_set(
-                         jsonb_set(
-                           EXCLUDED.payload,
-                           '{telegramSessions}',
-                           COALESCE(app_state.payload->'telegramSessions', '{}'::jsonb),
-                           true
-                         ),
-                         '{telegramPhoneChatBindings}',
-                         COALESCE(app_state.payload->'telegramPhoneChatBindings', '{}'::jsonb),
-                         true
-                       ),
-                       '{telegramCloseRequests}',
-                       COALESCE(app_state.payload->'telegramCloseRequests', '{}'::jsonb),
-                       true
-                     ),
-                     '{telegramLastTaskByChat}',
-                     COALESCE(app_state.payload->'telegramLastTaskByChat', '{}'::jsonb),
-                     true
-                   ),
-                   '{telegramChatClearRequests}',
-                   COALESCE(app_state.payload->'telegramChatClearRequests', '{}'::jsonb),
-                   true
-                 ),
-                 '{telegramLastSeenMessageByChat}',
-                 COALESCE(app_state.payload->'telegramLastSeenMessageByChat', '{}'::jsonb),
-                 true
-               ),
-               '{telegramReassignRequests}',
-               COALESCE(app_state.payload->'telegramReassignRequests', '{}'::jsonb),
-               true
-             ),
-             '{taskReassignLog}',
-             COALESCE(app_state.payload->'taskReassignLog', '{}'::jsonb),
-             true
-           ),
-           '{taskCloseMeta}',
-           COALESCE(app_state.payload->'taskCloseMeta', '{}'::jsonb),
-           true
-         ),
+        payload = jsonb_set(
+          jsonb_set(
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  jsonb_set(
+                    jsonb_set(
+                      jsonb_set(
+                        jsonb_set(
+                          jsonb_set(
+                            EXCLUDED.payload,
+                            '{telegramSessions}',
+                            COALESCE(app_state.payload->'telegramSessions', '{}'::jsonb),
+                            true
+                          ),
+                          '{telegramPhoneChatBindings}',
+                          COALESCE(app_state.payload->'telegramPhoneChatBindings', '{}'::jsonb),
+                          true
+                        ),
+                        '{telegramCloseRequests}',
+                        COALESCE(app_state.payload->'telegramCloseRequests', '{}'::jsonb),
+                        true
+                      ),
+                      '{telegramLastTaskByChat}',
+                      COALESCE(app_state.payload->'telegramLastTaskByChat', '{}'::jsonb),
+                      true
+                    ),
+                    '{telegramChatClearRequests}',
+                    COALESCE(app_state.payload->'telegramChatClearRequests', '{}'::jsonb),
+                    true
+                  ),
+                  '{telegramLastSeenMessageByChat}',
+                  COALESCE(app_state.payload->'telegramLastSeenMessageByChat', '{}'::jsonb),
+                  true
+                ),
+                '{telegramReassignRequests}',
+                COALESCE(app_state.payload->'telegramReassignRequests', '{}'::jsonb),
+                true
+              ),
+              '{taskReassignLog}',
+              COALESCE(app_state.payload->'taskReassignLog', '{}'::jsonb),
+              true
+            ),
+            '{taskCloseMeta}',
+            COALESCE(app_state.payload->'taskCloseMeta', '{}'::jsonb),
+            true
+          ),
+          '{serverSchedulers}',
+          COALESCE(app_state.payload->'serverSchedulers', '{}'::jsonb),
+          true
+        ),
          updated_at = NOW()
        RETURNING updated_at`,
       [JSON.stringify(mergedData)]
