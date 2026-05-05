@@ -13731,6 +13731,7 @@ function normalizeSelectedRowsAfterDelete(sectionId, deletedIndex) {
 }
 
 function attachTableActionHandlers(section, filteredEntries) {
+  const isPhaseSubsectionsTabulator = section.id === "phaseSubsections";
   const selectAllCheckbox = document.getElementById("selectAllRows");
   const rowCheckboxes = Array.from(document.querySelectorAll(".row-checkbox"));
   const viewButtons = Array.from(document.querySelectorAll(".view-row-btn"));
@@ -13745,7 +13746,7 @@ function attachTableActionHandlers(section, filteredEntries) {
   const selectedRows = getSelectedRowsSet(getSelectionKey(section.id));
   const trashView = isTrashTab(section.id);
 
-  if (selectAllCheckbox) {
+  if (!isPhaseSubsectionsTabulator && selectAllCheckbox) {
     selectAllCheckbox.addEventListener("change", () => {
       const checked = selectAllCheckbox.checked;
       filteredEntries.forEach((entry) => {
@@ -13759,17 +13760,19 @@ function attachTableActionHandlers(section, filteredEntries) {
     });
   }
 
-  rowCheckboxes.forEach((checkbox) => {
-    checkbox.addEventListener("change", () => {
-      const rowIndex = Number(checkbox.dataset.rowIndex);
-      if (checkbox.checked) {
-        selectedRows.add(rowIndex);
-      } else {
-        selectedRows.delete(rowIndex);
-      }
-      renderTable();
+  if (!isPhaseSubsectionsTabulator) {
+    rowCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        const rowIndex = Number(checkbox.dataset.rowIndex);
+        if (checkbox.checked) {
+          selectedRows.add(rowIndex);
+        } else {
+          selectedRows.delete(rowIndex);
+        }
+        renderTable();
+      });
     });
-  });
+  }
 
   viewButtons.forEach((button) => {
     button.addEventListener("click", () => {

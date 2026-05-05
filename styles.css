@@ -4595,6 +4595,10 @@ button.task-card-tab.is-active {
   margin-bottom: 12px;
 }
 
+.subsection-edit-input + .unsaved-confirm-actions {
+  margin-top: 12px;
+}
+
 .employee-chat-clear-code + .unsaved-confirm-actions {
   margin-top: 2px;
 }
