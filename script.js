@@ -13230,19 +13230,9 @@ function attachMediaSlotHandlers(section) {
         event.stopPropagation();
 
         const slotIndex = Number(slotButton.dataset.mediaSlot);
-        const items = getMediaItems(section.rows[rowIndex][colIndex]);
-        const hasFile = Boolean(items[slotIndex]);
         const row = section.rows[rowIndex];
         const taskId = row ? String(row[TASK_COLUMNS.number]) : "";
         const slotKey = getMediaSlotKey(taskId, colIndex, slotIndex);
-
-        if (hasFile) {
-          items.splice(slotIndex, 1);
-          setMediaItems(section, rowIndex, colIndex, items);
-          delete mediaPreviewStore[slotKey];
-          renderTablePreserveScroll();
-          return;
-        }
 
         pickFile(async (file) => {
           if (!file) return;
@@ -18034,7 +18024,6 @@ function buildMediaGallery(value, taskId, colIndex) {
             <figcaption title="${escapeHtmlAttr(name)}">${displayName}</figcaption>
             <div class="slot-actions">
               <button type="button" class="slot-action-btn slot-choose-btn" title="Заменить">+</button>
-              <button type="button" class="slot-action-btn slot-delete-btn" title="Удалить">x</button>
             </div>
           </figure>
         `;
@@ -18044,7 +18033,6 @@ function buildMediaGallery(value, taskId, colIndex) {
           <span title="${escapeHtmlAttr(name)}">${displayName}</span>
           <div class="slot-actions">
             <button type="button" class="slot-action-btn slot-choose-btn" title="Заменить">+</button>
-            <button type="button" class="slot-action-btn slot-delete-btn" title="Удалить">x</button>
           </div>
         </div>
       `;
