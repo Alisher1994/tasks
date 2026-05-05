@@ -14024,10 +14024,13 @@ function showCellContextMenu(sectionId, rowIndex, colIndex, pageX, pageY) {
 
 function attachEditableCellHandlers(section) {
   const editableCells = Array.from(document.querySelectorAll(".editable-cell"));
-  applyCellCommentDecorations(section.id);
+  if (section.id === "tasks") {
+    applyCellCommentDecorations(section.id);
+  }
 
   editableCells.forEach((cell) => {
     cell.addEventListener("contextmenu", (event) => {
+      if (section.id !== "tasks") return;
       const rowIndex = Number(cell.dataset.rowIndex);
       const colIndex = Number(cell.dataset.colIndex);
       if (!Number.isFinite(rowIndex) || !Number.isFinite(colIndex)) return;

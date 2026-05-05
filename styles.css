@@ -2148,8 +2148,9 @@ tbody td.first-visible-col {
 .table-card--phaseSections .checkbox-col,
 .table-card--phaseSubsections .checkbox-col,
 .table-card--delayReasons .checkbox-col {
-  width: 42px;
-  min-width: 42px;
+  width: 42px !important;
+  min-width: 42px !important;
+  max-width: 42px !important;
 }
 
 .table-card--employees .number-col,
@@ -2161,14 +2162,22 @@ tbody td.first-visible-col {
 .table-card--phaseSections .number-col,
 .table-card--phaseSubsections .number-col,
 .table-card--delayReasons .number-col {
-  width: 64px;
-  min-width: 64px;
+  width: 56px !important;
+  min-width: 56px !important;
+  max-width: 56px !important;
 }
 
 .table-card:not(.table-card--tasks) tbody td.checkbox-col,
 .table-card:not(.table-card--tasks) tbody td.number-col {
-  box-shadow: inset 0 -1px 0 #d7dfea;
-  border-bottom: 1px solid #d7dfea;
+  box-shadow: inset 0 -1px 0 #d7dfea, inset -1px 0 0 #d7dfea !important;
+  border-bottom: 1px solid #d7dfea !important;
+  background-clip: padding-box;
+}
+
+.table-card:not(.table-card--tasks) thead th.checkbox-col,
+.table-card:not(.table-card--tasks) thead th.number-col {
+  box-shadow: inset 0 -1px 0 #d7dfea, inset -1px 0 0 #d7dfea;
+  background-clip: padding-box;
 }
 
 /* Справочники: ограничиваем избыточный разлет колонок */
