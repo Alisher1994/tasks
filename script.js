@@ -12548,7 +12548,7 @@ function renderTasksSplitLayout(section, options) {
       </div>`;
 
   tableContainer.innerHTML = `
-    <section class="table-card${section.id === "tasks" && showTasksBackBtn ? " table-card--tasks-drilldown" : ""}">
+    <section class="table-card table-card--${section.id}${section.id === "tasks" && showTasksBackBtn ? " table-card--tasks-drilldown" : ""}">
       ${tasksDrilldownHeader}
       ${sectionGroupTabs}
       ${renderStatusTabs(section)}

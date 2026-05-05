@@ -2108,6 +2108,9 @@ tbody td.checkbox-col {
 tbody td.number-col {
   left: 44px;
   z-index: 71;
+  border-right: 1px solid #d7dfea;
+  border-bottom: 1px solid #d7dfea;
+  box-shadow: inset 0 -1px 0 #d7dfea;
 }
 
 tbody td.first-visible-col {
@@ -2128,6 +2131,78 @@ tbody td.first-visible-col {
 .media-col {
   min-width: 180px;
   width: 180px;
+}
+
+/* Неродительские таблицы (кроме задач): более ровная сетка для ID/чекбокса */
+.table-card--employees .checkbox-col,
+.table-card--roles .checkbox-col,
+.table-card--departments .checkbox-col,
+.table-card--objects .checkbox-col,
+.table-card--data .checkbox-col,
+.table-card--phases .checkbox-col,
+.table-card--phaseSections .checkbox-col,
+.table-card--phaseSubsections .checkbox-col,
+.table-card--delayReasons .checkbox-col {
+  width: 42px;
+  min-width: 42px;
+}
+
+.table-card--employees .number-col,
+.table-card--roles .number-col,
+.table-card--departments .number-col,
+.table-card--objects .number-col,
+.table-card--data .number-col,
+.table-card--phases .number-col,
+.table-card--phaseSections .number-col,
+.table-card--phaseSubsections .number-col,
+.table-card--delayReasons .number-col {
+  width: 64px;
+  min-width: 64px;
+}
+
+/* Справочники: ограничиваем избыточный разлет колонок */
+.table-card--phases table,
+.table-card--phaseSections table,
+.table-card--phaseSubsections table,
+.table-card--delayReasons table {
+  table-layout: fixed;
+}
+
+.table-card--phases td:not(.checkbox-col):not(.number-col):not(.actions-col),
+.table-card--phaseSections td:not(.checkbox-col):not(.number-col):not(.actions-col),
+.table-card--phaseSubsections td:not(.checkbox-col):not(.number-col):not(.actions-col),
+.table-card--delayReasons td:not(.checkbox-col):not(.number-col):not(.actions-col),
+.table-card--phases th:not(.checkbox-col):not(.number-col):not(.actions-col),
+.table-card--phaseSections th:not(.checkbox-col):not(.number-col):not(.actions-col),
+.table-card--phaseSubsections th:not(.checkbox-col):not(.number-col):not(.actions-col),
+.table-card--delayReasons th:not(.checkbox-col):not(.number-col):not(.actions-col) {
+  width: 260px;
+  max-width: 260px;
+}
+
+/* Ответственные: фиксируем читаемые ширины основных колонок */
+.table-card--data table {
+  table-layout: fixed;
+}
+.table-card--data th:nth-child(3),
+.table-card--data td:nth-child(3) {
+  width: 160px;
+}
+.table-card--data th:nth-child(4),
+.table-card--data td:nth-child(4) {
+  width: 190px;
+}
+.table-card--data th:nth-child(5),
+.table-card--data td:nth-child(5) {
+  width: 190px;
+}
+.table-card--data th:nth-child(6),
+.table-card--data td:nth-child(6) {
+  width: 220px;
+}
+.table-card--data th:nth-child(7),
+.table-card--data td:nth-child(7) {
+  width: 240px;
 }
 
 .action-buttons {
