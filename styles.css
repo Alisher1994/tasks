@@ -1839,16 +1839,63 @@ th {
   color: inherit;
   font: inherit;
   cursor: pointer;
+  border-radius: 0;
+  box-shadow: none;
+  min-height: 0;
+  line-height: 1.2;
+}
+
+.table-sort-btn:hover,
+.table-sort-btn:focus,
+.table-sort-btn:active {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
 }
 
 .table-sort-indicator {
-  font-size: 11px;
-  color: #7a8ba4;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 10px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.table-sort-up,
+.table-sort-down {
+  display: block;
+  font-size: 8px;
+  line-height: 1;
+  color: #aeb9cc;
+}
+
+.table-sort-btn:hover .table-sort-indicator,
+th:hover .table-sort-indicator {
+  opacity: 1;
 }
 
 .table-sort-btn.is-asc .table-sort-indicator,
 .table-sort-btn.is-desc .table-sort-indicator {
-  color: #3f43ad;
+  opacity: 1;
+}
+
+.table-sort-btn.is-asc .table-sort-up {
+  color: #6e7f9d;
+}
+
+.table-sort-btn.is-asc .table-sort-down {
+  color: #d0d7e4;
+}
+
+.table-sort-btn.is-desc .table-sort-down {
+  color: #6e7f9d;
+}
+
+.table-sort-btn.is-desc .table-sort-up {
+  color: #d0d7e4;
 }
 
 thead.table-head-has-order .table-head-main-row th {

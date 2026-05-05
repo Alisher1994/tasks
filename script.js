@@ -5274,7 +5274,7 @@ function renderTable() {
     return;
   }
 
-  const showHeaderNumbers = headerNumberingBySection[section.id] !== false;
+  const showHeaderNumbers = section.id === "tasks" && headerNumberingBySection[section.id] !== false;
   const headRowspan = showHeaderNumbers ? ` rowspan="2"` : "";
   const trashHeadersMain = isTrashView
     ? `<th class="trash-meta-col"${headRowspan}>Удалено</th><th class="trash-meta-col"${headRowspan}>До удаления</th>`
@@ -5293,12 +5293,14 @@ function renderTable() {
     const sortable = isSectionHeaderSortable(section.id);
     const isSorted = sortable && sectionSort && sectionSort.colIndex === columnIndex;
     const sortDir = isSorted ? sectionSort.direction : "";
-    const sortGlyph = sortDir === "asc" ? "▲" : sortDir === "desc" ? "▼" : "↕";
     const sortClass = sortDir ? ` is-${sortDir}` : "";
     const titleHtml = sortable
       ? `<button type="button" class="table-sort-btn${sortClass}" data-sort-col-index="${columnIndex}">
           <span class="table-th-title">${escapeHtmlText(column)}</span>
-          <span class="table-sort-indicator" aria-hidden="true">${sortGlyph}</span>
+          <span class="table-sort-indicator" aria-hidden="true">
+            <span class="table-sort-up">▲</span>
+            <span class="table-sort-down">▼</span>
+          </span>
         </button>`
       : `<span class="table-th-title">${escapeHtmlText(column)}</span>`;
     return `<th class="${firstVisibleClass} ${numberClass} ${rolesNumberClass} ${rolesFirstVisibleClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass}">${titleHtml}</th>`;
@@ -5418,6 +5420,7 @@ function renderTable() {
   attachFilterHandlers(section);
   attachTableActionHandlers(section, allFilteredEntries);
   attachEditableCellHandlers(section);
+  attachTableSortHandlers(section);
   attachHeaderActionHandlers(section, allFilteredEntries);
   attachMediaSlotHandlers(section);
   attachObjectPhotoHandlers(section);
@@ -12315,7 +12318,7 @@ function renderTasksSplitLayout(section, options) {
     selectedRows,
     isAllFilteredSelected
   } = options;
-  const showHeaderNumbers = headerNumberingBySection[section.id] !== false;
+  const showHeaderNumbers = section.id === "tasks" && headerNumberingBySection[section.id] !== false;
   const idVisible = visibleColumnIndexes.includes(TASK_COLUMNS.number);
   const leftHasOrderRow = showHeaderNumbers && idVisible;
   const checkboxHeadRowspan = leftHasOrderRow ? ` rowspan="2"` : "";
@@ -19021,7 +19024,8 @@ function openTableSettingsModal(section) {
   const fixedIndexes = getFixedColumnIndexes(section);
   const initialOrder = [...columnOrderBySection[section.id]];
   const initialVisibility = [...visibleColumnsBySection[section.id]];
-  const initialHeaderNumbers = headerNumberingBySection[section.id] !== false;
+  const headerNumbersAllowed = section.id === "tasks";
+  const initialHeaderNumbers = headerNumbersAllowed && headerNumberingBySection[section.id] !== false;
 
   const draftOrder = [...initialOrder];
   const draftVisibility = [...initialVisibility];
@@ -19033,10 +19037,11 @@ function openTableSettingsModal(section) {
   overlay.innerHTML = `
     <div class="responsible-modal table-settings-modal">
       <h3>${withIcon("settings", "Настройки таблицы")}</h3>
+      ${headerNumbersAllowed ? `
       <label class="settings-option table-settings-flag">
         <input type="checkbox" id="tableSettingsHeaderNumbersToggle" ${draftHeaderNumbers ? "checked" : ""} />
         <span>Отобразить нумерацию заголовка</span>
-      </label>
+      </label>` : ""}
       <div class="table-settings-dnd-list" id="tableSettingsDndList"></div>
       <div class="responsible-modal-actions">
         <button type="button" class="secondary table-settings-cancel-btn">Отмена</button>
@@ -19152,7 +19157,7 @@ function openTableSettingsModal(section) {
     columnOrderBySection[section.id] = section.id === "tasks"
       ? normalizeTasksTailColumnsOrder(draftOrder)
       : [...draftOrder];
-    headerNumberingBySection[section.id] = draftHeaderNumbers;
+    headerNumberingBySection[section.id] = headerNumbersAllowed ? draftHeaderNumbers : false;
     overlay.remove();
     renderTablePreserveScroll();
   });
