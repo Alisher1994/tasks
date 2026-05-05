@@ -4144,6 +4144,7 @@ let telegramReassignRequests = {};
 let taskReassignLog = {};
 let cellCommentsByCellKey = {};
 const expandedTaskAssigneeRows = new Set();
+let phaseSubsectionsTabulator = null;
 
 function iconSvg(name) {
   const attrs = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide-icon" aria-hidden="true"';
@@ -5103,6 +5104,7 @@ function detachTasksChunksObserver() {
 function renderTable() {
   detachTasksChunksObserver();
   destroyReportCharts();
+  destroyPhaseSubsectionsTabulator();
 
   if (activeSectionId === "otherSettings") {
     tableContainer.innerHTML = renderOtherSettingsPanel();
@@ -5272,6 +5274,35 @@ function renderTable() {
       selectedRows,
       isAllFilteredSelected
     });
+    return;
+  }
+
+  if (section.id === "phaseSubsections") {
+    const tableHeaderIconButtons = renderSectionHeaderIconButtons(section);
+    const sectionTitleH3 = `<h3>${withIcon(getSectionIcon(section.id), section.title)}</h3>`;
+    tableContainer.innerHTML = `
+      <section class="table-card table-card--phaseSubsections table-card--tabulator">
+        <div class="table-header">
+          ${sectionTitleH3}
+          ${tableHeaderIconButtons}
+        </div>
+        ${sectionGroupTabs}
+        ${renderStatusTabs(section)}
+        ${renderTasksScreenModeSwitch(section, selectedCount, isTrashView)}
+        ${renderBulkActions(selectedCount, isTrashView, section.id)}
+        ${renderFilters(section, sectionFilters, filterPanelOpenBySection[section.id] === true)}
+        <div class="table-wrap table-wrap--tabulator">
+          <div id="phaseSubsectionsTabulator"></div>
+        </div>
+      </section>
+    `;
+    attachFilterHandlers(section);
+    attachHeaderActionHandlers(section, allFilteredEntries);
+    const mounted = initPhaseSubsectionsTabulator(section, entriesForTbody, isTrashView, selectedRows, allFilteredEntries);
+    if (!mounted) {
+      tableContainer.innerHTML = `<section class="table-card"><div class="empty-state">Не удалось загрузить компонент таблицы. Проверьте подключение к CDN.</div></section>`;
+      return;
+    }
     return;
   }
 
@@ -5450,6 +5481,116 @@ function renderSectionGroupTabs(sectionId) {
     return `<button type="button" class="section-subtab-btn ${isActive ? "active" : ""}" data-section-tab="${id}">${section.title}</button>`;
   }).join("");
   return `<div class="section-subtabs-row">${tabsHtml}</div>`;
+}
+
+function destroyPhaseSubsectionsTabulator() {
+  if (!phaseSubsectionsTabulator) return;
+  try {
+    phaseSubsectionsTabulator.destroy();
+  } catch (_) {
+    /* noop */
+  }
+  phaseSubsectionsTabulator = null;
+}
+
+function initPhaseSubsectionsTabulator(section, entries, isTrashView, selectedRows, allFilteredEntries) {
+  const host = document.getElementById("phaseSubsectionsTabulator");
+  if (!host) return false;
+  if (typeof Tabulator === "undefined") return false;
+
+  destroyPhaseSubsectionsTabulator();
+
+  const data = entries.map((entry) => ({
+    __rowIndex: entry.rowIndex,
+    __row: entry.row,
+    id: String(entry.row?.[0] ?? ""),
+    subsection: String(entry.row?.[1] ?? "")
+  }));
+
+  phaseSubsectionsTabulator = new Tabulator(host, {
+    data,
+    layout: "fitDataStretch",
+    reactiveData: false,
+    height: "100%",
+    columnHeaderVertAlign: "middle",
+    placeholder: "Нет данных по выбранным фильтрам",
+    resizableColumns: true,
+    columns: [
+      {
+        title: '<input type="checkbox" id="selectAllRows" />',
+        field: "__select",
+        width: 46,
+        minWidth: 46,
+        maxWidth: 46,
+        headerSort: false,
+        hozAlign: "center",
+        headerHozAlign: "center",
+        formatter: (cell) => {
+          const d = cell.getData();
+          const checked = selectedRows.has(Number(d.__rowIndex)) ? "checked" : "";
+          return `<input type="checkbox" class="row-checkbox" data-row-index="${Number(d.__rowIndex)}" ${checked} />`;
+        }
+      },
+      {
+        title: "ID",
+        field: "id",
+        width: 80,
+        minWidth: 70,
+        hozAlign: "left",
+        headerSort: true,
+        formatter: (cell) => {
+          const d = cell.getData();
+          return `<div class="editable-cell readonly-cell" data-row-index="${Number(d.__rowIndex)}" data-col-index="0">${escapeHtmlText(String(d.id || ""))}</div>`;
+        }
+      },
+      {
+        title: "Подраздел",
+        field: "subsection",
+        minWidth: 260,
+        widthGrow: 1,
+        headerSort: true,
+        formatter: (cell) => {
+          const d = cell.getData();
+          return `<div class="editable-cell" data-row-index="${Number(d.__rowIndex)}" data-col-index="1">${escapeHtmlText(String(d.subsection || ""))}</div>`;
+        }
+      },
+      {
+        title: "Действие",
+        field: "__actions",
+        width: 120,
+        minWidth: 110,
+        maxWidth: 130,
+        headerSort: false,
+        hozAlign: "center",
+        headerHozAlign: "center",
+        formatter: (cell) => {
+          const d = cell.getData();
+          return renderRowActions(section.id, isTrashView, Number(d.__rowIndex), d.__row);
+        }
+      }
+    ],
+    rowFormatter: (row) => {
+      const el = row.getElement();
+      const d = row.getData();
+      const rowIndex = Number(d.__rowIndex);
+      if (selectedRows.has(rowIndex)) el.classList.add("tabulator-row--selected-soft");
+      else el.classList.remove("tabulator-row--selected-soft");
+    }
+  });
+
+  requestAnimationFrame(() => {
+    const selectAll = document.getElementById("selectAllRows");
+    if (selectAll instanceof HTMLInputElement) {
+      const isAllFilteredSelected = allFilteredEntries.length > 0
+        && allFilteredEntries.every((entry) => selectedRows.has(entry.rowIndex));
+      selectAll.checked = isAllFilteredSelected;
+    }
+    attachTableActionHandlers(section, allFilteredEntries);
+    attachEditableCellHandlers(section);
+    initLucideIcons();
+  });
+
+  return true;
 }
 
 function updateTableStickyHeaderOffsets() {
