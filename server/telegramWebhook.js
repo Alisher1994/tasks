@@ -2348,6 +2348,10 @@ async function handleCallback(q, pool, token) {
           reassignEntry.closedAt = confirmedAt;
           reassignEntry.updatedAt = confirmedAt;
         }
+        // Если закрыта переназначенная ветка, считаем родительскую задачу закрытой.
+        row[TASK_COLUMNS.status] = "Закрыт";
+        row[TASK_COLUMNS.closedDate] = formatRuDate(now, appTz);
+        setSingleTaskClosedAt(payload, row, confirmedAt);
       } else if (requesterAssignee && assignees.length > 1) {
         const state = getTaskMultiStateForRow(payload, row, { create: true });
         if (state && state[requesterAssignee]) {
