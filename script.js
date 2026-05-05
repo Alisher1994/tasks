@@ -5259,6 +5259,8 @@ function renderTable() {
   const selectedCount = selectedRows.size;
   const isAllFilteredSelected = allFilteredEntries.length > 0
     && allFilteredEntries.every((entry) => selectedRows.has(entry.rowIndex));
+  const compactCatalogSectionIds = new Set(["roles", "departments", "phases", "phaseSections", "phaseSubsections", "delayReasons"]);
+  const useVisualSpacerCol = compactCatalogSectionIds.has(section.id);
 
   if (section.id === "tasks") {
     renderTasksSplitLayout(section, {
@@ -5329,6 +5331,7 @@ function renderTable() {
         </th>
         ${titleHeaderCells}
         ${trashHeadersMain}
+        ${useVisualSpacerCol ? `<th class="ghost-spacer-col" aria-hidden="true"></th>` : ""}
         <th class="actions-col ${section.id === "roles" ? "roles-compact-actions-col" : ""}"${headRowspan}>Действие</th>
       </tr>
       ${orderHeaderRow}
@@ -5371,6 +5374,7 @@ function renderTable() {
               </td>
               ${rowCells}
               ${trashMetaCells}
+              ${useVisualSpacerCol ? `<td class="ghost-spacer-col" aria-hidden="true"></td>` : ""}
               <td class="actions-col ${section.id === "roles" ? "roles-compact-actions-col" : ""}">
                 ${renderRowActions(section.id, isTrashView, entry.rowIndex, entry.row)}
               </td>
@@ -5379,7 +5383,7 @@ function renderTable() {
             ${reassignRows}
           `;
         })
-        .join("") || `<tr><td colspan="${visibleColumnIndexes.length + (isTrashView ? 4 : 2)}" class="empty-state">Нет данных по выбранным фильтрам</td></tr>`}
+        .join("") || `<tr><td colspan="${visibleColumnIndexes.length + (isTrashView ? 4 : 2) + (useVisualSpacerCol ? 1 : 0)}" class="empty-state">Нет данных по выбранным фильтрам</td></tr>`}
     </tbody>
   `;
 
@@ -5404,7 +5408,7 @@ function renderTable() {
       </div>`;
 
   tableContainer.innerHTML = `
-    <section class="table-card${section.id === "tasks" && showTasksBackBtn ? " table-card--tasks-drilldown" : ""}">
+    <section class="table-card table-card--${section.id}${section.id === "tasks" && showTasksBackBtn ? " table-card--tasks-drilldown" : ""}">
       ${tasksDrilldownHeader}
       ${sectionGroupTabs}
       ${renderStatusTabs(section)}
@@ -5412,7 +5416,7 @@ function renderTable() {
       ${section.id !== "tasks" ? renderBulkActions(selectedCount, isTrashView, section.id) : ""}
       ${renderFilters(section, sectionFilters, filterPanelOpenBySection[section.id] === true)}
       <div class="table-wrap">
-        <table>
+        <table class="${useVisualSpacerCol ? "table--with-ghost-spacer" : ""}">
           ${thead}
           ${tbody}
         </table>

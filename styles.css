@@ -1995,6 +1995,18 @@ th.actions-col {
   background: #eaf0f6;
 }
 
+/* Невидимый столбец-растяжка в компактных справочниках:
+   забирает лишнюю ширину, чтобы checkbox/ID визуально оставались узкими. */
+.table--with-ghost-spacer .ghost-spacer-col {
+  width: auto !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+}
+
+.table--with-ghost-spacer thead .ghost-spacer-col {
+  background: #eaf0f6;
+}
+
 .number-col {
   min-width: 56px;
   width: 56px;
