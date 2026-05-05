@@ -12718,6 +12718,20 @@ function getTaskAssigneeProgressSummary(taskRow) {
   return { total, closed };
 }
 
+function getTaskDisplayStatus(taskRow) {
+  const baseStatus = String(taskRow?.[TASK_COLUMNS.status] || "").trim() || "Новый";
+  const taskId = getTaskIdForMultiState(taskRow);
+  if (!taskId) return baseStatus;
+  const reassignList = Array.isArray(taskReassignLog?.[taskId]) ? taskReassignLog[taskId] : [];
+  if (!reassignList.length) return baseStatus;
+  const approved = reassignList.filter((item) => String(item?.status || "").trim() === "approved");
+  if (!approved.length) return baseStatus;
+  const allClosed = approved.every((item) => normalizeTaskStatusValue(String(item?.currentStatus || "").trim()) === "Закрыт");
+  if (allClosed) return "Закрыт";
+  if (normalizeTaskStatusValue(baseStatus) !== "Закрыт") return "Передано";
+  return baseStatus;
+}
+
 function renderTaskTitleCell(taskRow, rowIndex) {
   const text = escapeHtmlText(String(taskRow?.[TASK_COLUMNS.task] || ""));
   return text;
@@ -12944,10 +12958,11 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
   }
 
   if (colIndex === TASK_COLUMNS.status) {
-    const className = `status-badge status-${slugify(value)}`;
+    const displayStatus = getTaskDisplayStatus(row);
+    const className = `status-badge status-${slugify(displayStatus)}`;
     const summary = getTaskAssigneeProgressSummary(row);
     const summaryHtml = summary ? `<div class="task-accordion-meta">${summary.closed}/${summary.total} закрыто</div>` : "";
-    return `<span class="${className}">${value}</span>${summaryHtml}`;
+    return `<span class="${className}">${displayStatus}</span>${summaryHtml}`;
   }
 
   if (colIndex === TASK_COLUMNS.priority) {
@@ -12955,7 +12970,7 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
   }
 
   if (colIndex === TASK_COLUMNS.assignedResponsible) {
-    const status = String(row?.[TASK_COLUMNS.status] || "").trim().toLowerCase();
+    const status = String(getTaskDisplayStatus(row) || "").trim().toLowerCase();
     const fio = String(value || "").trim();
     if (status === "передано" && fio) {
       return `<s>${escapeHtmlText(fio)}</s>`;
@@ -13339,7 +13354,7 @@ function getRowHighlightClass(section, row) {
   })) {
     return "row-highlight-reassign-pending";
   }
-  const status = row[TASK_COLUMNS.status];
+  const status = getTaskDisplayStatus(row);
 
   if (displaySettings.highlightClosed && status === "Закрыт") {
     return "row-highlight-closed";
@@ -17543,7 +17558,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
   const details = columns
     .map((column, index) => {
       if (index === TASK_COLUMNS.mediaBefore || index === TASK_COLUMNS.mediaAfter) return "";
-      const value = row[index] || "-";
+      const value = index === TASK_COLUMNS.status ? getTaskDisplayStatus(row) : (row[index] || "-");
       return `<div class="detail-item"><span class="detail-label">${column}</span><span class="detail-value">${value}</span></div>`;
     })
     .join("");
@@ -17689,9 +17704,12 @@ function openTaskDetailsModal(section, row, rowIndex) {
   });
 
   let activeMediaTarget = null;
-  const persistDraftMediaNow = () => {
+  const persistDraftMediaNow = async () => {
     applyDraftToTask(section, rowIndex, taskId, draftState, { appendHistory: false });
     isDirty = false;
+    if (isHostedRuntime() && getAuthToken()) {
+      await pushAppToServerImmediate().catch(() => false);
+    }
   };
 
   const persistTaskAttachments = async ({ appendHistory = false } = {}) => {
@@ -17840,20 +17858,20 @@ function openTaskDetailsModal(section, row, rowIndex) {
           const ok = await upsertDraftMediaSlot(draftState, activeMediaTarget.kind, activeMediaTarget.slotIndex, file);
           if (!ok) return;
           isDirty = true;
-          persistDraftMediaNow();
+          await persistDraftMediaNow();
           refreshModalGalleries();
         });
       });
     });
 
     deleteButtons.forEach((button) => {
-      button.addEventListener("click", (event) => {
+      button.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
         setActiveMediaSlot(button);
         removeDraftMediaSlot(draftState, activeMediaTarget.kind, activeMediaTarget.slotIndex);
         isDirty = true;
-        persistDraftMediaNow();
+        await persistDraftMediaNow();
         refreshModalGalleries();
       });
     });
