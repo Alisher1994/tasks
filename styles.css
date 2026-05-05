@@ -2167,6 +2167,81 @@ tbody td.first-visible-col {
   max-width: 56px !important;
 }
 
+/* Компактные справочники: делаем чекбокс и ID одинаково узкими */
+.table-card--roles,
+.table-card--departments,
+.table-card--phases,
+.table-card--phaseSections,
+.table-card--phaseSubsections,
+.table-card--delayReasons {
+  --catalog-compact-side-col-w: 46px;
+}
+
+.table-card--roles table,
+.table-card--departments table,
+.table-card--phases table,
+.table-card--phaseSections table,
+.table-card--phaseSubsections table,
+.table-card--delayReasons table {
+  min-width: 0;
+}
+
+.table-card--roles .checkbox-col,
+.table-card--departments .checkbox-col,
+.table-card--phases .checkbox-col,
+.table-card--phaseSections .checkbox-col,
+.table-card--phaseSubsections .checkbox-col,
+.table-card--delayReasons .checkbox-col,
+.table-card--roles .number-col,
+.table-card--departments .number-col,
+.table-card--phases .number-col,
+.table-card--phaseSections .number-col,
+.table-card--phaseSubsections .number-col,
+.table-card--delayReasons .number-col {
+  width: var(--catalog-compact-side-col-w) !important;
+  min-width: var(--catalog-compact-side-col-w) !important;
+  max-width: var(--catalog-compact-side-col-w) !important;
+}
+
+.table-card--roles .roles-compact-col {
+  width: var(--catalog-compact-side-col-w) !important;
+  min-width: var(--catalog-compact-side-col-w) !important;
+  max-width: var(--catalog-compact-side-col-w) !important;
+  padding: 6px !important;
+}
+
+.table-card--roles .roles-number-col {
+  left: var(--catalog-compact-side-col-w) !important;
+  width: var(--catalog-compact-side-col-w) !important;
+  min-width: var(--catalog-compact-side-col-w) !important;
+  max-width: var(--catalog-compact-side-col-w) !important;
+}
+
+.table-card--roles .roles-first-visible-col,
+.table-card--roles .first-visible-col,
+.table-card--departments .first-visible-col,
+.table-card--phases .first-visible-col,
+.table-card--phaseSections .first-visible-col,
+.table-card--phaseSubsections .first-visible-col,
+.table-card--delayReasons .first-visible-col {
+  left: var(--catalog-compact-side-col-w) !important;
+}
+
+.table-card--roles thead th.number-col,
+.table-card--departments thead th.number-col,
+.table-card--phases thead th.number-col,
+.table-card--phaseSections thead th.number-col,
+.table-card--phaseSubsections thead th.number-col,
+.table-card--delayReasons thead th.number-col,
+.table-card--roles tbody td.number-col,
+.table-card--departments tbody td.number-col,
+.table-card--phases tbody td.number-col,
+.table-card--phaseSections tbody td.number-col,
+.table-card--phaseSubsections tbody td.number-col,
+.table-card--delayReasons tbody td.number-col {
+  left: var(--catalog-compact-side-col-w) !important;
+}
+
 .table-card:not(.table-card--tasks) tbody td.checkbox-col,
 .table-card:not(.table-card--tasks) tbody td.number-col {
   border-bottom: 1px solid #d7dfea !important;
