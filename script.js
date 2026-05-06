@@ -3607,7 +3607,7 @@ function mapSmsInviteEntriesToSectionRows(entries) {
     const actor = String(entry?.actor || "").trim() || "—";
     const resultMessage = String(entry?.resultMessage || "").trim() || "—";
     const smsText = String(entry?.text || "").trim() || "—";
-    return [
+    const row = [
       String(idx + 1),
       whenText,
       employeeId,
@@ -3618,6 +3618,8 @@ function mapSmsInviteEntriesToSectionRows(entries) {
       resultMessage,
       smsText
     ];
+    row.smsAtMs = whenMs;
+    return row;
   });
 }
 
@@ -12339,6 +12341,27 @@ function renderSelectFilter(id, label, options, selectedValue) {
   `;
 }
 
+function getSmsHistoryRowTimestampMs(row) {
+  if (row && Number.isFinite(Number(row.smsAtMs)) && Number(row.smsAtMs) > 0) {
+    return Number(row.smsAtMs);
+  }
+  const raw = String(row?.[1] || "").trim();
+  if (!raw) return 0;
+  const match = raw.match(/^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!match) return 0;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  let hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6] || 0);
+  const ampm = String(match[7] || "").toUpperCase();
+  if (ampm === "PM" && hour < 12) hour += 12;
+  if (ampm === "AM" && hour === 12) hour = 0;
+  const dt = new Date(year, month - 1, day, hour, minute, second, 0);
+  return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
+}
+
 function renderFilters(section, sectionFilters, isOpen) {
   const commonSearch = sectionFilters.search || "";
   if (!isOpen) {
@@ -12356,6 +12379,15 @@ function renderFilters(section, sectionFilters, isOpen) {
         </label>
         ${renderSelectFilter("filterSmsEmployee", "Сотрудник", employeeValues, sectionFilters.smsEmployee || "")}
         ${renderSelectFilter("filterSmsStatus", "Статус", statusValues, sectionFilters.smsStatus || "")}
+        <label class="filter-field" for="filterSmsPeriod">
+          <span>Период</span>
+          <select id="filterSmsPeriod">
+            <option value="" ${!sectionFilters.smsPeriod ? "selected" : ""}>Все время</option>
+            <option value="today" ${sectionFilters.smsPeriod === "today" ? "selected" : ""}>Сегодня</option>
+            <option value="7d" ${sectionFilters.smsPeriod === "7d" ? "selected" : ""}>7 дней</option>
+            <option value="30d" ${sectionFilters.smsPeriod === "30d" ? "selected" : ""}>30 дней</option>
+          </select>
+        </label>
         <button id="filterResetBtn" type="button" class="secondary">Сбросить</button>
       </div>
     `;
@@ -12423,7 +12455,27 @@ function getFilteredRows(section, sectionFilters) {
     if (section.id === "smsHistory") {
       const smsEmployeeMatch = !sectionFilters.smsEmployee || String(row[3] || "").trim() === sectionFilters.smsEmployee;
       const smsStatusMatch = !sectionFilters.smsStatus || String(row[5] || "").trim() === sectionFilters.smsStatus;
-      return smsEmployeeMatch && smsStatusMatch;
+      const periodMode = String(sectionFilters.smsPeriod || "").trim();
+      let smsPeriodMatch = true;
+      if (periodMode) {
+        const rowMs = getSmsHistoryRowTimestampMs(row);
+        if (!rowMs) {
+          smsPeriodMatch = false;
+        } else {
+          const now = Date.now();
+          if (periodMode === "today") {
+            const start = new Date();
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+            smsPeriodMatch = rowMs >= start.getTime() && rowMs < end.getTime();
+          } else if (periodMode === "7d") {
+            smsPeriodMatch = rowMs >= now - (7 * 24 * 60 * 60 * 1000);
+          } else if (periodMode === "30d") {
+            smsPeriodMatch = rowMs >= now - (30 * 24 * 60 * 60 * 1000);
+          }
+        }
+      }
+      return smsEmployeeMatch && smsStatusMatch && smsPeriodMatch;
     }
 
     if (section.id !== "tasks") return true;
@@ -20207,6 +20259,7 @@ function attachFilterHandlers(section) {
   const readStateSelect = document.getElementById("filterReadState");
   const smsEmployeeSelect = document.getElementById("filterSmsEmployee");
   const smsStatusSelect = document.getElementById("filterSmsStatus");
+  const smsPeriodSelect = document.getElementById("filterSmsPeriod");
 
   const ensureSectionFilters = () => {
     if (!filtersBySection[section.id]) {
@@ -20309,6 +20362,15 @@ function attachFilterHandlers(section) {
     smsStatusSelect.addEventListener("change", () => {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.smsStatus = smsStatusSelect.value;
+      bumpTasksPagingReset();
+      renderTablePreserveScroll();
+    });
+  }
+
+  if (smsPeriodSelect) {
+    smsPeriodSelect.addEventListener("change", () => {
+      const sectionFilters = ensureSectionFilters();
+      sectionFilters.smsPeriod = smsPeriodSelect.value;
       bumpTasksPagingReset();
       renderTablePreserveScroll();
     });
