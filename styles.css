@@ -1358,6 +1358,58 @@ select.date-time-settings-select {
   border-radius: 0;
 }
 
+.bulk-sms-progress-modal {
+  width: min(560px, 100%);
+}
+
+.bulk-sms-progress-meta {
+  font-size: 13px;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.bulk-sms-progress-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.bulk-sms-progress-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #3e4095 0%, #5b72d6 100%);
+  transition: width 0.2s ease;
+}
+
+.bulk-sms-progress-stats {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #334155;
+  font-weight: 600;
+}
+
+.bulk-sms-progress-current {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.bulk-sms-progress-errors {
+  margin-top: 8px;
+  border: 1px solid #f0c2c2;
+  background: #fff6f6;
+  color: #9f3a3a;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  max-height: 170px;
+  overflow: auto;
+}
+
 .sms-settings-grid__span-2 {
   grid-column: span 2;
 }
@@ -2436,6 +2488,11 @@ tbody td.first-visible-col {
 .table-card--objects td:nth-child(6) { width: 170px; }
 .table-card--objects th:nth-child(7),
 .table-card--objects td:nth-child(7) { width: 170px; }
+
+.table-card--smsHistory .checkbox-col,
+.table-card--smsHistory .actions-col {
+  display: none;
+}
 
 .action-buttons {
   display: flex;
@@ -3842,6 +3899,10 @@ body.app-booting .app-boot-loader {
 
 .employee-chat-id-value--empty::before {
   content: none;
+}
+
+.muted-cell {
+  color: #8ea0b5;
 }
 
 .employee-admin-toggle {

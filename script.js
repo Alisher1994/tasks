@@ -3595,6 +3595,32 @@ function renderSmsInviteHistoryTableHtml(entries) {
   `;
 }
 
+function mapSmsInviteEntriesToSectionRows(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  return list.map((entry, idx) => {
+    const whenMs = Number(entry?.atMs) || Date.parse(String(entry?.atIso || "")) || 0;
+    const whenText = whenMs ? formatTaskHistoryWhen(whenMs) : "—";
+    const status = formatSmsInviteHistoryStatusLabel(entry);
+    const employeeId = String(entry?.employeeId || "").trim() || "—";
+    const employeeName = String(entry?.employeeName || "").trim() || "—";
+    const phone = String(entry?.phone || "").trim() || "—";
+    const actor = String(entry?.actor || "").trim() || "—";
+    const resultMessage = String(entry?.resultMessage || "").trim() || "—";
+    const smsText = String(entry?.text || "").trim() || "—";
+    return [
+      String(idx + 1),
+      whenText,
+      employeeId,
+      employeeName,
+      phone,
+      status,
+      actor,
+      resultMessage,
+      smsText
+    ];
+  });
+}
+
 async function fetchSmsInviteHistory() {
   if (!isHostedRuntime() || !getAuthToken()) {
     return { ok: false, error: "История SMS доступна только в серверном режиме после входа." };
@@ -3617,6 +3643,32 @@ async function fetchSmsInviteHistory() {
   } catch (e) {
     return { ok: false, error: String(e?.message || "Ошибка сети при загрузке истории SMS.") };
   }
+}
+
+async function refreshSmsHistorySection(options = {}) {
+  const silent = options?.silent === true;
+  const forceRender = options?.forceRender !== false;
+  const section = getSectionById("smsHistory");
+  if (!section) return { ok: false, error: "Раздел истории SMS не найден." };
+  const historyResult = await fetchSmsInviteHistory();
+  if (!historyResult.ok) {
+    if (!silent) {
+      showStatusDialog({
+        title: "История SMS",
+        message: String(historyResult.error || "Не удалось загрузить историю."),
+        type: "error"
+      });
+    }
+    return historyResult;
+  }
+  const nextRows = mapSmsInviteEntriesToSectionRows(historyResult.entries);
+  const prevJson = JSON.stringify(Array.isArray(section.rows) ? section.rows : []);
+  const nextJson = JSON.stringify(nextRows);
+  section.rows = nextRows;
+  if (forceRender && activeSectionId === "smsHistory" && prevJson !== nextJson) {
+    renderTablePreserveScroll();
+  }
+  return { ok: true, count: nextRows.length };
 }
 
 async function openSmsInviteHistoryModal() {
@@ -3646,6 +3698,84 @@ async function openSmsInviteHistoryModal() {
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
   });
+}
+
+function openBulkSmsProgressModal(totalCount) {
+  const total = Math.max(0, Number(totalCount) || 0);
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal bulk-sms-progress-modal" role="dialog" aria-modal="true" aria-label="Массовая отправка SMS">
+      <h4>Массовая отправка SMS</h4>
+      <div class="bulk-sms-progress-meta" data-bulk-sms-progress-meta>0 / ${total}</div>
+      <div class="bulk-sms-progress-track" aria-hidden="true">
+        <div class="bulk-sms-progress-fill" data-bulk-sms-progress-fill style="width:0%"></div>
+      </div>
+      <div class="bulk-sms-progress-stats" data-bulk-sms-progress-stats>Успешно: 0 · Ошибок: 0</div>
+      <div class="bulk-sms-progress-current" data-bulk-sms-progress-current>Подготовка к отправке...</div>
+      <div class="bulk-sms-progress-errors hidden" data-bulk-sms-progress-errors></div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary bulk-sms-progress-close-btn" disabled>Закрыть</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const fillEl = overlay.querySelector("[data-bulk-sms-progress-fill]");
+  const metaEl = overlay.querySelector("[data-bulk-sms-progress-meta]");
+  const statsEl = overlay.querySelector("[data-bulk-sms-progress-stats]");
+  const currentEl = overlay.querySelector("[data-bulk-sms-progress-current]");
+  const errorsEl = overlay.querySelector("[data-bulk-sms-progress-errors]");
+  const closeBtn = overlay.querySelector(".bulk-sms-progress-close-btn");
+
+  let finished = false;
+  const close = () => {
+    if (!finished) return;
+    overlay.remove();
+  };
+  closeBtn?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+
+  const update = ({ done = 0, okCount = 0, failCount = 0, currentName = "" } = {}) => {
+    const safeDone = Math.min(total, Math.max(0, Number(done) || 0));
+    const percent = total > 0 ? Math.round((safeDone / total) * 100) : 100;
+    if (fillEl instanceof HTMLElement) fillEl.style.width = `${percent}%`;
+    if (metaEl instanceof HTMLElement) metaEl.textContent = `${safeDone} / ${total}`;
+    if (statsEl instanceof HTMLElement) statsEl.textContent = `Успешно: ${okCount} · Ошибок: ${failCount}`;
+    if (currentEl instanceof HTMLElement) {
+      currentEl.textContent = currentName
+        ? `Отправка: ${currentName}`
+        : (safeDone >= total ? "Завершаем..." : "Отправка...");
+    }
+  };
+
+  const finish = ({ okCount = 0, failList = [] } = {}) => {
+    finished = true;
+    const failCount = Array.isArray(failList) ? failList.length : 0;
+    update({ done: total, okCount, failCount, currentName: "" });
+    if (currentEl instanceof HTMLElement) {
+      currentEl.textContent = failCount
+        ? "Отправка завершена с ошибками."
+        : "Отправка завершена успешно.";
+    }
+    if (errorsEl instanceof HTMLElement) {
+      if (failCount) {
+        const failedPreview = failList.slice(0, 15).join("\n");
+        const failedMore = failCount > 15 ? `\n... и еще ${failCount - 15}` : "";
+        errorsEl.textContent = `Ошибки:\n${failedPreview}${failedMore}`;
+        errorsEl.classList.remove("hidden");
+      } else {
+        errorsEl.classList.add("hidden");
+        errorsEl.textContent = "";
+      }
+    }
+    if (closeBtn instanceof HTMLButtonElement) {
+      closeBtn.disabled = false;
+    }
+  };
+
+  return { update, finish, close };
 }
 
 async function sendEmployeeInviteSms(employeeRow, triggerButton = null, options = {}) {
@@ -3701,6 +3831,9 @@ async function sendEmployeeInviteSms(employeeRow, triggerButton = null, options 
           type: "error"
         });
       }
+      if (!silent && activeSectionId === "smsHistory") {
+        void refreshSmsHistorySection({ silent: true, forceRender: true });
+      }
       return { ok: false, error: msg, employeeId, fullName };
     }
     const resultMessage = String(j?.entry?.resultMessage || "").trim();
@@ -3712,6 +3845,9 @@ async function sendEmployeeInviteSms(employeeRow, triggerButton = null, options 
           : `Сотрудник: ${fullName}\nСообщение отправлено.`,
         type: "success"
       });
+    }
+    if (!silent && activeSectionId === "smsHistory") {
+      void refreshSmsHistorySection({ silent: true, forceRender: true });
     }
     return { ok: true, error: "", employeeId, fullName, resultMessage };
   } catch (e) {
@@ -3925,7 +4061,7 @@ const SECTION_GROUPS = {
     id: "users",
     title: "Пользователи",
     icon: "users",
-    sections: ["employees", "roles", "departments"]
+    sections: ["employees", "smsHistory", "roles", "departments"]
   }
 };
 
@@ -4060,6 +4196,12 @@ let sections = [
       ["2", "Сергей Орлов", "ПТО", "Backend", "+998 90 222 22 22", "Не подключен", "", "Активен", "Нет"],
       ["3", "Елена Белова", "Плановый отдел", "QA", "+998 90 333 33 33", "Подключен", "903333333", "В отпуске", "Нет"]
     ]
+  },
+  {
+    id: "smsHistory",
+    title: "История SMS",
+    columns: ["ID", "Когда", "ID сотрудника", "Сотрудник", "Телефон", "Статус", "Кто отправил", "Ответ gateway", "Текст SMS"],
+    rows: []
   },
   {
     id: "departments",
@@ -4361,6 +4503,7 @@ function iconSvg(name) {
     userCheck: `<svg ${attrs}><path d="m16 11 2 2 4-4"/><path d="M8 7a4 4 0 1 1 8 0 4 4 0 0 1-8 0"/><path d="M6 21v-2a6 6 0 0 1 9-5"/></svg>`,
     database: `<svg ${attrs}><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 11v6c0 1.7 4 3 9 3s9-1.3 9-3v-6"/></svg>`,
     "rotate-ccw": `<svg ${attrs}><path d="M3 2v6h6"/><path d="M3 8a9 9 0 1 0 2.6-4.6L3 6"/></svg>`,
+    history: `<svg ${attrs}><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/><path d="M12 7v5l3 2"/></svg>`,
     pencil: `<svg ${attrs}><path d="M12 20h9"/><path d="m16.5 3.5 4 4L7 21l-4 1 1-4Z"/></svg>`,
     "trash-2": `<svg ${attrs}><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`,
     building2: `<svg ${attrs}><path d="M6 22V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v18"/><path d="M2 22h20"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>`,
@@ -4389,6 +4532,7 @@ function getSectionIcon(sectionId) {
   const iconBySection = {
     tasks: "listChecks",
     employees: "users",
+    smsHistory: "history",
     departments: "users",
     phases: "database",
     phaseSections: "database",
@@ -4417,6 +4561,9 @@ function selectSection(sectionId) {
   }
   renderSidebarMenu();
   renderTable();
+  if (sectionId === "smsHistory") {
+    void refreshSmsHistorySection({ silent: true, forceRender: true });
+  }
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       finishTurboLoader();
@@ -4783,11 +4930,13 @@ function attachTasksObjectPickerHandlers(section) {
 
 function renderSectionHeaderIconButtons(section) {
   const canImportCatalog = isCatalogImportableSectionId(section.id);
+  const canAddRow = section.id !== "smsHistory";
   return `
         <div class="table-header-right">
+          ${canAddRow ? `
           <button type="button" class="icon-action-btn add-row-btn" id="addRowBtn" title="Добавить">
             <i data-lucide="plus" class="lucide-icon" aria-hidden="true"></i>
-          </button>
+          </button>` : ""}
           <button type="button" class="icon-action-btn filter-toggle-btn" id="toggleFiltersBtn" title="Фильтр">
             <i data-lucide="filter" class="lucide-icon" aria-hidden="true"></i>
           </button>
@@ -5718,6 +5867,7 @@ function formatTrashRemaining(expiresAt) {
 
 function renderBulkActions(selectedCount, isTrashView, sectionId, options = {}) {
   if (selectedCount <= 1) return "";
+  if (sectionId === "smsHistory") return "";
   const inline = options?.inline === true;
   const rowClass = inline ? "bulk-actions-bar bulk-actions-bar--inline" : "bulk-actions-bar";
   if (isTrashView) {
@@ -5812,6 +5962,9 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
         </button>
       </div>
     `;
+  }
+  if (sectionId === "smsHistory") {
+    return `<span class="muted-cell">—</span>`;
   }
   if (["data", "phases", "phaseSections", "phaseSubsections", "delayReasons"].includes(sectionId)) {
     return `
@@ -12288,6 +12441,9 @@ function isMediaColumn(colIndex) {
 }
 
 function isReadonlyColumn(section, colIndex) {
+  if (section.id === "smsHistory") {
+    return true;
+  }
   // Системный ID/№ всегда только для чтения.
   if (colIndex === 0 || isMediaColumn(colIndex)) {
     return true;
@@ -13808,27 +13964,36 @@ function attachTableActionHandlers(section, filteredEntries) {
             if (bulkEmployeeSmsBtn.dataset.busy === "1") return;
             bulkEmployeeSmsBtn.dataset.busy = "1";
             bulkEmployeeSmsBtn.disabled = true;
+            const progressDialog = openBulkSmsProgressModal(rows.length);
             try {
               let okCount = 0;
               const failed = [];
-              for (const row of rows) {
+              for (let i = 0; i < rows.length; i += 1) {
+                const row = rows[i];
+                const name = String(row?.[EMPLOYEE_COLUMNS.fullName] || "Сотрудник").trim() || "Сотрудник";
+                progressDialog.update({
+                  done: i,
+                  okCount,
+                  failCount: failed.length,
+                  currentName: name
+                });
                 const result = await sendEmployeeInviteSms(row, null, { silent: true });
                 if (result?.ok) {
                   okCount += 1;
                 } else {
-                  const name = String(row?.[EMPLOYEE_COLUMNS.fullName] || "Сотрудник").trim() || "Сотрудник";
                   failed.push(`${name}: ${String(result?.error || "ошибка")}`);
                 }
+                progressDialog.update({
+                  done: i + 1,
+                  okCount,
+                  failCount: failed.length,
+                  currentName: name
+                });
               }
-              const failedPreview = failed.slice(0, 8).join("\n");
-              const failedMore = failed.length > 8 ? `\n... и еще ${failed.length - 8}` : "";
-              showStatusDialog({
-                title: "Массовая отправка SMS",
-                message: failed.length
-                  ? `Успешно: ${okCount}\nОшибок: ${failed.length}\n\n${failedPreview}${failedMore}`
-                  : `Успешно отправлено: ${okCount}`,
-                type: failed.length ? "info" : "success"
-              });
+              progressDialog.finish({ okCount, failList: failed });
+              if (activeSectionId === "smsHistory") {
+                await refreshSmsHistorySection({ silent: true, forceRender: true });
+              }
             } finally {
               bulkEmployeeSmsBtn.disabled = false;
               bulkEmployeeSmsBtn.dataset.busy = "0";
@@ -16592,6 +16757,10 @@ function attachHeaderActionHandlers(section, filteredEntries) {
 
   if (refreshSectionBtn) {
     refreshSectionBtn.addEventListener("click", () => {
+      if (section.id === "smsHistory") {
+        void refreshSmsHistorySection({ silent: false, forceRender: true });
+        return;
+      }
       refreshCurrentViewData();
     });
   }
@@ -16610,7 +16779,7 @@ function attachHeaderActionHandlers(section, filteredEntries) {
   }
   if (openSmsInviteHistoryBtn && section.id === "employees") {
     openSmsInviteHistoryBtn.addEventListener("click", () => {
-      openSmsInviteHistoryModal();
+      selectSection("smsHistory");
     });
   }
 
