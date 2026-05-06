@@ -5,6 +5,7 @@ const appSection = document.getElementById("appSection");
 const phoneInput = document.getElementById("phone");
 const tabsRoot = document.getElementById("tabs");
 const tableContainer = document.getElementById("tableContainer");
+const mobileBottomNav = document.getElementById("mobileBottomNav");
 const logoutBtn = document.getElementById("logoutBtn");
 const currentUser = document.getElementById("currentUser");
 const loginBtn = document.getElementById("loginBtn");
@@ -4707,6 +4708,124 @@ function selectSection(sectionId) {
   });
 }
 
+function renderMobileBottomNav({ allowSettings, isReferenceActive, isUsersActive, sectionById }) {
+  if (!(mobileBottomNav instanceof HTMLElement)) return;
+
+  const items = [
+    {
+      key: "tasks",
+      label: "Задачи",
+      icon: "listChecks",
+      active: activeSectionId === "tasks"
+    },
+    {
+      key: "report",
+      label: "Аналитика",
+      icon: "barChart",
+      active: activeSectionId === "report"
+    }
+  ];
+
+  if (allowSettings) {
+    items.push(
+      {
+        key: "reference",
+        label: "Справочник",
+        icon: SECTION_GROUPS.reference.icon,
+        active: isReferenceActive
+      },
+      {
+        key: "users",
+        label: "Пользователи",
+        icon: SECTION_GROUPS.users.icon,
+        active: isUsersActive
+      }
+    );
+    const objectsSection = sectionById.get("objects");
+    if (objectsSection) {
+      items.push({
+        key: "objects",
+        label: "Объекты",
+        icon: "building2",
+        active: activeSectionId === objectsSection.id
+      });
+    }
+    items.push({
+      key: "otherSettings",
+      label: "Настройки",
+      icon: "settings",
+      active: activeSectionId === "otherSettings"
+    });
+    items.push({
+      key: "logout",
+      label: "Выход",
+      icon: "rotate-ccw",
+      active: false
+    });
+  }
+
+  mobileBottomNav.innerHTML = items.map((item) => `
+    <button
+      type="button"
+      class="mobile-bottom-nav-btn ${item.active ? "active" : ""}"
+      data-mobile-nav-key="${escapeHtmlAttr(item.key)}"
+      title="${escapeHtmlAttr(item.label)}"
+      aria-label="${escapeHtmlAttr(item.label)}"
+    >
+      <span class="mobile-bottom-nav-icon">${iconSvg(item.icon)}</span>
+      <span class="mobile-bottom-nav-label">${escapeHtmlText(item.label)}</span>
+    </button>
+  `).join("");
+
+  Array.from(mobileBottomNav.querySelectorAll(".mobile-bottom-nav-btn")).forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = String(button.dataset.mobileNavKey || "");
+      if (key === "tasks") {
+        selectSection("tasks");
+        return;
+      }
+      if (key === "report") {
+        selectSection("report");
+        return;
+      }
+      if (!allowSettings) return;
+      if (key === "reference") {
+        const next = SECTION_GROUPS.reference.sections.includes(activeSectionId)
+          ? activeSectionId
+          : SECTION_GROUPS.reference.sections[0];
+        selectSection(next);
+        return;
+      }
+      if (key === "users") {
+        const next = SECTION_GROUPS.users.sections.includes(activeSectionId)
+          ? activeSectionId
+          : SECTION_GROUPS.users.sections[0];
+        selectSection(next);
+        return;
+      }
+      if (key === "objects") {
+        const section = sectionById.get("objects");
+        if (section) selectSection(section.id);
+        return;
+      }
+      if (key === "otherSettings") {
+        selectSection("otherSettings");
+        return;
+      }
+      if (key === "logout") {
+        confirmAction({
+          message: "Выйти из системы?",
+          confirmLabel: "Да",
+          onConfirm: () => {
+            clearSession();
+            showLogin();
+          }
+        });
+      }
+    });
+  });
+}
+
 function renderSidebarMenu() {
   const allowSettings = canAccessSettingsMenu();
   if (!allowSettings && activeSectionId !== "tasks" && activeSectionId !== "report") {
@@ -4792,6 +4911,8 @@ function renderSidebarMenu() {
     otherSettingsButton.addEventListener("click", () => selectSection("otherSettings"));
     tabsRoot.appendChild(otherSettingsButton);
   }
+
+  renderMobileBottomNav({ allowSettings, isReferenceActive, isUsersActive, sectionById });
 }
 
 function normalizeTasksListDisplaySettings() {

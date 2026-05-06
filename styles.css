@@ -1592,6 +1592,10 @@ select.date-time-settings-select {
   overflow: hidden;
 }
 
+.mobile-bottom-nav {
+  display: none;
+}
+
 #tableContainer {
   flex: 1;
   min-height: 0;
@@ -7270,35 +7274,67 @@ button.report-filter-icon-btn .lucide-icon {
   }
 
   .sidebar {
-    height: auto;
-    padding: 10px;
+    display: none;
   }
 
-  .sidebar .sidebar-tabs {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
+  .content-panel {
+    overflow: visible;
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    left: max(8px, env(safe-area-inset-left));
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    z-index: 1400;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(64px, 1fr);
+    gap: 4px;
+    padding: 6px;
+    border: 1px solid #d9e3f0;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(7px);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.16);
     overflow-x: auto;
-    padding: 0 0 4px;
-    margin-bottom: 8px;
+    -webkit-overflow-scrolling: touch;
   }
 
-  .sidebar-tabs .icon-label span {
-    display: inline;
+  .mobile-bottom-nav-btn {
+    border: none;
+    background: transparent;
+    color: #425466;
+    min-height: 54px;
+    padding: 6px 4px;
+    border-radius: 10px;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    font-size: 11px;
+    line-height: 1.1;
+    white-space: nowrap;
   }
 
-  .sidebar-tabs .tab-btn {
-    flex: 0 0 auto;
-    justify-content: flex-start;
-    min-height: 34px;
-    padding: 8px 10px;
+  .mobile-bottom-nav-btn:hover {
+    background: #f2f6fc;
+    color: #334155;
   }
 
-  .sidebar-footer {
-    margin-top: 0;
-    padding-top: 0;
-    border-top: none;
+  .mobile-bottom-nav-btn.active {
+    background: var(--brand-surface);
+    color: var(--brand);
+  }
+
+  .mobile-bottom-nav-icon .lucide-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  #tableContainer {
+    padding-bottom: 88px;
   }
 
   .table-card {
