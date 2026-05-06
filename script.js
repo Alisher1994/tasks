@@ -3648,24 +3648,31 @@ async function openSmsInviteHistoryModal() {
   });
 }
 
-async function sendEmployeeInviteSms(employeeRow, triggerButton = null) {
+async function sendEmployeeInviteSms(employeeRow, triggerButton = null, options = {}) {
+  const silent = options?.silent === true;
   const employeeId = String(employeeRow?.[EMPLOYEE_COLUMNS.id] || "").trim();
   const fullName = String(employeeRow?.[EMPLOYEE_COLUMNS.fullName] || "").trim() || "Сотрудник";
   if (!employeeId) {
-    showStatusDialog({
-      title: "SMS-приглашение",
-      message: "Не найден ID сотрудника.",
-      type: "error"
-    });
-    return false;
+    const msg = "Не найден ID сотрудника.";
+    if (!silent) {
+      showStatusDialog({
+        title: "SMS-приглашение",
+        message: msg,
+        type: "error"
+      });
+    }
+    return { ok: false, error: msg, employeeId, fullName };
   }
   if (!isHostedRuntime() || !getAuthToken()) {
-    showStatusDialog({
-      title: "SMS-приглашение",
-      message: "Отправка SMS доступна только в серверном режиме после входа.",
-      type: "error"
-    });
-    return false;
+    const msg = "Отправка SMS доступна только в серверном режиме после входа.";
+    if (!silent) {
+      showStatusDialog({
+        title: "SMS-приглашение",
+        message: msg,
+        type: "error"
+      });
+    }
+    return { ok: false, error: msg, employeeId, fullName };
   }
 
   if (triggerButton instanceof HTMLButtonElement) {
@@ -3682,33 +3689,41 @@ async function sendEmployeeInviteSms(employeeRow, triggerButton = null) {
     });
     if (r.status === 401) {
       handleServerAuthExpired();
-      return false;
+      return { ok: false, error: "Сессия истекла.", employeeId, fullName };
     }
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j?.ok !== true) {
-      showStatusDialog({
-        title: "SMS-приглашение",
-        message: String(j?.error || "Не удалось отправить SMS."),
-        type: "error"
-      });
-      return false;
+      const msg = String(j?.error || "Не удалось отправить SMS.");
+      if (!silent) {
+        showStatusDialog({
+          title: "SMS-приглашение",
+          message: msg,
+          type: "error"
+        });
+      }
+      return { ok: false, error: msg, employeeId, fullName };
     }
     const resultMessage = String(j?.entry?.resultMessage || "").trim();
-    showStatusDialog({
-      title: "SMS отправлено",
-      message: resultMessage
-        ? `Сотрудник: ${fullName}\n${resultMessage}`
-        : `Сотрудник: ${fullName}\nСообщение отправлено.`,
-      type: "success"
-    });
-    return true;
+    if (!silent) {
+      showStatusDialog({
+        title: "SMS отправлено",
+        message: resultMessage
+          ? `Сотрудник: ${fullName}\n${resultMessage}`
+          : `Сотрудник: ${fullName}\nСообщение отправлено.`,
+        type: "success"
+      });
+    }
+    return { ok: true, error: "", employeeId, fullName, resultMessage };
   } catch (e) {
-    showStatusDialog({
-      title: "SMS-приглашение",
-      message: String(e?.message || "Ошибка сети при отправке SMS."),
-      type: "error"
-    });
-    return false;
+    const msg = String(e?.message || "Ошибка сети при отправке SMS.");
+    if (!silent) {
+      showStatusDialog({
+        title: "SMS-приглашение",
+        message: msg,
+        type: "error"
+      });
+    }
+    return { ok: false, error: msg, employeeId, fullName };
   } finally {
     if (triggerButton instanceof HTMLButtonElement) {
       triggerButton.disabled = false;
@@ -5711,6 +5726,19 @@ function renderBulkActions(selectedCount, isTrashView, sectionId, options = {}) 
         <span class="bulk-actions-count">В корзине выбрано: ${selectedCount}</span>
         <button type="button" class="icon-action-btn bulk-restore-btn" id="bulkRestoreBtn" title="Восстановить выбранные">
           <i data-lucide="rotate-ccw" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+      </div>
+    `;
+  }
+  if (sectionId === "employees") {
+    return `
+      <div class="${rowClass}">
+        <span class="bulk-actions-count">Выбрано: ${selectedCount}</span>
+        <button type="button" class="icon-action-btn bulk-employee-sms-btn" id="bulkEmployeeSmsBtn" title="Отправить SMS выбранным сотрудникам">
+          <i data-lucide="message-square" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+        <button type="button" class="icon-action-btn danger-btn bulk-delete-btn" id="bulkDeleteBtn" title="Удалить выбранные">
+          <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
         </button>
       </div>
     `;
@@ -13133,6 +13161,13 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
     const stateClass = normalized === "Подключен" ? "telegram-state-connected" : "telegram-state-disconnected";
     return `<span class="telegram-state ${stateClass}">${normalized || "Не подключен"}</span>`;
   }
+  if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.chatId) {
+    const chatId = String(value || "").trim();
+    if (!chatId) {
+      return `<span class="employee-chat-id-value employee-chat-id-value--empty">—</span>`;
+    }
+    return `<span class="employee-chat-id-value">${escapeHtmlText(chatId)}</span>`;
+  }
   if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.adminAccess) {
     const checked = isEmployeeAdminAccessEnabled(value);
     return `
@@ -13645,6 +13680,7 @@ function attachTableActionHandlers(section, filteredEntries) {
   const clearEmployeeChatButtons = Array.from(document.querySelectorAll(".clear-employee-chat-btn"));
   const deleteButtons = Array.from(document.querySelectorAll(".delete-row-btn"));
   const bulkSendBtn = document.getElementById("bulkSendBtn");
+  const bulkEmployeeSmsBtn = document.getElementById("bulkEmployeeSmsBtn");
   const bulkDeleteBtn = document.getElementById("bulkDeleteBtn");
   const bulkRestoreBtn = document.getElementById("bulkRestoreBtn");
   const selectedRows = getSelectedRowsSet(getSelectionKey(section.id));
@@ -13757,6 +13793,51 @@ function attachTableActionHandlers(section, filteredEntries) {
       await sendEmployeeInviteSms(row, button);
     });
   });
+
+  if (bulkEmployeeSmsBtn && section.id === "employees") {
+    bulkEmployeeSmsBtn.addEventListener("click", () => {
+      const rows = Array.from(selectedRows)
+        .map((idx) => section.rows[idx])
+        .filter((row) => Array.isArray(row));
+      if (!rows.length) return;
+      confirmAction({
+        message: `Отправить SMS-приглашение выбранным сотрудникам (${rows.length})?`,
+        confirmLabel: "Отправить",
+        onConfirm: () => {
+          void (async () => {
+            if (bulkEmployeeSmsBtn.dataset.busy === "1") return;
+            bulkEmployeeSmsBtn.dataset.busy = "1";
+            bulkEmployeeSmsBtn.disabled = true;
+            try {
+              let okCount = 0;
+              const failed = [];
+              for (const row of rows) {
+                const result = await sendEmployeeInviteSms(row, null, { silent: true });
+                if (result?.ok) {
+                  okCount += 1;
+                } else {
+                  const name = String(row?.[EMPLOYEE_COLUMNS.fullName] || "Сотрудник").trim() || "Сотрудник";
+                  failed.push(`${name}: ${String(result?.error || "ошибка")}`);
+                }
+              }
+              const failedPreview = failed.slice(0, 8).join("\n");
+              const failedMore = failed.length > 8 ? `\n... и еще ${failed.length - 8}` : "";
+              showStatusDialog({
+                title: "Массовая отправка SMS",
+                message: failed.length
+                  ? `Успешно: ${okCount}\nОшибок: ${failed.length}\n\n${failedPreview}${failedMore}`
+                  : `Успешно отправлено: ${okCount}`,
+                type: failed.length ? "info" : "success"
+              });
+            } finally {
+              bulkEmployeeSmsBtn.disabled = false;
+              bulkEmployeeSmsBtn.dataset.busy = "0";
+            }
+          })();
+        }
+      });
+    });
+  }
 
   clearEmployeeChatButtons.forEach((button) => {
     button.addEventListener("click", () => {
@@ -16838,26 +16919,32 @@ function renderOtherSettingsPanel() {
 
               <div class="sms-settings-field">
                 <label class="settings-field-label" for="smsGatewayProviderSelect">Провайдер</label>
-                <select id="smsGatewayProviderSelect" class="date-time-settings-select">
-                  <option value="generic" ${String(displaySettings.smsGatewayProvider || "generic") === "generic" ? "selected" : ""}>Generic HTTP SMS</option>
-                  <option value="sms-gate.app" ${String(displaySettings.smsGatewayProvider || "") === "sms-gate.app" ? "selected" : ""}>sms-gate.app</option>
-                </select>
+                <div class="sms-select-wrap">
+                  <select id="smsGatewayProviderSelect" class="date-time-settings-select sms-settings-select">
+                    <option value="generic" ${String(displaySettings.smsGatewayProvider || "generic") === "generic" ? "selected" : ""}>Generic HTTP SMS</option>
+                    <option value="sms-gate.app" ${String(displaySettings.smsGatewayProvider || "") === "sms-gate.app" ? "selected" : ""}>sms-gate.app</option>
+                  </select>
+                </div>
               </div>
               <div class="sms-settings-field">
                 <label class="settings-field-label" for="smsGatewayMethodSelect">Режим запроса</label>
-                <select id="smsGatewayMethodSelect" class="date-time-settings-select">
-                  <option value="post-json" ${String(displaySettings.smsGatewayMethod || "post-json") === "post-json" ? "selected" : ""}>POST JSON</option>
-                  <option value="get-query" ${String(displaySettings.smsGatewayMethod || "") === "get-query" ? "selected" : ""}>GET Query</option>
-                </select>
+                <div class="sms-select-wrap">
+                  <select id="smsGatewayMethodSelect" class="date-time-settings-select sms-settings-select">
+                    <option value="post-json" ${String(displaySettings.smsGatewayMethod || "post-json") === "post-json" ? "selected" : ""}>POST JSON</option>
+                    <option value="get-query" ${String(displaySettings.smsGatewayMethod || "") === "get-query" ? "selected" : ""}>GET Query</option>
+                  </select>
+                </div>
               </div>
               <div class="sms-settings-field">
                 <label class="settings-field-label" for="smsGatewayAuthTypeSelect">Тип авторизации</label>
-                <select id="smsGatewayAuthTypeSelect" class="date-time-settings-select">
-                  <option value="header" ${String(displaySettings.smsGatewayAuthType || "header") === "header" ? "selected" : ""}>Header API Key</option>
-                  <option value="basic" ${String(displaySettings.smsGatewayAuthType || "") === "basic" ? "selected" : ""}>Basic (username/password)</option>
-                  <option value="bearer" ${String(displaySettings.smsGatewayAuthType || "") === "bearer" ? "selected" : ""}>Bearer token</option>
-                  <option value="none" ${String(displaySettings.smsGatewayAuthType || "") === "none" ? "selected" : ""}>Без авторизации</option>
-                </select>
+                <div class="sms-select-wrap">
+                  <select id="smsGatewayAuthTypeSelect" class="date-time-settings-select sms-settings-select">
+                    <option value="header" ${String(displaySettings.smsGatewayAuthType || "header") === "header" ? "selected" : ""}>Header API Key</option>
+                    <option value="basic" ${String(displaySettings.smsGatewayAuthType || "") === "basic" ? "selected" : ""}>Basic (username/password)</option>
+                    <option value="bearer" ${String(displaySettings.smsGatewayAuthType || "") === "bearer" ? "selected" : ""}>Bearer token</option>
+                    <option value="none" ${String(displaySettings.smsGatewayAuthType || "") === "none" ? "selected" : ""}>Без авторизации</option>
+                  </select>
+                </div>
               </div>
 
               <div class="sms-settings-field sms-settings-grid__span-3">
@@ -16931,11 +17018,11 @@ function renderOtherSettingsPanel() {
 
               <div class="sms-settings-field sms-settings-grid__span-3">
                 <label class="settings-field-label" for="smsInviteTemplateInput">Шаблон SMS</label>
-                <textarea id="smsInviteTemplateInput" rows="4" placeholder="Текст приглашения с плейсхолдерами [ФИО], [Бот], [Ссылка_бота], [ID], [Телефон]">${escapeHtmlText(String(displaySettings.smsInviteTemplate || ""))}</textarea>
+                <textarea id="smsInviteTemplateInput" class="sms-template-input" rows="4" placeholder="Текст приглашения с плейсхолдерами [ФИО], [Бот], [Ссылка_бота], [ID], [Телефон]">${escapeHtmlText(String(displaySettings.smsInviteTemplate || ""))}</textarea>
               </div>
 
               <p class="other-settings-hint sms-settings-grid__span-3 sms-settings-hint">Для <strong>sms-gate.app</strong> используйте URL <code>https://api.sms-gate.app/3rdparty/v1/messages</code>, авторизацию Basic или Bearer и scope <code>messages:send</code> (если JWT).</p>
-              <p class="other-settings-hint sms-settings-grid__span-3 sms-settings-hint">Кнопка SMS появляется в строке сотрудника только если у него пустой <strong>Chat ID</strong>. После отправки результат фиксируется в журнале (иконка часов в разделе «Сотрудники»).</p>
+              <p class="other-settings-hint sms-settings-grid__span-3 sms-settings-hint">Кнопка SMS доступна в строке сотрудника, а при множественном выборе в таблице можно отправить SMS сразу пачкой. История отправки фиксируется в журнале (иконка часов в разделе «Сотрудники»).</p>
             </div>
           </div>
         </div>

@@ -1328,6 +1328,36 @@ select.date-time-settings-select {
   gap: 6px;
 }
 
+.sms-select-wrap {
+  position: relative;
+}
+
+.sms-select-wrap::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid #7b8ba1;
+  border-bottom: 1.5px solid #7b8ba1;
+  transform: translateY(-65%) rotate(45deg);
+  pointer-events: none;
+}
+
+.sms-settings-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 34px;
+  background-color: #fff;
+  background-image: none;
+}
+
+.sms-template-input {
+  border-radius: 0;
+}
+
 .sms-settings-grid__span-2 {
   grid-column: span 2;
 }
@@ -3790,6 +3820,28 @@ body.app-booting .app-boot-loader {
 
 .telegram-state-disconnected::before {
   background: #c43f3f;
+}
+
+.employee-chat-id-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.employee-chat-id-value::before {
+  content: "✉";
+  font-size: 11px;
+  line-height: 1;
+  color: #7d8da3;
+  transform: translateY(-1px);
+}
+
+.employee-chat-id-value--empty {
+  color: #90a0b4;
+}
+
+.employee-chat-id-value--empty::before {
+  content: none;
 }
 
 .employee-admin-toggle {
