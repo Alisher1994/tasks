@@ -2368,6 +2368,14 @@ tbody td.first-visible-col {
   gap: 6px;
 }
 
+.action-buttons .icon-action-btn {
+  border: none;
+}
+
+.action-buttons .icon-action-btn:hover {
+  border-color: transparent;
+}
+
 .icon-action-btn {
   width: 30px;
   height: 30px;
