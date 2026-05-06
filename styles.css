@@ -2494,6 +2494,30 @@ tbody td.first-visible-col {
   display: none;
 }
 
+.table-card--smsHistory thead th.number-col,
+.table-card--smsHistory tbody td.number-col {
+  position: static;
+  left: auto !important;
+  z-index: auto;
+  box-shadow: none;
+}
+
+.table-card--smsHistory .number-col::before,
+.table-card--smsHistory .number-col::after {
+  display: none;
+}
+
+.table-card--smsHistory th:nth-child(3),
+.table-card--smsHistory td:nth-child(3) {
+  width: 140px;
+}
+
+.table-card--smsHistory td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .action-buttons {
   display: flex;
   align-items: center;
