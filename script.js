@@ -185,6 +185,17 @@ const EMPLOYEE_COLUMNS = {
   activity: 7,
   adminAccess: 8
 };
+const SMS_HISTORY_COLUMNS = {
+  id: 0,
+  when: 1,
+  employeeId: 2,
+  employeeName: 3,
+  phone: 4,
+  status: 5,
+  actor: 6,
+  gatewayResponse: 7,
+  smsText: 8
+};
 const EMPLOYEE_TELEGRAM_OPTIONS = ["Подключен", "Не подключен"];
 const SYSTEM_ROLES = [
   "РП",
@@ -3557,6 +3568,88 @@ function formatSmsInviteHistoryStatusLabel(entry) {
   return "Ошибка";
 }
 
+function shortenSmsGatewayId(rawId) {
+  const id = String(rawId || "").trim();
+  if (!id) return "";
+  if (id.length <= 12) return id;
+  return `${id.slice(0, 6)}...${id.slice(-4)}`;
+}
+
+function mapSmsGatewayStateLabel(rawState) {
+  const state = String(rawState || "").trim().toLowerCase();
+  if (!state) return "";
+  if (state === "pending" || state === "queued") return "в очереди";
+  if (state === "sent") return "отправлено";
+  if (state === "delivered") return "доставлено";
+  if (state === "failed" || state === "error" || state === "rejected") return "ошибка";
+  return String(rawState || "").trim();
+}
+
+function summarizeSmsGatewayResponse(rawValue) {
+  const full = String(rawValue || "").trim();
+  if (!full) {
+    return { shortText: "—", fullText: "—" };
+  }
+  if (/unauthorized|401/i.test(full)) {
+    return { shortText: "Ошибка авторизации", fullText: full };
+  }
+  if (/Принято SMS Gate:/i.test(full)) {
+    const stateMatch = full.match(/state=([^,\s]+)/i);
+    const recipientsMatch = full.match(/recipients=([0-9]+)/i);
+    const idMatch = full.match(/id=([^,\s]+)/i);
+    const stateLabel = mapSmsGatewayStateLabel(stateMatch?.[1] || "");
+    const recipients = recipientsMatch?.[1] ? Number(recipientsMatch[1]) : 0;
+    const shortId = shortenSmsGatewayId(idMatch?.[1] || "");
+    const shortText = [
+      stateLabel ? `Принято: ${stateLabel}` : "Принято gateway",
+      recipients > 0 ? `получателей: ${recipients}` : "",
+      shortId ? `ID: ${shortId}` : ""
+    ].filter(Boolean).join(" | ");
+    return { shortText, fullText: full };
+  }
+  if (full.startsWith("{") || full.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(full);
+      const state = String(parsed?.state || parsed?.states?.[0]?.state || "").trim();
+      const recipientsCount = Array.isArray(parsed?.recipients)
+        ? parsed.recipients.length
+        : Number(parsed?.recipientsCount || 0);
+      const shortId = shortenSmsGatewayId(parsed?.id || "");
+      const stateLabel = mapSmsGatewayStateLabel(state);
+      const shortText = [
+        stateLabel ? `Gateway: ${stateLabel}` : "Принято gateway",
+        recipientsCount > 0 ? `получателей: ${recipientsCount}` : "",
+        shortId ? `ID: ${shortId}` : ""
+      ].filter(Boolean).join(" | ");
+      return { shortText: shortText || "Принято gateway", fullText: full };
+    } catch (_) {
+      // fallback below
+    }
+  }
+  if (full.length > 140) {
+    return { shortText: `${full.slice(0, 137)}...`, fullText: full };
+  }
+  return { shortText: full, fullText: full };
+}
+
+function summarizeSmsTextForHistory(rawValue) {
+  const full = String(rawValue || "").trim();
+  if (!full) {
+    return { shortText: "—", fullText: "—" };
+  }
+  const oneLine = full.replace(/\s+/g, " ").trim();
+  if (/регистрац/i.test(oneLine) && /t\.me\//i.test(oneLine)) {
+    return {
+      shortText: "Приглашение в Telegram-бот (ссылка на регистрацию).",
+      fullText: full
+    };
+  }
+  if (oneLine.length > 160) {
+    return { shortText: `${oneLine.slice(0, 157)}...`, fullText: full };
+  }
+  return { shortText: oneLine, fullText: full };
+}
+
 function renderSmsInviteHistoryTableHtml(entries) {
   const list = Array.isArray(entries) ? entries : [];
   if (!list.length) {
@@ -3568,13 +3661,14 @@ function renderSmsInviteHistoryTableHtml(entries) {
     const phone = String(entry?.phone || "").trim() || "—";
     const status = formatSmsInviteHistoryStatusLabel(entry);
     const actor = String(entry?.actor || "").trim() || "—";
-    const resultMessage = String(entry?.resultMessage || "").trim() || "—";
+    const resultMessageRaw = String(entry?.resultMessage || "").trim() || "—";
+    const resultMessage = summarizeSmsGatewayResponse(resultMessageRaw).shortText;
     return `
       <tr>
         <td class="task-history-when">${escapeHtmlText(formatTaskHistoryWhen(whenMs))}</td>
         <td class="task-history-who">${escapeHtmlText(employeeName)}<br /><small>${escapeHtmlText(phone)}</small></td>
         <td class="task-history-action"><strong>${escapeHtmlText(status)}</strong><br /><small>${escapeHtmlText(actor)}</small></td>
-        <td class="task-history-action">${escapeHtmlText(resultMessage)}</td>
+        <td class="task-history-action" title="${escapeHtmlAttr(resultMessageRaw)}">${escapeHtmlText(resultMessage)}</td>
       </tr>
     `;
   }).join("");
@@ -13413,6 +13507,16 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
         <span class="employee-admin-toggle-text">${checked ? "Админ" : "Пользователь"}</span>
       </label>
     `;
+  }
+  if (section.id === "smsHistory") {
+    if (colIndex === SMS_HISTORY_COLUMNS.gatewayResponse) {
+      const summarized = summarizeSmsGatewayResponse(value);
+      return `<span class="sms-history-compact-cell sms-history-compact-cell--gateway" title="${escapeHtmlAttr(summarized.fullText)}">${escapeHtmlText(summarized.shortText)}</span>`;
+    }
+    if (colIndex === SMS_HISTORY_COLUMNS.smsText) {
+      const summarized = summarizeSmsTextForHistory(value);
+      return `<span class="sms-history-compact-cell sms-history-compact-cell--sms" title="${escapeHtmlAttr(summarized.fullText)}">${escapeHtmlText(summarized.shortText)}</span>`;
+    }
   }
   if (section.id !== "tasks") {
     return value;

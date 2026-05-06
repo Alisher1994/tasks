@@ -2518,6 +2518,18 @@ tbody td.first-visible-col {
   word-break: break-word;
 }
 
+.sms-history-compact-cell {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.35;
+}
+
+.sms-history-compact-cell--gateway {
+  -webkit-line-clamp: 3;
+}
+
 .action-buttons {
   display: flex;
   align-items: center;
