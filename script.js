@@ -20160,31 +20160,21 @@ function openCreateEmployeeModal(section) {
         </label>
         <label class="employee-create-field">
           <span>Отдел</span>
-          <select id="employeeCreateDepartment" class="cell-editor">
+          <input id="employeeCreateDepartment" type="text" class="cell-editor" list="employeeCreateDepartmentList" value="${escapeHtmlAttr(defaultDepartment)}" placeholder="Начните вводить отдел..." autocomplete="off" />
+          <datalist id="employeeCreateDepartmentList">
             ${(departments.length ? departments : [defaultDepartment]).map((item) => `
-              <option value="${escapeHtmlAttr(String(item || ""))}" ${String(item || "") === defaultDepartment ? "selected" : ""}>${escapeHtmlText(String(item || ""))}</option>
+              <option value="${escapeHtmlAttr(String(item || ""))}"></option>
             `).join("")}
-          </select>
+          </datalist>
         </label>
         <label class="employee-create-field">
           <span>Должность</span>
-          <select id="employeeCreateRole" class="cell-editor">
+          <input id="employeeCreateRole" type="text" class="cell-editor" list="employeeCreateRoleList" value="${escapeHtmlAttr(defaultRole)}" placeholder="Начните вводить должность..." autocomplete="off" />
+          <datalist id="employeeCreateRoleList">
             ${(roles.length ? roles : [defaultRole]).map((item) => `
-              <option value="${escapeHtmlAttr(String(item || ""))}" ${String(item || "") === defaultRole ? "selected" : ""}>${escapeHtmlText(String(item || ""))}</option>
+              <option value="${escapeHtmlAttr(String(item || ""))}"></option>
             `).join("")}
-          </select>
-        </label>
-        <label class="employee-create-field">
-          <span>Telegram</span>
-          <select id="employeeCreateTelegram" class="cell-editor">
-            ${EMPLOYEE_TELEGRAM_OPTIONS.map((item) => `
-              <option value="${escapeHtmlAttr(item)}" ${item === "Не подключен" ? "selected" : ""}>${escapeHtmlText(item)}</option>
-            `).join("")}
-          </select>
-        </label>
-        <label class="employee-create-field">
-          <span>Chat ID (опционально)</span>
-          <input id="employeeCreateChatId" type="text" class="cell-editor" inputmode="numeric" placeholder="Числовой Telegram ID" autocomplete="off" />
+          </datalist>
         </label>
         <label class="employee-create-field employee-create-field--check">
           <input id="employeeCreateAdminAccess" type="checkbox" />
@@ -20202,10 +20192,8 @@ function openCreateEmployeeModal(section) {
 
   const fullNameInput = overlay.querySelector("#employeeCreateFullName");
   const phoneInputEl = overlay.querySelector("#employeeCreatePhone");
-  const departmentSelect = overlay.querySelector("#employeeCreateDepartment");
-  const roleSelect = overlay.querySelector("#employeeCreateRole");
-  const telegramSelect = overlay.querySelector("#employeeCreateTelegram");
-  const chatIdInput = overlay.querySelector("#employeeCreateChatId");
+  const departmentInput = overlay.querySelector("#employeeCreateDepartment");
+  const roleInput = overlay.querySelector("#employeeCreateRole");
   const adminAccessCheckbox = overlay.querySelector("#employeeCreateAdminAccess");
   const errorBox = overlay.querySelector("#employeeCreateError");
 
@@ -20229,24 +20217,12 @@ function openCreateEmployeeModal(section) {
     });
   }
 
-  if (telegramSelect instanceof HTMLSelectElement && chatIdInput instanceof HTMLInputElement) {
-    const syncChatFieldState = () => {
-      const connected = String(telegramSelect.value || "") === "Подключен";
-      chatIdInput.disabled = !connected;
-      if (!connected) chatIdInput.value = "";
-    };
-    telegramSelect.addEventListener("change", syncChatFieldState);
-    syncChatFieldState();
-  }
-
   const save = () => {
     const fullName = normalizePersonName(fullNameInput?.value || "");
     const phoneNormalized = normalizeUzPhone(phoneInputEl?.value || "");
     const phoneFormatted = formatUzPhoneDisplay(phoneNormalized);
-    const department = String(departmentSelect?.value || "").trim() || defaultDepartment;
-    const role = String(roleSelect?.value || "").trim() || defaultRole;
-    const telegram = String(telegramSelect?.value || "Не подключен").trim();
-    const chatId = String(chatIdInput?.value || "").trim();
+    const department = String(departmentInput?.value || "").trim() || defaultDepartment;
+    const role = String(roleInput?.value || "").trim() || defaultRole;
     const adminAccess = adminAccessCheckbox instanceof HTMLInputElement && adminAccessCheckbox.checked ? "Да" : "Нет";
 
     if (!fullName) {
@@ -20278,8 +20254,8 @@ function openCreateEmployeeModal(section) {
     row[EMPLOYEE_COLUMNS.department] = department;
     row[EMPLOYEE_COLUMNS.position] = role;
     row[EMPLOYEE_COLUMNS.phone] = phoneFormatted;
-    row[EMPLOYEE_COLUMNS.telegram] = EMPLOYEE_TELEGRAM_OPTIONS.includes(telegram) ? telegram : "Не подключен";
-    row[EMPLOYEE_COLUMNS.chatId] = chatId;
+    row[EMPLOYEE_COLUMNS.telegram] = "Не подключен";
+    row[EMPLOYEE_COLUMNS.chatId] = "";
     row[EMPLOYEE_COLUMNS.adminAccess] = toEmployeeAdminAccessStorageValue(adminAccess);
     applyEmployeeTelegramDerivedFields(row);
 
