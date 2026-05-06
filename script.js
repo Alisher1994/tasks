@@ -12345,6 +12345,22 @@ function renderFilters(section, sectionFilters, isOpen) {
     return "";
   }
 
+  if (section.id === "smsHistory") {
+    const employeeValues = getUniqueValues(section.rows, 3);
+    const statusValues = getUniqueValues(section.rows, 5);
+    return `
+      <div class="filter-panel">
+        <label class="filter-field filter-grow" for="filterSearch">
+          <span>Поиск</span>
+          <input id="filterSearch" type="text" placeholder="Поиск по истории SMS..." value="${commonSearch}" />
+        </label>
+        ${renderSelectFilter("filterSmsEmployee", "Сотрудник", employeeValues, sectionFilters.smsEmployee || "")}
+        ${renderSelectFilter("filterSmsStatus", "Статус", statusValues, sectionFilters.smsStatus || "")}
+        <button id="filterResetBtn" type="button" class="secondary">Сбросить</button>
+      </div>
+    `;
+  }
+
   if (section.id !== "tasks") {
     return `
       <div class="filter-panel">
@@ -12403,6 +12419,12 @@ function getFilteredRows(section, sectionFilters) {
       || row.some((cell) => String(cell).toLowerCase().includes(normalizedSearch));
 
     if (!searchMatch) return false;
+
+    if (section.id === "smsHistory") {
+      const smsEmployeeMatch = !sectionFilters.smsEmployee || String(row[3] || "").trim() === sectionFilters.smsEmployee;
+      const smsStatusMatch = !sectionFilters.smsStatus || String(row[5] || "").trim() === sectionFilters.smsStatus;
+      return smsEmployeeMatch && smsStatusMatch;
+    }
 
     if (section.id !== "tasks") return true;
 
@@ -20183,6 +20205,8 @@ function attachFilterHandlers(section) {
   const subsectionSelect = document.getElementById("filterSubsection");
   const delayReasonSelect = document.getElementById("filterDelayReason");
   const readStateSelect = document.getElementById("filterReadState");
+  const smsEmployeeSelect = document.getElementById("filterSmsEmployee");
+  const smsStatusSelect = document.getElementById("filterSmsStatus");
 
   const ensureSectionFilters = () => {
     if (!filtersBySection[section.id]) {
@@ -20267,6 +20291,24 @@ function attachFilterHandlers(section) {
     readStateSelect.addEventListener("change", () => {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.readState = readStateSelect.value;
+      bumpTasksPagingReset();
+      renderTablePreserveScroll();
+    });
+  }
+
+  if (smsEmployeeSelect) {
+    smsEmployeeSelect.addEventListener("change", () => {
+      const sectionFilters = ensureSectionFilters();
+      sectionFilters.smsEmployee = smsEmployeeSelect.value;
+      bumpTasksPagingReset();
+      renderTablePreserveScroll();
+    });
+  }
+
+  if (smsStatusSelect) {
+    smsStatusSelect.addEventListener("change", () => {
+      const sectionFilters = ensureSectionFilters();
+      sectionFilters.smsStatus = smsStatusSelect.value;
       bumpTasksPagingReset();
       renderTablePreserveScroll();
     });
