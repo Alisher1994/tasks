@@ -20160,18 +20160,16 @@ function openCreateEmployeeModal(section) {
         </label>
         <label class="employee-create-field">
           <span>Отдел</span>
-          <div class="employee-create-typeahead">
-            <input id="employeeCreateDepartment" type="text" class="cell-editor employee-create-typeahead-input" value="${escapeHtmlAttr(defaultDepartment)}" placeholder="Начните вводить отдел..." autocomplete="off" />
-            <button type="button" class="employee-create-typeahead-toggle" data-typeahead-target="department" aria-label="Показать список отделов">▼</button>
-            <div id="employeeCreateDepartmentSuggest" class="employee-create-suggest hidden"></div>
+          <div class="employee-create-picker">
+            <input id="employeeCreateDepartment" type="text" class="cell-editor employee-create-picker-input" value="${escapeHtmlAttr(defaultDepartment)}" placeholder="Выберите отдел" readonly />
+            <button type="button" class="employee-create-picker-btn" data-employee-create-picker="department" aria-label="Выбрать отдел">▼</button>
           </div>
         </label>
         <label class="employee-create-field">
           <span>Должность</span>
-          <div class="employee-create-typeahead">
-            <input id="employeeCreateRole" type="text" class="cell-editor employee-create-typeahead-input" value="${escapeHtmlAttr(defaultRole)}" placeholder="Начните вводить должность..." autocomplete="off" />
-            <button type="button" class="employee-create-typeahead-toggle" data-typeahead-target="role" aria-label="Показать список должностей">▼</button>
-            <div id="employeeCreateRoleSuggest" class="employee-create-suggest hidden"></div>
+          <div class="employee-create-picker">
+            <input id="employeeCreateRole" type="text" class="cell-editor employee-create-picker-input" value="${escapeHtmlAttr(defaultRole)}" placeholder="Выберите должность" readonly />
+            <button type="button" class="employee-create-picker-btn" data-employee-create-picker="role" aria-label="Выбрать должность">▼</button>
           </div>
         </label>
         <label class="employee-create-field employee-create-field--check">
@@ -20192,8 +20190,8 @@ function openCreateEmployeeModal(section) {
   const phoneInputEl = overlay.querySelector("#employeeCreatePhone");
   const departmentInput = overlay.querySelector("#employeeCreateDepartment");
   const roleInput = overlay.querySelector("#employeeCreateRole");
-  const departmentSuggest = overlay.querySelector("#employeeCreateDepartmentSuggest");
-  const roleSuggest = overlay.querySelector("#employeeCreateRoleSuggest");
+  const departmentPickerBtn = overlay.querySelector('[data-employee-create-picker="department"]');
+  const rolePickerBtn = overlay.querySelector('[data-employee-create-picker="role"]');
   const adminAccessCheckbox = overlay.querySelector("#employeeCreateAdminAccess");
   const errorBox = overlay.querySelector("#employeeCreateError");
 
@@ -20224,67 +20222,34 @@ function openCreateEmployeeModal(section) {
     .map((x) => String(x || "").trim())
     .filter(Boolean);
 
-  const attachTypeahead = (inputEl, suggestEl, options) => {
-    if (!(inputEl instanceof HTMLInputElement) || !(suggestEl instanceof HTMLElement)) return;
-    const uniqueOptions = Array.from(new Set(options)).sort((a, b) => a.localeCompare(b, "ru"));
-    let open = false;
-    const hide = () => {
-      open = false;
-      suggestEl.classList.add("hidden");
-    };
-    const show = () => {
-      open = true;
-      suggestEl.classList.remove("hidden");
-    };
-    const render = () => {
-      const query = String(inputEl.value || "").trim().toLowerCase();
-      const filtered = uniqueOptions.filter((item) => {
-        if (!query) return true;
-        return item.toLowerCase().includes(query);
-      });
-      suggestEl.innerHTML = filtered.length
-        ? filtered.map((item) => `
-          <button type="button" class="employee-create-suggest-item" data-suggest-value="${escapeHtmlAttr(item)}">${escapeHtmlText(item)}</button>
-        `).join("")
-        : `<div class="employee-create-suggest-empty">Ничего не найдено</div>`;
-      if (filtered.length) show();
-      else hide();
-    };
-    inputEl.addEventListener("focus", render);
-    inputEl.addEventListener("input", render);
-    inputEl.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        hide();
+  const openPickerModal = (kind) => {
+    const isDepartment = kind === "department";
+    const inputEl = isDepartment ? departmentInput : roleInput;
+    const options = isDepartment ? departmentOptions : roleOptions;
+    const fallbackValue = isDepartment ? defaultDepartment : defaultRole;
+    const currentValue = String(inputEl?.value || "").trim();
+    openSingleLookupModal(
+      isDepartment ? "Выбор отдела" : "Выбор должности",
+      options,
+      currentValue,
+      (value) => {
+        if (!(inputEl instanceof HTMLInputElement)) return;
+        inputEl.value = String(value || "").trim() || fallbackValue;
       }
-    });
-    suggestEl.addEventListener("click", (event) => {
-      const btn = event.target instanceof HTMLElement ? event.target.closest(".employee-create-suggest-item") : null;
-      if (!(btn instanceof HTMLButtonElement)) return;
-      inputEl.value = String(btn.dataset.suggestValue || "").trim();
-      hide();
-      inputEl.focus();
-    });
-    overlay.addEventListener("click", (event) => {
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (!target) return;
-      if (target === inputEl || suggestEl.contains(target) || target.closest(`[data-typeahead-target="${inputEl === departmentInput ? "department" : "role"}"]`)) {
-        return;
-      }
-      hide();
-    });
-    const toggleBtn = overlay.querySelector(`[data-typeahead-target="${inputEl === departmentInput ? "department" : "role"}"]`);
-    toggleBtn?.addEventListener("click", () => {
-      if (open) {
-        hide();
-      } else {
-        render();
-        inputEl.focus();
-      }
-    });
+    );
   };
 
-  attachTypeahead(departmentInput, departmentSuggest, departmentOptions);
-  attachTypeahead(roleInput, roleSuggest, roleOptions);
+  departmentPickerBtn?.addEventListener("click", () => openPickerModal("department"));
+  rolePickerBtn?.addEventListener("click", () => openPickerModal("role"));
+  departmentInput?.addEventListener("click", () => openPickerModal("department"));
+  roleInput?.addEventListener("click", () => openPickerModal("role"));
+  const openPickerByKey = (event, kind) => {
+    if (event.key !== "Enter" && event.key !== " " && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    openPickerModal(kind);
+  };
+  departmentInput?.addEventListener("keydown", (event) => openPickerByKey(event, "department"));
+  roleInput?.addEventListener("keydown", (event) => openPickerByKey(event, "role"));
 
   const save = () => {
     const fullName = normalizePersonName(fullNameInput?.value || "");
