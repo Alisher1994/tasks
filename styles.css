@@ -3047,7 +3047,6 @@ tr:nth-child(even) td {
 
 .employee-create-picker-input {
   padding-right: 32px;
-  cursor: pointer;
   background: #fff;
 }
 
@@ -3074,6 +3073,47 @@ tr:nth-child(even) td {
 .employee-create-picker-btn:hover {
   background: #eef3f9;
   color: #7f90a6;
+}
+
+.employee-create-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid #d3dbe7;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(12, 24, 36, 0.12);
+  z-index: 55;
+}
+
+.employee-create-dropdown-item {
+  display: block;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid #edf2f8;
+  background: #fff;
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 14px;
+  color: #233244;
+  cursor: pointer;
+}
+
+.employee-create-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.employee-create-dropdown-item:hover {
+  background: #f3f6fc;
+}
+
+.employee-create-dropdown-empty {
+  padding: 10px;
+  color: #77879a;
+  font-size: 13px;
 }
 
 .employee-create-error {

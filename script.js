@@ -20161,15 +20161,17 @@ function openCreateEmployeeModal(section) {
         <label class="employee-create-field">
           <span>Отдел</span>
           <div class="employee-create-picker">
-            <input id="employeeCreateDepartment" type="text" class="cell-editor employee-create-picker-input" value="${escapeHtmlAttr(defaultDepartment)}" placeholder="Начните вводить отдел..." readonly />
+            <input id="employeeCreateDepartment" type="text" class="cell-editor employee-create-picker-input" value="${escapeHtmlAttr(defaultDepartment)}" placeholder="Начните вводить отдел..." autocomplete="off" />
             <button type="button" class="employee-create-picker-btn" data-employee-create-picker="department" aria-label="Выбрать отдел">▼</button>
+            <div id="employeeCreateDepartmentDropdown" class="employee-create-dropdown hidden"></div>
           </div>
         </label>
         <label class="employee-create-field">
           <span>Должность</span>
           <div class="employee-create-picker">
-            <input id="employeeCreateRole" type="text" class="cell-editor employee-create-picker-input" value="${escapeHtmlAttr(defaultRole)}" placeholder="Начните вводить должность..." readonly />
+            <input id="employeeCreateRole" type="text" class="cell-editor employee-create-picker-input" value="${escapeHtmlAttr(defaultRole)}" placeholder="Начните вводить должность..." autocomplete="off" />
             <button type="button" class="employee-create-picker-btn" data-employee-create-picker="role" aria-label="Выбрать должность">▼</button>
+            <div id="employeeCreateRoleDropdown" class="employee-create-dropdown hidden"></div>
           </div>
         </label>
         <label class="employee-create-field employee-create-field--check">
@@ -20192,10 +20194,23 @@ function openCreateEmployeeModal(section) {
   const roleInput = overlay.querySelector("#employeeCreateRole");
   const departmentPickerBtn = overlay.querySelector('[data-employee-create-picker="department"]');
   const rolePickerBtn = overlay.querySelector('[data-employee-create-picker="role"]');
+  const departmentDropdown = overlay.querySelector("#employeeCreateDepartmentDropdown");
+  const roleDropdown = overlay.querySelector("#employeeCreateRoleDropdown");
   const adminAccessCheckbox = overlay.querySelector("#employeeCreateAdminAccess");
   const errorBox = overlay.querySelector("#employeeCreateError");
+  const cleanupFns = [];
 
-  const close = () => overlay.remove();
+  const close = () => {
+    while (cleanupFns.length) {
+      const fn = cleanupFns.pop();
+      try {
+        fn?.();
+      } catch (_) {
+        // ignore cleanup error
+      }
+    }
+    overlay.remove();
+  };
   const setError = (text = "") => {
     if (!(errorBox instanceof HTMLElement)) return;
     const msg = String(text || "").trim();
@@ -20222,34 +20237,75 @@ function openCreateEmployeeModal(section) {
     .map((x) => String(x || "").trim())
     .filter(Boolean);
 
-  const openPickerModal = (kind) => {
-    const isDepartment = kind === "department";
-    const inputEl = isDepartment ? departmentInput : roleInput;
-    const options = isDepartment ? departmentOptions : roleOptions;
-    const fallbackValue = isDepartment ? defaultDepartment : defaultRole;
-    const currentValue = String(inputEl?.value || "").trim();
-    openSingleLookupModal(
-      isDepartment ? "Выбор отдела" : "Выбор должности",
-      options,
-      currentValue,
-      (value) => {
-        if (!(inputEl instanceof HTMLInputElement)) return;
-        inputEl.value = String(value || "").trim() || fallbackValue;
+  const attachInlinePicker = (inputEl, buttonEl, dropdownEl, options) => {
+    if (!(inputEl instanceof HTMLInputElement) || !(buttonEl instanceof HTMLButtonElement) || !(dropdownEl instanceof HTMLElement)) return;
+    const uniqueOptions = Array.from(new Set((options || []).map((item) => String(item || "").trim()).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, "ru"));
+    let isOpen = false;
+
+    const hide = () => {
+      isOpen = false;
+      dropdownEl.classList.add("hidden");
+    };
+    const show = () => {
+      isOpen = true;
+      dropdownEl.classList.remove("hidden");
+    };
+    const render = (forceAll = false) => {
+      const query = String(inputEl.value || "").trim().toLowerCase();
+      const filtered = uniqueOptions.filter((item) => {
+        if (forceAll) return true;
+        if (!query) return true;
+        return item.toLowerCase().includes(query);
+      });
+      dropdownEl.innerHTML = filtered.length
+        ? filtered.map((item) => `
+          <button type="button" class="employee-create-dropdown-item" data-dropdown-value="${escapeHtmlAttr(item)}">${escapeHtmlText(item)}</button>
+        `).join("")
+        : `<div class="employee-create-dropdown-empty">Ничего не найдено</div>`;
+      show();
+    };
+
+    inputEl.addEventListener("focus", () => render(false));
+    inputEl.addEventListener("input", () => render(false));
+    inputEl.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        hide();
+        return;
       }
-    );
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        render(true);
+      }
+    });
+    buttonEl.addEventListener("click", () => {
+      if (isOpen) {
+        hide();
+      } else {
+        render(true);
+        inputEl.focus();
+      }
+    });
+    dropdownEl.addEventListener("click", (event) => {
+      const btn = event.target instanceof HTMLElement ? event.target.closest(".employee-create-dropdown-item") : null;
+      if (!(btn instanceof HTMLButtonElement)) return;
+      inputEl.value = String(btn.dataset.dropdownValue || "").trim();
+      hide();
+      inputEl.focus();
+    });
+    const handleOutsideClick = (event) => {
+      if (!overlay.isConnected || !isOpen) return;
+      const target = event.target instanceof Node ? event.target : null;
+      if (!target) return;
+      if (inputEl.contains(target) || buttonEl.contains(target) || dropdownEl.contains(target)) return;
+      hide();
+    };
+    document.addEventListener("click", handleOutsideClick);
+    cleanupFns.push(() => document.removeEventListener("click", handleOutsideClick));
   };
 
-  departmentPickerBtn?.addEventListener("click", () => openPickerModal("department"));
-  rolePickerBtn?.addEventListener("click", () => openPickerModal("role"));
-  departmentInput?.addEventListener("click", () => openPickerModal("department"));
-  roleInput?.addEventListener("click", () => openPickerModal("role"));
-  const openPickerByKey = (event, kind) => {
-    if (event.key !== "Enter" && event.key !== " " && event.key !== "ArrowDown") return;
-    event.preventDefault();
-    openPickerModal(kind);
-  };
-  departmentInput?.addEventListener("keydown", (event) => openPickerByKey(event, "department"));
-  roleInput?.addEventListener("keydown", (event) => openPickerByKey(event, "role"));
+  attachInlinePicker(departmentInput, departmentPickerBtn, departmentDropdown, departmentOptions);
+  attachInlinePicker(roleInput, rolePickerBtn, roleDropdown, roleOptions);
 
   const save = () => {
     const fullName = normalizePersonName(fullNameInput?.value || "");
