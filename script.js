@@ -3650,6 +3650,16 @@ function summarizeSmsTextForHistory(rawValue) {
   return { shortText: oneLine, fullText: full };
 }
 
+function getSmsHistoryGatewayCategory(responseText, statusText = "") {
+  const response = String(responseText || "").trim();
+  const status = String(statusText || "").trim().toLowerCase();
+  if (/unauthorized|401/i.test(response)) return "auth_error";
+  if (status === "ошибка") return "error";
+  if (status === "отправлено") return "success";
+  if (/error|failed|rejected/i.test(response)) return "error";
+  return "other";
+}
+
 function renderSmsInviteHistoryTableHtml(entries) {
   const list = Array.isArray(entries) ? entries : [];
   if (!list.length) {
@@ -12465,6 +12475,7 @@ function renderFilters(section, sectionFilters, isOpen) {
   if (section.id === "smsHistory") {
     const employeeValues = getUniqueValues(section.rows, 3);
     const statusValues = getUniqueValues(section.rows, 5);
+    const actorValues = getUniqueValues(section.rows, 6);
     return `
       <div class="filter-panel">
         <label class="filter-field filter-grow" for="filterSearch">
@@ -12473,6 +12484,16 @@ function renderFilters(section, sectionFilters, isOpen) {
         </label>
         ${renderSelectFilter("filterSmsEmployee", "Сотрудник", employeeValues, sectionFilters.smsEmployee || "")}
         ${renderSelectFilter("filterSmsStatus", "Статус", statusValues, sectionFilters.smsStatus || "")}
+        ${renderSelectFilter("filterSmsActor", "Кто отправил", actorValues, sectionFilters.smsActor || "")}
+        <label class="filter-field" for="filterSmsGatewayType">
+          <span>Тип ответа</span>
+          <select id="filterSmsGatewayType">
+            <option value="" ${!sectionFilters.smsGatewayType ? "selected" : ""}>Все</option>
+            <option value="success" ${sectionFilters.smsGatewayType === "success" ? "selected" : ""}>Успешно</option>
+            <option value="error" ${sectionFilters.smsGatewayType === "error" ? "selected" : ""}>С ошибкой</option>
+            <option value="auth_error" ${sectionFilters.smsGatewayType === "auth_error" ? "selected" : ""}>Ошибка авторизации</option>
+          </select>
+        </label>
         <label class="filter-field" for="filterSmsPeriod">
           <span>Период</span>
           <select id="filterSmsPeriod">
@@ -12481,6 +12502,14 @@ function renderFilters(section, sectionFilters, isOpen) {
             <option value="7d" ${sectionFilters.smsPeriod === "7d" ? "selected" : ""}>7 дней</option>
             <option value="30d" ${sectionFilters.smsPeriod === "30d" ? "selected" : ""}>30 дней</option>
           </select>
+        </label>
+        <label class="filter-field" for="filterSmsDateFrom">
+          <span>Дата с</span>
+          <input id="filterSmsDateFrom" type="date" value="${escapeHtmlAttr(String(sectionFilters.smsDateFrom || ""))}" />
+        </label>
+        <label class="filter-field" for="filterSmsDateTo">
+          <span>Дата по</span>
+          <input id="filterSmsDateTo" type="date" value="${escapeHtmlAttr(String(sectionFilters.smsDateTo || ""))}" />
         </label>
         <button id="filterResetBtn" type="button" class="secondary">Сбросить</button>
       </div>
@@ -12549,10 +12578,27 @@ function getFilteredRows(section, sectionFilters) {
     if (section.id === "smsHistory") {
       const smsEmployeeMatch = !sectionFilters.smsEmployee || String(row[3] || "").trim() === sectionFilters.smsEmployee;
       const smsStatusMatch = !sectionFilters.smsStatus || String(row[5] || "").trim() === sectionFilters.smsStatus;
+      const smsActorMatch = !sectionFilters.smsActor || String(row[6] || "").trim() === sectionFilters.smsActor;
+      const smsGatewayType = String(sectionFilters.smsGatewayType || "").trim();
+      const smsGatewayCategory = getSmsHistoryGatewayCategory(row[7], row[5]);
+      const smsGatewayTypeMatch = !smsGatewayType || smsGatewayCategory === smsGatewayType;
       const periodMode = String(sectionFilters.smsPeriod || "").trim();
       let smsPeriodMatch = true;
+      const smsDateFromRaw = String(sectionFilters.smsDateFrom || "").trim();
+      const smsDateToRaw = String(sectionFilters.smsDateTo || "").trim();
+      let smsDateRangeMatch = true;
+      const rowMs = getSmsHistoryRowTimestampMs(row);
+      if (smsDateFromRaw || smsDateToRaw) {
+        if (!rowMs) {
+          smsDateRangeMatch = false;
+        } else {
+          const fromMs = smsDateFromRaw ? Date.parse(`${smsDateFromRaw}T00:00:00`) : 0;
+          const toMs = smsDateToRaw ? Date.parse(`${smsDateToRaw}T23:59:59.999`) : 0;
+          if (smsDateFromRaw && Number.isFinite(fromMs) && rowMs < fromMs) smsDateRangeMatch = false;
+          if (smsDateToRaw && Number.isFinite(toMs) && rowMs > toMs) smsDateRangeMatch = false;
+        }
+      }
       if (periodMode) {
-        const rowMs = getSmsHistoryRowTimestampMs(row);
         if (!rowMs) {
           smsPeriodMatch = false;
         } else {
@@ -12569,7 +12615,12 @@ function getFilteredRows(section, sectionFilters) {
           }
         }
       }
-      return smsEmployeeMatch && smsStatusMatch && smsPeriodMatch;
+      return smsEmployeeMatch
+        && smsStatusMatch
+        && smsActorMatch
+        && smsGatewayTypeMatch
+        && smsPeriodMatch
+        && smsDateRangeMatch;
     }
 
     if (section.id !== "tasks") return true;
@@ -20363,7 +20414,11 @@ function attachFilterHandlers(section) {
   const readStateSelect = document.getElementById("filterReadState");
   const smsEmployeeSelect = document.getElementById("filterSmsEmployee");
   const smsStatusSelect = document.getElementById("filterSmsStatus");
+  const smsActorSelect = document.getElementById("filterSmsActor");
+  const smsGatewayTypeSelect = document.getElementById("filterSmsGatewayType");
   const smsPeriodSelect = document.getElementById("filterSmsPeriod");
+  const smsDateFromInput = document.getElementById("filterSmsDateFrom");
+  const smsDateToInput = document.getElementById("filterSmsDateTo");
 
   const ensureSectionFilters = () => {
     if (!filtersBySection[section.id]) {
@@ -20471,10 +20526,46 @@ function attachFilterHandlers(section) {
     });
   }
 
+  if (smsActorSelect) {
+    smsActorSelect.addEventListener("change", () => {
+      const sectionFilters = ensureSectionFilters();
+      sectionFilters.smsActor = smsActorSelect.value;
+      bumpTasksPagingReset();
+      renderTablePreserveScroll();
+    });
+  }
+
+  if (smsGatewayTypeSelect) {
+    smsGatewayTypeSelect.addEventListener("change", () => {
+      const sectionFilters = ensureSectionFilters();
+      sectionFilters.smsGatewayType = smsGatewayTypeSelect.value;
+      bumpTasksPagingReset();
+      renderTablePreserveScroll();
+    });
+  }
+
   if (smsPeriodSelect) {
     smsPeriodSelect.addEventListener("change", () => {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.smsPeriod = smsPeriodSelect.value;
+      bumpTasksPagingReset();
+      renderTablePreserveScroll();
+    });
+  }
+
+  if (smsDateFromInput) {
+    smsDateFromInput.addEventListener("change", () => {
+      const sectionFilters = ensureSectionFilters();
+      sectionFilters.smsDateFrom = smsDateFromInput.value;
+      bumpTasksPagingReset();
+      renderTablePreserveScroll();
+    });
+  }
+
+  if (smsDateToInput) {
+    smsDateToInput.addEventListener("change", () => {
+      const sectionFilters = ensureSectionFilters();
+      sectionFilters.smsDateTo = smsDateToInput.value;
       bumpTasksPagingReset();
       renderTablePreserveScroll();
     });
