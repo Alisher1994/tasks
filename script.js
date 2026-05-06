@@ -16570,6 +16570,10 @@ function attachHeaderActionHandlers(section, filteredEntries) {
 
   if (addRowBtn) {
     addRowBtn.addEventListener("click", () => {
+      if (section.id === "employees") {
+        openCreateEmployeeModal(section);
+        return;
+      }
       let prefillTaskObject = "";
       let shouldPrefillTaskObject = false;
       if (section.id === "tasks") {
@@ -20127,6 +20131,181 @@ function addEmptyRow(section) {
   }
 
   section.rows.push(row);
+}
+
+function openCreateEmployeeModal(section) {
+  if (!section || section.id !== "employees") return;
+  const departments = getUniqueValues(getSectionById("departments")?.rows || [], 1)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  const roles = getUniqueValues(getSectionById("roles")?.rows || [], 1)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  const defaultDepartment = String(getSectionById("departments")?.rows?.[0]?.[1] || "");
+  const defaultRole = String(getSectionById("roles")?.rows?.[0]?.[1] || "");
+
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal employee-create-modal" role="dialog" aria-modal="true" aria-label="Добавить сотрудника">
+      <h4>Добавить сотрудника</h4>
+      <div class="employee-create-grid">
+        <label class="employee-create-field">
+          <span>ФИО</span>
+          <input id="employeeCreateFullName" type="text" class="cell-editor" placeholder="Введите ФИО" autocomplete="off" />
+        </label>
+        <label class="employee-create-field">
+          <span>Телефон</span>
+          <input id="employeeCreatePhone" type="tel" inputmode="tel" class="cell-editor" value="${escapeHtmlAttr(DEFAULT_PHONE_PREFIX)}" placeholder="+998..." autocomplete="off" />
+        </label>
+        <label class="employee-create-field">
+          <span>Отдел</span>
+          <select id="employeeCreateDepartment" class="cell-editor">
+            ${(departments.length ? departments : [defaultDepartment]).map((item) => `
+              <option value="${escapeHtmlAttr(String(item || ""))}" ${String(item || "") === defaultDepartment ? "selected" : ""}>${escapeHtmlText(String(item || ""))}</option>
+            `).join("")}
+          </select>
+        </label>
+        <label class="employee-create-field">
+          <span>Должность</span>
+          <select id="employeeCreateRole" class="cell-editor">
+            ${(roles.length ? roles : [defaultRole]).map((item) => `
+              <option value="${escapeHtmlAttr(String(item || ""))}" ${String(item || "") === defaultRole ? "selected" : ""}>${escapeHtmlText(String(item || ""))}</option>
+            `).join("")}
+          </select>
+        </label>
+        <label class="employee-create-field">
+          <span>Telegram</span>
+          <select id="employeeCreateTelegram" class="cell-editor">
+            ${EMPLOYEE_TELEGRAM_OPTIONS.map((item) => `
+              <option value="${escapeHtmlAttr(item)}" ${item === "Не подключен" ? "selected" : ""}>${escapeHtmlText(item)}</option>
+            `).join("")}
+          </select>
+        </label>
+        <label class="employee-create-field">
+          <span>Chat ID (опционально)</span>
+          <input id="employeeCreateChatId" type="text" class="cell-editor" inputmode="numeric" placeholder="Числовой Telegram ID" autocomplete="off" />
+        </label>
+        <label class="employee-create-field employee-create-field--check">
+          <input id="employeeCreateAdminAccess" type="checkbox" />
+          <span>Админ доступ</span>
+        </label>
+      </div>
+      <div class="employee-create-error hidden" id="employeeCreateError"></div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary employee-create-cancel">Отмена</button>
+        <button type="button" class="responsible-apply-btn employee-create-save">Сохранить</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const fullNameInput = overlay.querySelector("#employeeCreateFullName");
+  const phoneInputEl = overlay.querySelector("#employeeCreatePhone");
+  const departmentSelect = overlay.querySelector("#employeeCreateDepartment");
+  const roleSelect = overlay.querySelector("#employeeCreateRole");
+  const telegramSelect = overlay.querySelector("#employeeCreateTelegram");
+  const chatIdInput = overlay.querySelector("#employeeCreateChatId");
+  const adminAccessCheckbox = overlay.querySelector("#employeeCreateAdminAccess");
+  const errorBox = overlay.querySelector("#employeeCreateError");
+
+  const close = () => overlay.remove();
+  const setError = (text = "") => {
+    if (!(errorBox instanceof HTMLElement)) return;
+    const msg = String(text || "").trim();
+    errorBox.textContent = msg;
+    errorBox.classList.toggle("hidden", !msg);
+  };
+
+  if (phoneInputEl instanceof HTMLInputElement) {
+    attachStrictPhoneInputBehavior(
+      phoneInputEl,
+      () => {
+        phoneInputEl.value = formatUzPhoneDisplay(phoneInputEl.value);
+      }
+    );
+    phoneInputEl.addEventListener("blur", () => {
+      phoneInputEl.value = formatUzPhoneDisplay(phoneInputEl.value || DEFAULT_PHONE_PREFIX);
+    });
+  }
+
+  if (telegramSelect instanceof HTMLSelectElement && chatIdInput instanceof HTMLInputElement) {
+    const syncChatFieldState = () => {
+      const connected = String(telegramSelect.value || "") === "Подключен";
+      chatIdInput.disabled = !connected;
+      if (!connected) chatIdInput.value = "";
+    };
+    telegramSelect.addEventListener("change", syncChatFieldState);
+    syncChatFieldState();
+  }
+
+  const save = () => {
+    const fullName = normalizePersonName(fullNameInput?.value || "");
+    const phoneNormalized = normalizeUzPhone(phoneInputEl?.value || "");
+    const phoneFormatted = formatUzPhoneDisplay(phoneNormalized);
+    const department = String(departmentSelect?.value || "").trim() || defaultDepartment;
+    const role = String(roleSelect?.value || "").trim() || defaultRole;
+    const telegram = String(telegramSelect?.value || "Не подключен").trim();
+    const chatId = String(chatIdInput?.value || "").trim();
+    const adminAccess = adminAccessCheckbox instanceof HTMLInputElement && adminAccessCheckbox.checked ? "Да" : "Нет";
+
+    if (!fullName) {
+      setError("Укажите ФИО сотрудника.");
+      fullNameInput?.focus();
+      return;
+    }
+    if (!phoneNormalized || !isPhoneLengthValid(phoneNormalized)) {
+      setError(`Введите корректный номер (${getPhoneLengthHint(phoneNormalized)} цифр после +).`);
+      phoneInputEl?.focus();
+      return;
+    }
+    const duplicateNameIndex = firstRowIndexWithSameNormalizedName(section.rows, fullName);
+    if (duplicateNameIndex >= 0) {
+      setError("Сотрудник с таким ФИО уже существует.");
+      fullNameInput?.focus();
+      return;
+    }
+    const duplicatePhoneIndex = firstRowIndexWithSameCompletePhone(section.rows, phoneNormalized);
+    if (duplicatePhoneIndex >= 0) {
+      setError("Сотрудник с таким телефоном уже существует.");
+      phoneInputEl?.focus();
+      return;
+    }
+
+    addEmptyRow(section);
+    const row = section.rows[section.rows.length - 1];
+    row[EMPLOYEE_COLUMNS.fullName] = fullName;
+    row[EMPLOYEE_COLUMNS.department] = department;
+    row[EMPLOYEE_COLUMNS.position] = role;
+    row[EMPLOYEE_COLUMNS.phone] = phoneFormatted;
+    row[EMPLOYEE_COLUMNS.telegram] = EMPLOYEE_TELEGRAM_OPTIONS.includes(telegram) ? telegram : "Не подключен";
+    row[EMPLOYEE_COLUMNS.chatId] = chatId;
+    row[EMPLOYEE_COLUMNS.adminAccess] = toEmployeeAdminAccessStorageValue(adminAccess);
+    applyEmployeeTelegramDerivedFields(row);
+
+    saveSectionsData();
+    renderTablePreserveScroll();
+    close();
+  };
+
+  overlay.querySelector(".employee-create-save")?.addEventListener("click", save);
+  overlay.querySelector(".employee-create-cancel")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  fullNameInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      save();
+    }
+  });
+  phoneInputEl?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      save();
+    }
+  });
+  fullNameInput?.focus();
 }
 
 function getTodayRuDate() {

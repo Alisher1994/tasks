@@ -3007,6 +3007,55 @@ tr:nth-child(even) td {
   gap: 8px;
 }
 
+.employee-create-modal {
+  width: min(680px, 100%);
+}
+
+.employee-create-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.employee-create-field {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: #2a3748;
+}
+
+.employee-create-field span {
+  color: #425466;
+}
+
+.employee-create-field--check {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.employee-create-field--check input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+}
+
+.employee-create-error {
+  border: 1px solid #f0c2c2;
+  background: #fff6f6;
+  color: #9f3a3a;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .employee-create-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .table-settings-modal {
   width: min(760px, 100%);
 }
