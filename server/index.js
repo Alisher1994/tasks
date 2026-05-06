@@ -497,7 +497,7 @@ async function sendSmsViaGateway(settings, { phone, text }) {
   } catch (_) {
     parsed = null;
   }
-  const providerMessage = truncateForLog(
+  let providerMessage = truncateForLog(
     parsed?.message
       || parsed?.description
       || parsed?.status
@@ -506,6 +506,16 @@ async function sendSmsViaGateway(settings, { phone, text }) {
       || "",
     800
   );
+
+  if (provider === SMS_GATE_PROVIDER_ID && parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const messageId = String(parsed?.id || "").trim();
+    const state = String(parsed?.state || "").trim() || "Pending";
+    const recipients = Array.isArray(parsed?.recipients) ? parsed.recipients.length : 0;
+    providerMessage = truncateForLog(
+      `Принято SMS Gate: state=${state}${messageId ? `, id=${messageId}` : ""}${recipients > 0 ? `, recipients=${recipients}` : ""}.`,
+      300
+    );
+  }
 
   if (!response.ok) {
     return {
