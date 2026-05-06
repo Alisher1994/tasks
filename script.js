@@ -20141,8 +20141,8 @@ function openCreateEmployeeModal(section) {
   const roles = getUniqueValues(getSectionById("roles")?.rows || [], 1)
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, "ru"));
-  const defaultDepartment = String(getSectionById("departments")?.rows?.[0]?.[1] || "");
-  const defaultRole = String(getSectionById("roles")?.rows?.[0]?.[1] || "");
+  const defaultDepartment = "";
+  const defaultRole = "";
 
   const overlay = document.createElement("div");
   overlay.className = "responsible-modal-overlay";
@@ -20161,14 +20161,14 @@ function openCreateEmployeeModal(section) {
         <label class="employee-create-field">
           <span>Отдел</span>
           <div class="employee-create-picker">
-            <input id="employeeCreateDepartment" type="text" class="cell-editor employee-create-picker-input" value="${escapeHtmlAttr(defaultDepartment)}" placeholder="Выберите отдел" readonly />
+            <input id="employeeCreateDepartment" type="text" class="cell-editor employee-create-picker-input" value="${escapeHtmlAttr(defaultDepartment)}" placeholder="Начните вводить отдел..." readonly />
             <button type="button" class="employee-create-picker-btn" data-employee-create-picker="department" aria-label="Выбрать отдел">▼</button>
           </div>
         </label>
         <label class="employee-create-field">
           <span>Должность</span>
           <div class="employee-create-picker">
-            <input id="employeeCreateRole" type="text" class="cell-editor employee-create-picker-input" value="${escapeHtmlAttr(defaultRole)}" placeholder="Выберите должность" readonly />
+            <input id="employeeCreateRole" type="text" class="cell-editor employee-create-picker-input" value="${escapeHtmlAttr(defaultRole)}" placeholder="Начните вводить должность..." readonly />
             <button type="button" class="employee-create-picker-btn" data-employee-create-picker="role" aria-label="Выбрать должность">▼</button>
           </div>
         </label>
@@ -20255,8 +20255,8 @@ function openCreateEmployeeModal(section) {
     const fullName = normalizePersonName(fullNameInput?.value || "");
     const phoneNormalized = normalizeUzPhone(phoneInputEl?.value || "");
     const phoneFormatted = formatUzPhoneDisplay(phoneNormalized);
-    const department = String(departmentInput?.value || "").trim() || defaultDepartment;
-    const role = String(roleInput?.value || "").trim() || defaultRole;
+    const department = String(departmentInput?.value || "").trim();
+    const role = String(roleInput?.value || "").trim();
     const adminAccess = adminAccessCheckbox instanceof HTMLInputElement && adminAccessCheckbox.checked ? "Да" : "Нет";
 
     if (!fullName) {
@@ -20267,6 +20267,16 @@ function openCreateEmployeeModal(section) {
     if (!phoneNormalized || !isPhoneLengthValid(phoneNormalized)) {
       setError(`Введите корректный номер (${getPhoneLengthHint(phoneNormalized)} цифр после +).`);
       phoneInputEl?.focus();
+      return;
+    }
+    if (!department) {
+      setError("Выберите отдел сотрудника.");
+      departmentInput?.focus();
+      return;
+    }
+    if (!role) {
+      setError("Выберите должность сотрудника.");
+      roleInput?.focus();
       return;
     }
     const duplicateNameIndex = firstRowIndexWithSameNormalizedName(section.rows, fullName);
