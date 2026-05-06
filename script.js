@@ -16830,99 +16830,113 @@ function renderOtherSettingsPanel() {
           <h4 class="other-settings-section-title">SMS Gateway</h4>
           <div class="other-settings-block">
             <h4>Интеграция SMS для приглашения в бот</h4>
-            <label class="settings-option">
-              <input type="checkbox" id="smsGatewayEnabledCheckbox" ${displaySettings.smsGatewayEnabled === true ? "checked" : ""} />
-              <span>Включить отправку SMS-приглашений</span>
-            </label>
-            <label class="settings-field-label" for="smsGatewayProviderSelect">Провайдер</label>
-            <select id="smsGatewayProviderSelect" class="date-time-settings-select">
-              <option value="generic" ${String(displaySettings.smsGatewayProvider || "generic") === "generic" ? "selected" : ""}>Generic HTTP SMS</option>
-              <option value="sms-gate.app" ${String(displaySettings.smsGatewayProvider || "") === "sms-gate.app" ? "selected" : ""}>sms-gate.app</option>
-            </select>
-            <label class="settings-field-label" for="smsGatewayUrlInput">URL SMS Gateway</label>
-            <input id="smsGatewayUrlInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayUrl || ""))}" placeholder="https://api.sms-gate.app/3rdparty/v1/messages" autocomplete="off" />
-            <label class="settings-field-label" for="smsGatewayMethodSelect">Режим запроса</label>
-            <select id="smsGatewayMethodSelect" class="date-time-settings-select">
-              <option value="post-json" ${String(displaySettings.smsGatewayMethod || "post-json") === "post-json" ? "selected" : ""}>POST JSON</option>
-              <option value="get-query" ${String(displaySettings.smsGatewayMethod || "") === "get-query" ? "selected" : ""}>GET Query</option>
-            </select>
-            <label class="settings-field-label" for="smsGatewayAuthTypeSelect">Тип авторизации</label>
-            <select id="smsGatewayAuthTypeSelect" class="date-time-settings-select">
-              <option value="header" ${String(displaySettings.smsGatewayAuthType || "header") === "header" ? "selected" : ""}>Header API Key</option>
-              <option value="basic" ${String(displaySettings.smsGatewayAuthType || "") === "basic" ? "selected" : ""}>Basic (username/password)</option>
-              <option value="bearer" ${String(displaySettings.smsGatewayAuthType || "") === "bearer" ? "selected" : ""}>Bearer token</option>
-              <option value="none" ${String(displaySettings.smsGatewayAuthType || "") === "none" ? "selected" : ""}>Без авторизации</option>
-            </select>
-            <div class="settings-two-column" data-sms-auth-group="basic">
-              <div>
+            <div class="sms-settings-grid">
+              <label class="settings-option sms-settings-grid__span-3">
+                <input type="checkbox" id="smsGatewayEnabledCheckbox" ${displaySettings.smsGatewayEnabled === true ? "checked" : ""} />
+                <span>Включить отправку SMS-приглашений</span>
+              </label>
+
+              <div class="sms-settings-field">
+                <label class="settings-field-label" for="smsGatewayProviderSelect">Провайдер</label>
+                <select id="smsGatewayProviderSelect" class="date-time-settings-select">
+                  <option value="generic" ${String(displaySettings.smsGatewayProvider || "generic") === "generic" ? "selected" : ""}>Generic HTTP SMS</option>
+                  <option value="sms-gate.app" ${String(displaySettings.smsGatewayProvider || "") === "sms-gate.app" ? "selected" : ""}>sms-gate.app</option>
+                </select>
+              </div>
+              <div class="sms-settings-field">
+                <label class="settings-field-label" for="smsGatewayMethodSelect">Режим запроса</label>
+                <select id="smsGatewayMethodSelect" class="date-time-settings-select">
+                  <option value="post-json" ${String(displaySettings.smsGatewayMethod || "post-json") === "post-json" ? "selected" : ""}>POST JSON</option>
+                  <option value="get-query" ${String(displaySettings.smsGatewayMethod || "") === "get-query" ? "selected" : ""}>GET Query</option>
+                </select>
+              </div>
+              <div class="sms-settings-field">
+                <label class="settings-field-label" for="smsGatewayAuthTypeSelect">Тип авторизации</label>
+                <select id="smsGatewayAuthTypeSelect" class="date-time-settings-select">
+                  <option value="header" ${String(displaySettings.smsGatewayAuthType || "header") === "header" ? "selected" : ""}>Header API Key</option>
+                  <option value="basic" ${String(displaySettings.smsGatewayAuthType || "") === "basic" ? "selected" : ""}>Basic (username/password)</option>
+                  <option value="bearer" ${String(displaySettings.smsGatewayAuthType || "") === "bearer" ? "selected" : ""}>Bearer token</option>
+                  <option value="none" ${String(displaySettings.smsGatewayAuthType || "") === "none" ? "selected" : ""}>Без авторизации</option>
+                </select>
+              </div>
+
+              <div class="sms-settings-field sms-settings-grid__span-3">
+                <label class="settings-field-label" for="smsGatewayUrlInput">URL SMS Gateway</label>
+                <input id="smsGatewayUrlInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayUrl || ""))}" placeholder="https://api.sms-gate.app/3rdparty/v1/messages" autocomplete="off" />
+              </div>
+
+              <div class="sms-settings-field" data-sms-auth-group="basic">
                 <label class="settings-field-label" for="smsGatewayUsernameInput">Username</label>
                 <input id="smsGatewayUsernameInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayUsername || ""))}" placeholder="username" autocomplete="off" />
               </div>
-              <div>
+              <div class="sms-settings-field" data-sms-auth-group="basic">
                 <label class="settings-field-label" for="smsGatewayPasswordInput">Password</label>
                 <input id="smsGatewayPasswordInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayPassword || ""))}" placeholder="password" autocomplete="off" />
               </div>
-            </div>
-            <div data-sms-auth-group="header">
-              <label class="settings-field-label" for="smsGatewayApiKeyHeaderInput">Заголовок API ключа</label>
-              <input id="smsGatewayApiKeyHeaderInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayApiKeyHeader || "Authorization"))}" placeholder="Authorization" autocomplete="off" />
-            </div>
-            <div data-sms-auth-group="header,bearer">
-              <label class="settings-field-label" for="smsGatewayApiKeyInput">API ключ / токен</label>
-              <input id="smsGatewayApiKeyInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayApiKey || ""))}" placeholder="Bearer ... или raw token" autocomplete="off" />
-            </div>
-            <div data-sms-provider-group="generic">
-              <label class="settings-field-label" for="smsGatewaySenderInput">Sender (опционально)</label>
-              <input id="smsGatewaySenderInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewaySender || ""))}" placeholder="MBC" autocomplete="off" />
-            </div>
-            <div data-sms-provider-group="sms-gate.app">
-              <label class="settings-field-label" for="smsGatewayDeviceIdInput">Device ID (sms-gate.app, опционально)</label>
-              <input id="smsGatewayDeviceIdInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayDeviceId || ""))}" placeholder="dev_abc123" autocomplete="off" />
-            </div>
-            <div class="settings-two-column" data-sms-provider-group="sms-gate.app">
-              <div>
-                <label class="settings-field-label" for="smsGatewaySimNumberInput">SIM №</label>
-                <input id="smsGatewaySimNumberInput" type="number" min="0" max="8" step="1" value="${Number(displaySettings.smsGatewaySimNumber) || 0}" />
+              <div class="sms-settings-field" data-sms-auth-group="header">
+                <label class="settings-field-label" for="smsGatewayApiKeyHeaderInput">Заголовок API ключа</label>
+                <input id="smsGatewayApiKeyHeaderInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayApiKeyHeader || "Authorization"))}" placeholder="Authorization" autocomplete="off" />
               </div>
-              <div>
-                <label class="settings-field-label" for="smsGatewayTtlInput">TTL (сек)</label>
-                <input id="smsGatewayTtlInput" type="number" min="0" max="604800" step="1" value="${Number(displaySettings.smsGatewayTtlSeconds) || 0}" />
+              <div class="sms-settings-field sms-settings-grid__span-2" data-sms-auth-group="header,bearer">
+                <label class="settings-field-label" for="smsGatewayApiKeyInput">API ключ / токен</label>
+                <input id="smsGatewayApiKeyInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayApiKey || ""))}" placeholder="Bearer ... или raw token" autocomplete="off" />
               </div>
-            </div>
-            <div class="settings-two-column" data-sms-provider-group="sms-gate.app">
-              <div>
-                <label class="settings-field-label" for="smsGatewayPriorityInput">Priority (0-100)</label>
-                <input id="smsGatewayPriorityInput" type="number" min="0" max="100" step="1" value="${Number(displaySettings.smsGatewayPriority) || 0}" />
+
+              <div class="sms-settings-field" data-sms-provider-group="generic">
+                <label class="settings-field-label" for="smsGatewaySenderInput">Sender (опционально)</label>
+                <input id="smsGatewaySenderInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewaySender || ""))}" placeholder="MBC" autocomplete="off" />
               </div>
-              <div>
-                <label class="settings-field-label" for="smsGatewayDeviceActiveWithinInput">deviceActiveWithin (часы)</label>
-                <input id="smsGatewayDeviceActiveWithinInput" type="number" min="0" max="720" step="1" value="${Number(displaySettings.smsGatewayDeviceActiveWithinHours) || 0}" />
-              </div>
-            </div>
-            <label class="settings-option settings-option--compact" data-sms-provider-group="sms-gate.app">
-              <input type="checkbox" id="smsGatewaySkipPhoneValidationCheckbox" ${displaySettings.smsGatewaySkipPhoneValidation !== false ? "checked" : ""} />
-              <span>skipPhoneValidation=true (для sms-gate.app)</span>
-            </label>
-            <div class="settings-two-column" data-sms-provider-group="generic">
-              <div>
+              <div class="sms-settings-field" data-sms-provider-group="generic">
                 <label class="settings-field-label" for="smsGatewayPhoneFieldInput">Поле телефона</label>
                 <input id="smsGatewayPhoneFieldInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayPhoneField || "phone"))}" placeholder="phone" autocomplete="off" />
               </div>
-              <div>
+              <div class="sms-settings-field" data-sms-provider-group="generic">
                 <label class="settings-field-label" for="smsGatewayMessageFieldInput">Поле сообщения</label>
                 <input id="smsGatewayMessageFieldInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayMessageField || "message"))}" placeholder="message" autocomplete="off" />
               </div>
+              <div class="sms-settings-field" data-sms-provider-group="generic">
+                <label class="settings-field-label" for="smsGatewaySenderFieldInput">Поле sender</label>
+                <input id="smsGatewaySenderFieldInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewaySenderField || "sender"))}" placeholder="sender" autocomplete="off" />
+              </div>
+
+              <div class="sms-settings-field sms-settings-grid__span-2" data-sms-provider-group="sms-gate.app">
+                <label class="settings-field-label" for="smsGatewayDeviceIdInput">Device ID (sms-gate.app, опционально)</label>
+                <input id="smsGatewayDeviceIdInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayDeviceId || ""))}" placeholder="dev_abc123" autocomplete="off" />
+              </div>
+              <div class="sms-settings-field" data-sms-provider-group="sms-gate.app">
+                <label class="settings-field-label" for="smsGatewaySimNumberInput">SIM №</label>
+                <input id="smsGatewaySimNumberInput" type="number" min="0" max="8" step="1" value="${Number(displaySettings.smsGatewaySimNumber) || 0}" />
+              </div>
+              <div class="sms-settings-field" data-sms-provider-group="sms-gate.app">
+                <label class="settings-field-label" for="smsGatewayTtlInput">TTL (сек)</label>
+                <input id="smsGatewayTtlInput" type="number" min="0" max="604800" step="1" value="${Number(displaySettings.smsGatewayTtlSeconds) || 0}" />
+              </div>
+              <div class="sms-settings-field" data-sms-provider-group="sms-gate.app">
+                <label class="settings-field-label" for="smsGatewayPriorityInput">Priority (0-100)</label>
+                <input id="smsGatewayPriorityInput" type="number" min="0" max="100" step="1" value="${Number(displaySettings.smsGatewayPriority) || 0}" />
+              </div>
+              <div class="sms-settings-field" data-sms-provider-group="sms-gate.app">
+                <label class="settings-field-label" for="smsGatewayDeviceActiveWithinInput">deviceActiveWithin (часы)</label>
+                <input id="smsGatewayDeviceActiveWithinInput" type="number" min="0" max="720" step="1" value="${Number(displaySettings.smsGatewayDeviceActiveWithinHours) || 0}" />
+              </div>
+              <label class="settings-option settings-option--compact sms-settings-grid__span-2" data-sms-provider-group="sms-gate.app">
+                <input type="checkbox" id="smsGatewaySkipPhoneValidationCheckbox" ${displaySettings.smsGatewaySkipPhoneValidation !== false ? "checked" : ""} />
+                <span>skipPhoneValidation=true (для sms-gate.app)</span>
+              </label>
+
+              <div class="sms-settings-field">
+                <label class="settings-field-label" for="smsGatewayTimeoutInput">Таймаут запроса, мс</label>
+                <input id="smsGatewayTimeoutInput" type="number" min="3000" max="60000" step="500" value="${Number(displaySettings.smsGatewayTimeoutMs) || 15000}" />
+              </div>
+
+              <div class="sms-settings-field sms-settings-grid__span-3">
+                <label class="settings-field-label" for="smsInviteTemplateInput">Шаблон SMS</label>
+                <textarea id="smsInviteTemplateInput" rows="4" placeholder="Текст приглашения с плейсхолдерами [ФИО], [Бот], [Ссылка_бота], [ID], [Телефон]">${escapeHtmlText(String(displaySettings.smsInviteTemplate || ""))}</textarea>
+              </div>
+
+              <p class="other-settings-hint sms-settings-grid__span-3 sms-settings-hint">Для <strong>sms-gate.app</strong> используйте URL <code>https://api.sms-gate.app/3rdparty/v1/messages</code>, авторизацию Basic или Bearer и scope <code>messages:send</code> (если JWT).</p>
+              <p class="other-settings-hint sms-settings-grid__span-3 sms-settings-hint">Кнопка SMS появляется в строке сотрудника только если у него пустой <strong>Chat ID</strong>. После отправки результат фиксируется в журнале (иконка часов в разделе «Сотрудники»).</p>
             </div>
-            <div data-sms-provider-group="generic">
-              <label class="settings-field-label" for="smsGatewaySenderFieldInput">Поле sender</label>
-              <input id="smsGatewaySenderFieldInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewaySenderField || "sender"))}" placeholder="sender" autocomplete="off" />
-            </div>
-            <label class="settings-field-label" for="smsGatewayTimeoutInput">Таймаут запроса, мс</label>
-            <input id="smsGatewayTimeoutInput" type="number" min="3000" max="60000" step="500" value="${Number(displaySettings.smsGatewayTimeoutMs) || 15000}" />
-            <label class="settings-field-label" for="smsInviteTemplateInput">Шаблон SMS</label>
-            <textarea id="smsInviteTemplateInput" rows="4" placeholder="Текст приглашения с плейсхолдерами [ФИО], [Бот], [Ссылка_бота], [ID], [Телефон]">${escapeHtmlText(String(displaySettings.smsInviteTemplate || ""))}</textarea>
-            <p class="other-settings-hint">Для <strong>sms-gate.app</strong> используйте URL <code>https://api.sms-gate.app/3rdparty/v1/messages</code>, авторизацию Basic или Bearer и scope <code>messages:send</code> (если JWT).</p>
-            <p class="other-settings-hint">Кнопка SMS появляется в строке сотрудника только если у него пустой <strong>Chat ID</strong>. После отправки результат фиксируется в журнале (иконка часов в разделе «Сотрудники»).</p>
           </div>
         </div>
 

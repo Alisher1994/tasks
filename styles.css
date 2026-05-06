@@ -1315,6 +1315,52 @@ select.date-time-settings-select {
   font-size: 12px;
 }
 
+.sms-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 12px;
+  align-items: start;
+}
+
+.sms-settings-field {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.sms-settings-grid__span-2 {
+  grid-column: span 2;
+}
+
+.sms-settings-grid__span-3 {
+  grid-column: 1 / -1;
+}
+
+.sms-settings-grid .settings-option {
+  min-height: 32px;
+}
+
+.sms-settings-hint {
+  max-width: none;
+}
+
+@media (max-width: 1200px) {
+  .sms-settings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sms-settings-grid__span-2,
+  .sms-settings-grid__span-3 {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .sms-settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .date-time-settings-block .settings-option--compact {
   font-size: 12px;
   margin-top: 2px;
