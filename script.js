@@ -5,6 +5,10 @@ const appSection = document.getElementById("appSection");
 const phoneInput = document.getElementById("phone");
 const tabsRoot = document.getElementById("tabs");
 const tableContainer = document.getElementById("tableContainer");
+const mobileTopBar = document.getElementById("mobileTopBar");
+const mobileTopCurrent = document.getElementById("mobileTopCurrent");
+const mobileTopMenu = document.getElementById("mobileTopMenu");
+const mobileTopMenuToggle = document.getElementById("mobileTopMenuToggle");
 const mobileBottomNav = document.getElementById("mobileBottomNav");
 const logoutBtn = document.getElementById("logoutBtn");
 const currentUser = document.getElementById("currentUser");
@@ -4526,6 +4530,7 @@ let reportShareRowsOverride = null;
 let sharedReportExpiresAt = 0;
 let otherSettingsActiveTab = "general";
 let currentAuthRole = "user";
+let isMobileTopMenuOpen = false;
 
 let displaySettings = {
   highlightClosed: false,
@@ -4696,6 +4701,7 @@ function selectSection(sectionId) {
   if (sectionId !== "tasks" && sectionId !== "report") {
     isSettingsOpen = true;
   }
+  isMobileTopMenuOpen = false;
   renderSidebarMenu();
   renderTable();
   if (sectionId === "smsHistory") {
@@ -4708,87 +4714,86 @@ function selectSection(sectionId) {
   });
 }
 
-function renderMobileBottomNav({ allowSettings, isReferenceActive, isUsersActive, sectionById }) {
-  if (!(mobileBottomNav instanceof HTMLElement)) return;
-
-  const items = [
-    {
-      key: "tasks",
-      label: "Задачи",
-      icon: "listChecks",
-      active: activeSectionId === "tasks"
-    },
-    {
-      key: "report",
-      label: "Аналитика",
-      icon: "barChart",
-      active: activeSectionId === "report"
+function renderMobileTopMenu({ allowSettings, isReferenceActive, isUsersActive, sectionById }) {
+  if (!(mobileTopBar instanceof HTMLElement) || !(mobileTopMenu instanceof HTMLElement)) return;
+  const currentTitle = activeSectionId === "tasks"
+    ? "Задачи"
+    : activeSectionId === "report"
+      ? "Аналитика"
+      : String(sectionById.get(activeSectionId)?.title || "Раздел");
+  if (mobileTopCurrent instanceof HTMLElement) {
+    mobileTopCurrent.textContent = currentTitle;
+  }
+  if (mobileTopMenuToggle instanceof HTMLButtonElement) {
+    mobileTopMenuToggle.setAttribute("aria-expanded", isMobileTopMenuOpen ? "true" : "false");
+    mobileTopMenuToggle.setAttribute("title", isMobileTopMenuOpen ? "Скрыть меню" : "Открыть меню");
+    const iconEl = mobileTopMenuToggle.querySelector(".mobile-top-menu-toggle-icon");
+    if (iconEl instanceof HTMLElement) {
+      iconEl.textContent = isMobileTopMenuOpen ? "✕" : "☰";
     }
-  ];
-
-  if (allowSettings) {
-    items.push(
-      {
-        key: "reference",
-        label: "Справочник",
-        icon: SECTION_GROUPS.reference.icon,
-        active: isReferenceActive
-      },
-      {
-        key: "users",
-        label: "Пользователи",
-        icon: SECTION_GROUPS.users.icon,
-        active: isUsersActive
-      }
-    );
-    const objectsSection = sectionById.get("objects");
-    if (objectsSection) {
-      items.push({
-        key: "objects",
-        label: "Объекты",
-        icon: "building2",
-        active: activeSectionId === objectsSection.id
-      });
-    }
-    items.push({
-      key: "otherSettings",
-      label: "Настройки",
-      icon: "settings",
-      active: activeSectionId === "otherSettings"
-    });
-    items.push({
-      key: "logout",
-      label: "Выход",
-      icon: "rotate-ccw",
-      active: false
-    });
+    mobileTopMenuToggle.onclick = () => {
+      isMobileTopMenuOpen = !isMobileTopMenuOpen;
+      renderSidebarMenu();
+    };
   }
 
-  mobileBottomNav.innerHTML = items.map((item) => `
+  if (!allowSettings) {
+    mobileTopMenu.classList.add("hidden");
+    mobileTopMenu.setAttribute("aria-hidden", "true");
+    return;
+  }
+
+  const menuItems = [];
+  menuItems.push({
+    key: "reference",
+    label: "Справочник",
+    icon: SECTION_GROUPS.reference.icon,
+    active: isReferenceActive
+  });
+  menuItems.push({
+    key: "users",
+    label: "Пользователи",
+    icon: SECTION_GROUPS.users.icon,
+    active: isUsersActive
+  });
+  if (sectionById.get("objects")) {
+    menuItems.push({
+      key: "objects",
+      label: "Объекты",
+      icon: "building2",
+      active: activeSectionId === "objects"
+    });
+  }
+  menuItems.push({
+    key: "otherSettings",
+    label: "Прочие настройки",
+    icon: "settings",
+    active: activeSectionId === "otherSettings"
+  });
+  menuItems.push({
+    key: "logout",
+    label: "Выйти",
+    icon: "rotate-ccw",
+    active: false
+  });
+
+  mobileTopMenu.innerHTML = menuItems.map((item) => `
     <button
       type="button"
-      class="mobile-bottom-nav-btn ${item.active ? "active" : ""}"
-      data-mobile-nav-key="${escapeHtmlAttr(item.key)}"
+      class="mobile-top-menu-item ${item.active ? "active" : ""}"
+      data-mobile-top-key="${escapeHtmlAttr(item.key)}"
       title="${escapeHtmlAttr(item.label)}"
       aria-label="${escapeHtmlAttr(item.label)}"
     >
-      <span class="mobile-bottom-nav-icon">${iconSvg(item.icon)}</span>
-      <span class="mobile-bottom-nav-label">${escapeHtmlText(item.label)}</span>
+      <span class="mobile-top-menu-item-icon">${iconSvg(item.icon)}</span>
+      <span>${escapeHtmlText(item.label)}</span>
     </button>
   `).join("");
 
-  Array.from(mobileBottomNav.querySelectorAll(".mobile-bottom-nav-btn")).forEach((button) => {
+  Array.from(mobileTopMenu.querySelectorAll(".mobile-top-menu-item")).forEach((button) => {
     button.addEventListener("click", () => {
-      const key = String(button.dataset.mobileNavKey || "");
-      if (key === "tasks") {
-        selectSection("tasks");
-        return;
-      }
-      if (key === "report") {
-        selectSection("report");
-        return;
-      }
-      if (!allowSettings) return;
+      const key = String(button.dataset.mobileTopKey || "");
+      isMobileTopMenuOpen = false;
       if (key === "reference") {
         const next = SECTION_GROUPS.reference.sections.includes(activeSectionId)
           ? activeSectionId
@@ -4821,6 +4826,55 @@ function renderMobileBottomNav({ allowSettings, isReferenceActive, isUsersActive
             showLogin();
           }
         });
+      }
+    });
+  });
+
+  mobileTopMenu.classList.toggle("hidden", !isMobileTopMenuOpen);
+  mobileTopMenu.setAttribute("aria-hidden", isMobileTopMenuOpen ? "false" : "true");
+}
+
+function renderMobileBottomNav() {
+  if (!(mobileBottomNav instanceof HTMLElement)) return;
+
+  const items = [
+    {
+      key: "tasks",
+      label: "Задачи",
+      icon: "listChecks",
+      active: activeSectionId === "tasks"
+    },
+    {
+      key: "report",
+      label: "Аналитика",
+      icon: "barChart",
+      active: activeSectionId === "report"
+    }
+  ];
+
+  mobileBottomNav.innerHTML = items.map((item) => `
+    <button
+      type="button"
+      class="mobile-bottom-nav-btn ${item.active ? "active" : ""}"
+      data-mobile-nav-key="${escapeHtmlAttr(item.key)}"
+      title="${escapeHtmlAttr(item.label)}"
+      aria-label="${escapeHtmlAttr(item.label)}"
+    >
+      <span class="mobile-bottom-nav-icon">${iconSvg(item.icon)}</span>
+      <span class="mobile-bottom-nav-label">${escapeHtmlText(item.label)}</span>
+    </button>
+  `).join("");
+
+  Array.from(mobileBottomNav.querySelectorAll(".mobile-bottom-nav-btn")).forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = String(button.dataset.mobileNavKey || "");
+      if (key === "tasks") {
+        selectSection("tasks");
+        return;
+      }
+      if (key === "report") {
+        selectSection("report");
+        return;
       }
     });
   });
@@ -4912,7 +4966,8 @@ function renderSidebarMenu() {
     tabsRoot.appendChild(otherSettingsButton);
   }
 
-  renderMobileBottomNav({ allowSettings, isReferenceActive, isUsersActive, sectionById });
+  renderMobileTopMenu({ allowSettings, isReferenceActive, isUsersActive, sectionById });
+  renderMobileBottomNav();
 }
 
 function normalizeTasksListDisplaySettings() {
@@ -22214,6 +22269,15 @@ updateLoginPhoneFlag();
 startLoginMotionCanvas();
 window.addEventListener("resize", () => {
   updateTableStickyHeaderOffsets();
+});
+
+document.addEventListener("click", (event) => {
+  if (!isMobileTopMenuOpen) return;
+  const target = event.target instanceof Node ? event.target : null;
+  if (!target) return;
+  if (mobileTopBar?.contains(target) || mobileTopMenu?.contains(target)) return;
+  isMobileTopMenuOpen = false;
+  renderSidebarMenu();
 });
 
 const initialShareIdBoot = new URLSearchParams(location.search).get("share");
