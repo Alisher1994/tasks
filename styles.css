@@ -7569,6 +7569,35 @@ button.report-filter-icon-btn .lucide-icon {
     margin-right: 0;
   }
 
+  .status-tabs-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: #b7c3d0 #eef3f8;
+    padding-bottom: 2px;
+    gap: 6px;
+  }
+
+  .status-tabs-row::-webkit-scrollbar {
+    height: 5px;
+  }
+
+  .status-tabs-row::-webkit-scrollbar-track {
+    background: #eef3f8;
+    border-radius: 8px;
+  }
+
+  .status-tabs-row::-webkit-scrollbar-thumb {
+    background: #b7c3d0;
+    border-radius: 8px;
+  }
+
+  .status-tab-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
   .employee-create-modal {
     width: min(680px, 96vw);
   }

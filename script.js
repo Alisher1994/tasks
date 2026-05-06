@@ -4970,10 +4970,26 @@ function renderSidebarMenu() {
   renderMobileBottomNav();
 }
 
+function isMobileCompactViewport() {
+  try {
+    return typeof window !== "undefined"
+      && typeof window.matchMedia === "function"
+      && window.matchMedia("(max-width: 760px)").matches;
+  } catch (_) {
+    return false;
+  }
+}
+
+function normalizeTasksBrowseModeChoice(value) {
+  const raw = String(value || "").trim();
+  if (raw === "byObject") return "byObject";
+  if (raw === "graph" && !isMobileCompactViewport()) return "graph";
+  return "flat";
+}
+
 function normalizeTasksListDisplaySettings() {
   const mode = displaySettings.tasksListPagingMode === "chunks" ? "chunks" : "pagination";
-  const browseRaw = String(displaySettings.tasksListBrowseMode || "").trim();
-  const browse = browseRaw === "byObject" || browseRaw === "graph" ? browseRaw : "flat";
+  const browse = normalizeTasksBrowseModeChoice(displaySettings.tasksListBrowseMode);
   displaySettings.tasksListPagingMode = mode;
   displaySettings.tasksListBrowseMode = browse;
   let n = Number(displaySettings.tasksListPageSize);
@@ -5303,7 +5319,7 @@ function renderSectionHeaderIconButtons(section) {
 function attachTasksBrowseModeSwitchHandlers() {
   Array.from(document.querySelectorAll('input[name="tasksQuickBrowseMode"]')).forEach((r) => {
     r.addEventListener("change", () => {
-      const nextMode = r.value === "byObject" || r.value === "graph" ? r.value : "flat";
+      const nextMode = normalizeTasksBrowseModeChoice(r.value);
       displaySettings.tasksListBrowseMode = nextMode;
       if (nextMode !== "byObject") tasksBrowseObjectKey = null;
       saveDisplaySettings();
@@ -13015,9 +13031,8 @@ function renderStatusTabs(section) {
 
 function renderTasksScreenModeSwitch(section, selectedCount = 0, isTrashView = false) {
   if (section.id !== "tasks") return "";
-  const mode = displaySettings.tasksListBrowseMode === "byObject" || displaySettings.tasksListBrowseMode === "graph"
-    ? displaySettings.tasksListBrowseMode
-    : "flat";
+  const allowGraphMode = !isMobileCompactViewport();
+  const mode = normalizeTasksBrowseModeChoice(displaySettings.tasksListBrowseMode);
   const groupBy = normalizeTasksGanttGroupBy(displaySettings.tasksGanttGroupBy);
   const zoom = normalizeTasksGanttZoomPercent(displaySettings.tasksGanttZoomPercent);
   const zoomStage = getTasksGanttScaleStageLabel(zoom);
@@ -13047,10 +13062,11 @@ function renderTasksScreenModeSwitch(section, selectedCount = 0, isTrashView = f
             <input type="radio" name="tasksQuickBrowseMode" value="byObject" ${mode === "byObject" ? "checked" : ""} />
             <span>Объект</span>
           </label>
+          ${allowGraphMode ? `
           <label class="tasks-segment">
             <input type="radio" name="tasksQuickBrowseMode" value="graph" ${mode === "graph" ? "checked" : ""} />
             <span>График</span>
-          </label>
+          </label>` : ""}
         </div>
       </div>
     </div>
@@ -17385,6 +17401,7 @@ function renderOtherSettingsPanel() {
     .map((opt) => `<option value="${opt.id}" ${googleSheetsWriteMode === opt.id ? "selected" : ""}>${escapeHtmlText(opt.label)}</option>`)
     .join("");
 
+  const allowGraphMode = !isMobileCompactViewport();
   return `
     <section class="table-card">
       <div class="table-header">
@@ -17426,17 +17443,18 @@ function renderOtherSettingsPanel() {
                 <div class="tasks-setting-block-title">Экран</div>
                 <div class="tasks-segment-group" role="radiogroup" aria-label="Режим экрана задач">
                   <label class="tasks-segment">
-                    <input type="radio" name="tasksListBrowseMode" value="flat" ${displaySettings.tasksListBrowseMode !== "byObject" && displaySettings.tasksListBrowseMode !== "graph" ? "checked" : ""} />
+                    <input type="radio" name="tasksListBrowseMode" value="flat" ${normalizeTasksBrowseModeChoice(displaySettings.tasksListBrowseMode) === "flat" ? "checked" : ""} />
                     <span>Сводная</span>
                   </label>
                   <label class="tasks-segment">
-                    <input type="radio" name="tasksListBrowseMode" value="byObject" ${displaySettings.tasksListBrowseMode === "byObject" ? "checked" : ""} />
+                    <input type="radio" name="tasksListBrowseMode" value="byObject" ${normalizeTasksBrowseModeChoice(displaySettings.tasksListBrowseMode) === "byObject" ? "checked" : ""} />
                     <span>Объект</span>
                   </label>
+                  ${allowGraphMode ? `
                   <label class="tasks-segment">
-                    <input type="radio" name="tasksListBrowseMode" value="graph" ${displaySettings.tasksListBrowseMode === "graph" ? "checked" : ""} />
+                    <input type="radio" name="tasksListBrowseMode" value="graph" ${normalizeTasksBrowseModeChoice(displaySettings.tasksListBrowseMode) === "graph" ? "checked" : ""} />
                     <span>График</span>
-                  </label>
+                  </label>` : ""}
                 </div>
               </div>
               <div class="tasks-setting-block tasks-setting-block--row">
@@ -17993,7 +18011,7 @@ function attachOtherSettingsHandlers() {
 
   Array.from(document.querySelectorAll('input[name="tasksListBrowseMode"]')).forEach((r) => {
     r.addEventListener("change", () => {
-      const nextMode = r.value === "byObject" || r.value === "graph" ? r.value : "flat";
+      const nextMode = normalizeTasksBrowseModeChoice(r.value);
       displaySettings.tasksListBrowseMode = nextMode;
       if (nextMode !== "byObject") tasksBrowseObjectKey = null;
       saveDisplaySettings();
