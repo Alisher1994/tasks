@@ -1753,9 +1753,7 @@ app.post("/api/sms/invite/send", authMiddleware, requireAdmin, async (req, res) 
       responsePreview: ""
     };
 
-    if (chatId) {
-      logEntry.resultMessage = "Сотрудник уже активирован (есть Chat ID), SMS не требуется.";
-    } else if (!phone) {
+    if (!phone) {
       logEntry.resultMessage = "У сотрудника не указан корректный телефон.";
     } else if (!smsSettings.enabled) {
       logEntry.resultMessage = "SMS Gateway выключен в настройках.";

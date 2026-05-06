@@ -3651,19 +3651,10 @@ async function openSmsInviteHistoryModal() {
 async function sendEmployeeInviteSms(employeeRow, triggerButton = null) {
   const employeeId = String(employeeRow?.[EMPLOYEE_COLUMNS.id] || "").trim();
   const fullName = String(employeeRow?.[EMPLOYEE_COLUMNS.fullName] || "").trim() || "Сотрудник";
-  const chatId = String(employeeRow?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
   if (!employeeId) {
     showStatusDialog({
       title: "SMS-приглашение",
       message: "Не найден ID сотрудника.",
-      type: "error"
-    });
-    return false;
-  }
-  if (chatId) {
-    showStatusDialog({
-      title: "SMS-приглашение",
-      message: "У сотрудника уже есть Chat ID, SMS не требуется.",
       type: "error"
     });
     return false;
@@ -5761,10 +5752,10 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
     const tgConnected = String(row?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен";
     const hasChatId = Boolean(String(row?.[EMPLOYEE_COLUMNS.chatId] || "").trim());
     const phone = normalizeUzPhone(String(row?.[EMPLOYEE_COLUMNS.phone] || ""));
-    const canSendSmsInvite = !hasChatId && currentAuthRole === "admin" && Boolean(phone);
+    const canSendSmsInvite = currentAuthRole === "admin" && Boolean(phone);
     const smsDisabledAttr = canSendSmsInvite ? "" : "disabled";
     const smsTitle = hasChatId
-      ? "Сотрудник уже активирован (есть Chat ID)"
+      ? "Отправить SMS повторно (у сотрудника уже есть Chat ID)"
       : currentAuthRole !== "admin"
         ? "Доступно только администратору"
         : !phone
@@ -5782,10 +5773,9 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
         <button type="button" class="icon-action-btn copy-employee-msg-btn" title="Скопировать сообщение сотруднику" data-row-index="${rowIndex}">
           <i data-lucide="copy" class="lucide-icon" aria-hidden="true"></i>
         </button>
-        ${hasChatId ? "" : `
         <button type="button" class="icon-action-btn send-employee-sms-btn" title="${escapeHtmlAttr(smsTitle)}" data-row-index="${rowIndex}" ${smsDisabledAttr}>
           <i data-lucide="message-square" class="lucide-icon" aria-hidden="true"></i>
-        </button>`}
+        </button>
         <button type="button" class="icon-action-btn clear-employee-chat-btn" title="${escapeHtmlAttr(clearTitle)}" data-row-index="${rowIndex}" ${clearDisabledAttr}>
           <i data-lucide="eraser" class="lucide-icon" aria-hidden="true"></i>
         </button>
