@@ -52,12 +52,16 @@ npm start
 | `GET` | `/api/data` | Снимок данных приложения (Bearer) |
 | `PUT` | `/api/data` | Сохранение снимка (Bearer), тело `{ data: { ... } }` |
 | `POST` | `/api/telegram/set-webhook` | Регистрация webhook бота на текущем домене (Bearer); после сохранения токена в приложении |
+| `POST` | `/api/sms/invite/send` | Отправить SMS-приглашение сотруднику в бот (**admin**), `{ employeeId }` |
+| `GET` | `/api/sms/invite/history` | История SMS-приглашений (**admin**) |
 | `POST` | `/api/media/upload` | Загрузка медиа в Railway Volume (Bearer), тело `{ dataUrl, fileName }` |
 | `GET` | `/api/admin/users` | Список пользователей (**admin**) |
 | `POST` | `/api/admin/users` | Создать пользователя (**admin**), `{ phone, password, displayName?, role? }` |
 | `DELETE` | `/api/admin/users/:id` | Удалить пользователя (**admin**) |
 
 Telegram: после входа в приложение нажмите **«Сохранить токен»** в «Прочие настройки» → Telegram — сервер вызовет `setWebhook` на `https://<ваш-домен>/api/telegram/webhook`. Команда `/start` в боте привязывает **реальный** Telegram user id к сотруднику в справочнике (и приветствие в чате). Надёжная привязка: ссылка `https://t.me/<бот>?start=e_<ID>` (ID из колонки сотрудника). Если задан `TELEGRAM_WEBHOOK_SECRET`, тот же секрет уходит в Telegram и проверяется заголовком входящих запросов.
+
+SMS-приглашения: в «Прочие настройки» → **SMS Gateway** можно выбрать режим `sms-gate.app` (официальный endpoint `https://api.sms-gate.app/3rdparty/v1/messages`) или generic HTTP gateway. Кнопка SMS показывается только у сотрудников без `Chat ID`, а история отправок доступна в разделе «Сотрудники» (иконка часов).
 
 ### Railway Volume для медиа
 

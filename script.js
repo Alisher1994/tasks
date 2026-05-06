@@ -3551,6 +3551,180 @@ async function triggerEmployeesChatIdRefresh(options = {}) {
   }
 }
 
+function formatSmsInviteHistoryStatusLabel(entry) {
+  const status = String(entry?.status || "").trim();
+  if (status === "sent" || entry?.ok === true) return "Отправлено";
+  return "Ошибка";
+}
+
+function renderSmsInviteHistoryTableHtml(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  if (!list.length) {
+    return `<p class="task-history-empty">История отправок пока пустая.</p>`;
+  }
+  const rows = list.map((entry) => {
+    const whenMs = Number(entry?.atMs) || Date.parse(String(entry?.atIso || "")) || 0;
+    const employeeName = String(entry?.employeeName || "").trim() || "—";
+    const phone = String(entry?.phone || "").trim() || "—";
+    const status = formatSmsInviteHistoryStatusLabel(entry);
+    const actor = String(entry?.actor || "").trim() || "—";
+    const resultMessage = String(entry?.resultMessage || "").trim() || "—";
+    return `
+      <tr>
+        <td class="task-history-when">${escapeHtmlText(formatTaskHistoryWhen(whenMs))}</td>
+        <td class="task-history-who">${escapeHtmlText(employeeName)}<br /><small>${escapeHtmlText(phone)}</small></td>
+        <td class="task-history-action"><strong>${escapeHtmlText(status)}</strong><br /><small>${escapeHtmlText(actor)}</small></td>
+        <td class="task-history-action">${escapeHtmlText(resultMessage)}</td>
+      </tr>
+    `;
+  }).join("");
+  return `
+    <div class="task-history-scroll">
+      <table class="task-history-table">
+        <thead>
+          <tr>
+            <th>Когда</th>
+            <th>Сотрудник</th>
+            <th>Статус</th>
+            <th>Ответ gateway</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function fetchSmsInviteHistory() {
+  if (!isHostedRuntime() || !getAuthToken()) {
+    return { ok: false, error: "История SMS доступна только в серверном режиме после входа." };
+  }
+  try {
+    const r = await fetch("/api/sms/invite/history", {
+      headers: {
+        Authorization: `Bearer ${getAuthToken()}`
+      }
+    });
+    if (r.status === 401) {
+      handleServerAuthExpired();
+      return { ok: false, error: "Сессия истекла. Войдите снова." };
+    }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j?.ok !== true) {
+      return { ok: false, error: String(j?.error || "Не удалось получить историю SMS.") };
+    }
+    return { ok: true, entries: Array.isArray(j?.entries) ? j.entries : [] };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || "Ошибка сети при загрузке истории SMS.") };
+  }
+}
+
+async function openSmsInviteHistoryModal() {
+  const historyResult = await fetchSmsInviteHistory();
+  if (!historyResult.ok) {
+    showStatusDialog({
+      title: "История SMS",
+      message: String(historyResult.error || "Не удалось загрузить историю."),
+      type: "error"
+    });
+    return;
+  }
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal table-settings-modal" role="dialog" aria-modal="true" aria-label="История SMS-рассылок">
+      <h4>${withIcon("history", "История SMS-рассылок")}</h4>
+      ${renderSmsInviteHistoryTableHtml(historyResult.entries)}
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary sms-history-close-btn">Закрыть</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.querySelector(".sms-history-close-btn")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+}
+
+async function sendEmployeeInviteSms(employeeRow, triggerButton = null) {
+  const employeeId = String(employeeRow?.[EMPLOYEE_COLUMNS.id] || "").trim();
+  const fullName = String(employeeRow?.[EMPLOYEE_COLUMNS.fullName] || "").trim() || "Сотрудник";
+  const chatId = String(employeeRow?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
+  if (!employeeId) {
+    showStatusDialog({
+      title: "SMS-приглашение",
+      message: "Не найден ID сотрудника.",
+      type: "error"
+    });
+    return false;
+  }
+  if (chatId) {
+    showStatusDialog({
+      title: "SMS-приглашение",
+      message: "У сотрудника уже есть Chat ID, SMS не требуется.",
+      type: "error"
+    });
+    return false;
+  }
+  if (!isHostedRuntime() || !getAuthToken()) {
+    showStatusDialog({
+      title: "SMS-приглашение",
+      message: "Отправка SMS доступна только в серверном режиме после входа.",
+      type: "error"
+    });
+    return false;
+  }
+
+  if (triggerButton instanceof HTMLButtonElement) {
+    triggerButton.disabled = true;
+  }
+  try {
+    const r = await fetch("/api/sms/invite/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({ employeeId })
+    });
+    if (r.status === 401) {
+      handleServerAuthExpired();
+      return false;
+    }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j?.ok !== true) {
+      showStatusDialog({
+        title: "SMS-приглашение",
+        message: String(j?.error || "Не удалось отправить SMS."),
+        type: "error"
+      });
+      return false;
+    }
+    const resultMessage = String(j?.entry?.resultMessage || "").trim();
+    showStatusDialog({
+      title: "SMS отправлено",
+      message: resultMessage
+        ? `Сотрудник: ${fullName}\n${resultMessage}`
+        : `Сотрудник: ${fullName}\nСообщение отправлено.`,
+      type: "success"
+    });
+    return true;
+  } catch (e) {
+    showStatusDialog({
+      title: "SMS-приглашение",
+      message: String(e?.message || "Ошибка сети при отправке SMS."),
+      type: "error"
+    });
+    return false;
+  } finally {
+    if (triggerButton instanceof HTMLButtonElement) {
+      triggerButton.disabled = false;
+    }
+  }
+}
+
 function scheduleEmployeeChatIdAutoRefresh() {
   if (!isHostedRuntime() || !getAuthToken()) return;
   clearTimeout(employeeChatIdAutoRefreshTimer);
@@ -4079,6 +4253,31 @@ let displaySettings = {
   telegramBotDisplayName: "",
   /** Числовой chat_id админа: проверочное сообщение «Проверить бота» уходит только сюда */
   telegramAdminChatId: "",
+  smsGatewayEnabled: false,
+  smsGatewayProvider: "generic",
+  smsGatewayUrl: "https://api.sms-gate.app/3rdparty/v1/messages",
+  /** post-json | get-query */
+  smsGatewayMethod: "post-json",
+  /** none | header | basic | bearer */
+  smsGatewayAuthType: "header",
+  smsGatewayUsername: "",
+  smsGatewayPassword: "",
+  /** Значение ключа. При необходимости префикс (например Bearer) указывается прямо в этом поле. */
+  smsGatewayApiKey: "",
+  smsGatewayApiKeyHeader: "Authorization",
+  smsGatewaySender: "",
+  smsGatewayDeviceId: "",
+  smsGatewaySimNumber: 0,
+  smsGatewayTtlSeconds: 0,
+  smsGatewayPriority: 0,
+  smsGatewaySkipPhoneValidation: true,
+  smsGatewayDeviceActiveWithinHours: 0,
+  smsGatewayPhoneField: "phone",
+  smsGatewayMessageField: "message",
+  smsGatewaySenderField: "sender",
+  smsGatewayTimeoutMs: 15000,
+  smsInviteTemplate:
+    "Здравствуйте, [ФИО]. Пожалуйста, пройдите регистрацию в Telegram-боте [Бот] по ссылке: [Ссылка_бота]. После регистрации вы будете получать задачи от руководителей.",
   /** Пустая строка = часовой пояс браузера */
   serverTimezone: "",
   dateDisplayFormat: "DMY_DOT",
@@ -4617,6 +4816,10 @@ function renderSectionHeaderIconButtons(section) {
           ${section.id === "employees" ? `
           <button type="button" class="icon-action-btn" id="refreshEmployeeChatIdsBtn" title="Обновить Chat ID сотрудников">
             <i data-lucide="rotate-cw" class="lucide-icon" aria-hidden="true"></i>
+          </button>` : ""}
+          ${section.id === "employees" ? `
+          <button type="button" class="icon-action-btn" id="openSmsInviteHistoryBtn" title="История SMS-рассылок">
+            <i data-lucide="history" class="lucide-icon" aria-hidden="true"></i>
           </button>` : ""}
           <button type="button" class="icon-action-btn refresh-section-btn" id="refreshSectionBtn" title="Обновить">
             <i data-lucide="refresh-cw" class="lucide-icon" aria-hidden="true"></i>
@@ -5557,6 +5760,16 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
   if (sectionId === "employees") {
     const tgConnected = String(row?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен";
     const hasChatId = Boolean(String(row?.[EMPLOYEE_COLUMNS.chatId] || "").trim());
+    const phone = normalizeUzPhone(String(row?.[EMPLOYEE_COLUMNS.phone] || ""));
+    const canSendSmsInvite = !hasChatId && currentAuthRole === "admin" && Boolean(phone);
+    const smsDisabledAttr = canSendSmsInvite ? "" : "disabled";
+    const smsTitle = hasChatId
+      ? "Сотрудник уже активирован (есть Chat ID)"
+      : currentAuthRole !== "admin"
+        ? "Доступно только администратору"
+        : !phone
+          ? "У сотрудника не указан телефон"
+          : "Отправить SMS-приглашение в бот";
     const canClearChat = tgConnected && hasChatId && currentAuthRole === "admin";
     const clearDisabledAttr = canClearChat ? "" : "disabled";
     const clearTitle = currentAuthRole !== "admin"
@@ -5569,6 +5782,10 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
         <button type="button" class="icon-action-btn copy-employee-msg-btn" title="Скопировать сообщение сотруднику" data-row-index="${rowIndex}">
           <i data-lucide="copy" class="lucide-icon" aria-hidden="true"></i>
         </button>
+        ${hasChatId ? "" : `
+        <button type="button" class="icon-action-btn send-employee-sms-btn" title="${escapeHtmlAttr(smsTitle)}" data-row-index="${rowIndex}" ${smsDisabledAttr}>
+          <i data-lucide="message-square" class="lucide-icon" aria-hidden="true"></i>
+        </button>`}
         <button type="button" class="icon-action-btn clear-employee-chat-btn" title="${escapeHtmlAttr(clearTitle)}" data-row-index="${rowIndex}" ${clearDisabledAttr}>
           <i data-lucide="eraser" class="lucide-icon" aria-hidden="true"></i>
         </button>
@@ -13434,6 +13651,7 @@ function attachTableActionHandlers(section, filteredEntries) {
   const restoreButtons = Array.from(document.querySelectorAll(".restore-row-btn"));
   const sendButtons = Array.from(document.querySelectorAll(".send-row-btn"));
   const copyEmployeeMsgButtons = Array.from(document.querySelectorAll(".copy-employee-msg-btn"));
+  const sendEmployeeSmsButtons = Array.from(document.querySelectorAll(".send-employee-sms-btn"));
   const clearEmployeeChatButtons = Array.from(document.querySelectorAll(".clear-employee-chat-btn"));
   const deleteButtons = Array.from(document.querySelectorAll(".delete-row-btn"));
   const bulkSendBtn = document.getElementById("bulkSendBtn");
@@ -13537,6 +13755,16 @@ function attachTableActionHandlers(section, filteredEntries) {
       setTimeout(() => {
         button.title = "Скопировать сообщение сотруднику";
       }, 1200);
+    });
+  });
+
+  sendEmployeeSmsButtons.forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (section.id !== "employees") return;
+      const rowIndex = Number(button.dataset.rowIndex);
+      const row = section.rows[rowIndex];
+      if (!row) return;
+      await sendEmployeeInviteSms(row, button);
     });
   });
 
@@ -16280,6 +16508,7 @@ function fromInputDate(value) {
 function attachHeaderActionHandlers(section, filteredEntries) {
   const refreshSectionBtn = document.getElementById("refreshSectionBtn");
   const refreshEmployeeChatIdsBtn = document.getElementById("refreshEmployeeChatIdsBtn");
+  const openSmsInviteHistoryBtn = document.getElementById("openSmsInviteHistoryBtn");
   const openEmployeeImportModalBtn = document.getElementById("openEmployeeImportModalBtn");
   const openCatalogImportModalBtn = document.getElementById("openCatalogImportModalBtn");
   const googleSheetsSyncTasksBtn = document.getElementById("googleSheetsSyncTasksBtn");
@@ -16306,6 +16535,11 @@ function attachHeaderActionHandlers(section, filteredEntries) {
         refreshEmployeeChatIdsBtn.disabled = false;
         refreshEmployeeChatIdsBtn.dataset.busy = "0";
       }
+    });
+  }
+  if (openSmsInviteHistoryBtn && section.id === "employees") {
+    openSmsInviteHistoryBtn.addEventListener("click", () => {
+      openSmsInviteHistoryModal();
     });
   }
 
@@ -16419,7 +16653,7 @@ function attachHeaderActionHandlers(section, filteredEntries) {
 }
 
 function renderOtherSettingsPanel() {
-  const allowedSettingsTabs = new Set(["general", "dateTime", "telegram", "googleSheets", "notifications", "taskFormat", "globalDup"]);
+  const allowedSettingsTabs = new Set(["general", "dateTime", "telegram", "sms", "googleSheets", "notifications", "taskFormat", "globalDup"]);
   const activeSettingsTab = allowedSettingsTabs.has(otherSettingsActiveTab) ? otherSettingsActiveTab : "general";
   const getStatusClass = (status) => {
     if (status === "Новый") return "status-legend-new";
@@ -16487,6 +16721,7 @@ function renderOtherSettingsPanel() {
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "general" ? "active" : ""}" data-other-settings-tab="general">Основные</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "dateTime" ? "active" : ""}" data-other-settings-tab="dateTime">Дата и время</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "telegram" ? "active" : ""}" data-other-settings-tab="telegram">Telegram</button>
+          <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "sms" ? "active" : ""}" data-other-settings-tab="sms">SMS Gateway</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "googleSheets" ? "active" : ""}" data-other-settings-tab="googleSheets">Google Sheets</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "notifications" ? "active" : ""}" data-other-settings-tab="notifications">Настройки оповещения</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "taskFormat" ? "active" : ""}" data-other-settings-tab="taskFormat">Шаблон сообщений</button>
@@ -16594,6 +16829,96 @@ function renderOtherSettingsPanel() {
                 : "https://t.me/<бот>?start=e_<ID>"
             )}</code>, где <strong>ID</strong> — значение из первой колонки сотрудника (например <code>e_3</code> в ссылке для ID 3). Если открыть бота без параметра, сопоставление идёт по <strong>имени и фамилии</strong> в профиле Telegram и ФИО в таблице (полное совпадение токенов имени).</p>
             <p class="other-settings-hint">Поле «Chat ID» не заполняется из номера телефона — только реальный Telegram user id после команды /start у бота (или вручную).</p>
+          </div>
+        </div>
+
+        <div class="other-settings-section ${activeSettingsTab === "sms" ? "" : "hidden"}" data-other-settings-pane="sms">
+          <h4 class="other-settings-section-title">SMS Gateway</h4>
+          <div class="other-settings-block">
+            <h4>Интеграция SMS для приглашения в бот</h4>
+            <label class="settings-option">
+              <input type="checkbox" id="smsGatewayEnabledCheckbox" ${displaySettings.smsGatewayEnabled === true ? "checked" : ""} />
+              <span>Включить отправку SMS-приглашений</span>
+            </label>
+            <label class="settings-field-label" for="smsGatewayProviderSelect">Провайдер</label>
+            <select id="smsGatewayProviderSelect" class="date-time-settings-select">
+              <option value="generic" ${String(displaySettings.smsGatewayProvider || "generic") === "generic" ? "selected" : ""}>Generic HTTP SMS</option>
+              <option value="sms-gate.app" ${String(displaySettings.smsGatewayProvider || "") === "sms-gate.app" ? "selected" : ""}>sms-gate.app</option>
+            </select>
+            <label class="settings-field-label" for="smsGatewayUrlInput">URL SMS Gateway</label>
+            <input id="smsGatewayUrlInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayUrl || ""))}" placeholder="https://api.sms-gate.app/3rdparty/v1/messages" autocomplete="off" />
+            <label class="settings-field-label" for="smsGatewayMethodSelect">Режим запроса</label>
+            <select id="smsGatewayMethodSelect" class="date-time-settings-select">
+              <option value="post-json" ${String(displaySettings.smsGatewayMethod || "post-json") === "post-json" ? "selected" : ""}>POST JSON</option>
+              <option value="get-query" ${String(displaySettings.smsGatewayMethod || "") === "get-query" ? "selected" : ""}>GET Query</option>
+            </select>
+            <label class="settings-field-label" for="smsGatewayAuthTypeSelect">Тип авторизации</label>
+            <select id="smsGatewayAuthTypeSelect" class="date-time-settings-select">
+              <option value="header" ${String(displaySettings.smsGatewayAuthType || "header") === "header" ? "selected" : ""}>Header API Key</option>
+              <option value="basic" ${String(displaySettings.smsGatewayAuthType || "") === "basic" ? "selected" : ""}>Basic (username/password)</option>
+              <option value="bearer" ${String(displaySettings.smsGatewayAuthType || "") === "bearer" ? "selected" : ""}>Bearer token</option>
+              <option value="none" ${String(displaySettings.smsGatewayAuthType || "") === "none" ? "selected" : ""}>Без авторизации</option>
+            </select>
+            <div class="settings-two-column">
+              <div>
+                <label class="settings-field-label" for="smsGatewayUsernameInput">Username</label>
+                <input id="smsGatewayUsernameInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayUsername || ""))}" placeholder="username" autocomplete="off" />
+              </div>
+              <div>
+                <label class="settings-field-label" for="smsGatewayPasswordInput">Password</label>
+                <input id="smsGatewayPasswordInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayPassword || ""))}" placeholder="password" autocomplete="off" />
+              </div>
+            </div>
+            <label class="settings-field-label" for="smsGatewayApiKeyHeaderInput">Заголовок API ключа</label>
+            <input id="smsGatewayApiKeyHeaderInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayApiKeyHeader || "Authorization"))}" placeholder="Authorization" autocomplete="off" />
+            <label class="settings-field-label" for="smsGatewayApiKeyInput">API ключ / токен</label>
+            <input id="smsGatewayApiKeyInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayApiKey || ""))}" placeholder="Bearer ... или raw token" autocomplete="off" />
+            <label class="settings-field-label" for="smsGatewaySenderInput">Sender (опционально)</label>
+            <input id="smsGatewaySenderInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewaySender || ""))}" placeholder="MBC" autocomplete="off" />
+            <label class="settings-field-label" for="smsGatewayDeviceIdInput">Device ID (sms-gate.app, опционально)</label>
+            <input id="smsGatewayDeviceIdInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayDeviceId || ""))}" placeholder="dev_abc123" autocomplete="off" />
+            <div class="settings-two-column">
+              <div>
+                <label class="settings-field-label" for="smsGatewaySimNumberInput">SIM №</label>
+                <input id="smsGatewaySimNumberInput" type="number" min="0" max="8" step="1" value="${Number(displaySettings.smsGatewaySimNumber) || 0}" />
+              </div>
+              <div>
+                <label class="settings-field-label" for="smsGatewayTtlInput">TTL (сек)</label>
+                <input id="smsGatewayTtlInput" type="number" min="0" max="604800" step="1" value="${Number(displaySettings.smsGatewayTtlSeconds) || 0}" />
+              </div>
+            </div>
+            <div class="settings-two-column">
+              <div>
+                <label class="settings-field-label" for="smsGatewayPriorityInput">Priority (0-100)</label>
+                <input id="smsGatewayPriorityInput" type="number" min="0" max="100" step="1" value="${Number(displaySettings.smsGatewayPriority) || 0}" />
+              </div>
+              <div>
+                <label class="settings-field-label" for="smsGatewayDeviceActiveWithinInput">deviceActiveWithin (часы)</label>
+                <input id="smsGatewayDeviceActiveWithinInput" type="number" min="0" max="720" step="1" value="${Number(displaySettings.smsGatewayDeviceActiveWithinHours) || 0}" />
+              </div>
+            </div>
+            <label class="settings-option settings-option--compact">
+              <input type="checkbox" id="smsGatewaySkipPhoneValidationCheckbox" ${displaySettings.smsGatewaySkipPhoneValidation !== false ? "checked" : ""} />
+              <span>skipPhoneValidation=true (для sms-gate.app)</span>
+            </label>
+            <div class="settings-two-column">
+              <div>
+                <label class="settings-field-label" for="smsGatewayPhoneFieldInput">Поле телефона</label>
+                <input id="smsGatewayPhoneFieldInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayPhoneField || "phone"))}" placeholder="phone" autocomplete="off" />
+              </div>
+              <div>
+                <label class="settings-field-label" for="smsGatewayMessageFieldInput">Поле сообщения</label>
+                <input id="smsGatewayMessageFieldInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayMessageField || "message"))}" placeholder="message" autocomplete="off" />
+              </div>
+            </div>
+            <label class="settings-field-label" for="smsGatewaySenderFieldInput">Поле sender</label>
+            <input id="smsGatewaySenderFieldInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewaySenderField || "sender"))}" placeholder="sender" autocomplete="off" />
+            <label class="settings-field-label" for="smsGatewayTimeoutInput">Таймаут запроса, мс</label>
+            <input id="smsGatewayTimeoutInput" type="number" min="3000" max="60000" step="500" value="${Number(displaySettings.smsGatewayTimeoutMs) || 15000}" />
+            <label class="settings-field-label" for="smsInviteTemplateInput">Шаблон SMS</label>
+            <textarea id="smsInviteTemplateInput" rows="4" placeholder="Текст приглашения с плейсхолдерами [ФИО], [Бот], [Ссылка_бота], [ID], [Телефон]">${escapeHtmlText(String(displaySettings.smsInviteTemplate || ""))}</textarea>
+            <p class="other-settings-hint">Для <strong>sms-gate.app</strong> используйте URL <code>https://api.sms-gate.app/3rdparty/v1/messages</code>, авторизацию Basic или Bearer и scope <code>messages:send</code> (если JWT).</p>
+            <p class="other-settings-hint">Кнопка SMS появляется в строке сотрудника только если у него пустой <strong>Chat ID</strong>. После отправки результат фиксируется в журнале (иконка часов в разделе «Сотрудники»).</p>
           </div>
         </div>
 
@@ -17041,6 +17366,121 @@ function attachOtherSettingsHandlers() {
   adminChatInput?.addEventListener("change", commitAdminChatId);
   adminChatInput?.addEventListener("blur", commitAdminChatId);
 
+  const smsEnabledEl = document.getElementById("smsGatewayEnabledCheckbox");
+  const smsProviderEl = document.getElementById("smsGatewayProviderSelect");
+  const smsUrlEl = document.getElementById("smsGatewayUrlInput");
+  const smsMethodEl = document.getElementById("smsGatewayMethodSelect");
+  const smsAuthTypeEl = document.getElementById("smsGatewayAuthTypeSelect");
+  const smsUsernameEl = document.getElementById("smsGatewayUsernameInput");
+  const smsPasswordEl = document.getElementById("smsGatewayPasswordInput");
+  const smsApiHeaderEl = document.getElementById("smsGatewayApiKeyHeaderInput");
+  const smsApiKeyEl = document.getElementById("smsGatewayApiKeyInput");
+  const smsSenderEl = document.getElementById("smsGatewaySenderInput");
+  const smsDeviceIdEl = document.getElementById("smsGatewayDeviceIdInput");
+  const smsSimNumberEl = document.getElementById("smsGatewaySimNumberInput");
+  const smsTtlEl = document.getElementById("smsGatewayTtlInput");
+  const smsPriorityEl = document.getElementById("smsGatewayPriorityInput");
+  const smsSkipPhoneValidationEl = document.getElementById("smsGatewaySkipPhoneValidationCheckbox");
+  const smsDeviceWithinEl = document.getElementById("smsGatewayDeviceActiveWithinInput");
+  const smsPhoneFieldEl = document.getElementById("smsGatewayPhoneFieldInput");
+  const smsMessageFieldEl = document.getElementById("smsGatewayMessageFieldInput");
+  const smsSenderFieldEl = document.getElementById("smsGatewaySenderFieldInput");
+  const smsTimeoutEl = document.getElementById("smsGatewayTimeoutInput");
+  const smsTemplateEl = document.getElementById("smsInviteTemplateInput");
+  const commitSmsSettings = () => {
+    const provider = smsProviderEl?.value === "sms-gate.app" ? "sms-gate.app" : "generic";
+    if (smsEnabledEl) displaySettings.smsGatewayEnabled = Boolean(smsEnabledEl.checked);
+    displaySettings.smsGatewayProvider = provider;
+    if (smsUrlEl) displaySettings.smsGatewayUrl = String(smsUrlEl.value || "").trim();
+    if (smsMethodEl) {
+      displaySettings.smsGatewayMethod = provider === "sms-gate.app"
+        ? "post-json"
+        : (smsMethodEl.value === "get-query" ? "get-query" : "post-json");
+      smsMethodEl.value = displaySettings.smsGatewayMethod;
+    }
+    if (smsAuthTypeEl) {
+      const auth = String(smsAuthTypeEl.value || "").trim();
+      displaySettings.smsGatewayAuthType = ["header", "basic", "bearer", "none"].includes(auth) ? auth : "header";
+    }
+    if (smsUsernameEl) displaySettings.smsGatewayUsername = String(smsUsernameEl.value || "").trim();
+    if (smsPasswordEl) displaySettings.smsGatewayPassword = String(smsPasswordEl.value || "").trim();
+    if (smsApiHeaderEl) displaySettings.smsGatewayApiKeyHeader = String(smsApiHeaderEl.value || "").trim() || "Authorization";
+    if (smsApiKeyEl) displaySettings.smsGatewayApiKey = String(smsApiKeyEl.value || "").trim();
+    if (smsSenderEl) displaySettings.smsGatewaySender = String(smsSenderEl.value || "").trim();
+    if (smsDeviceIdEl) displaySettings.smsGatewayDeviceId = String(smsDeviceIdEl.value || "").trim();
+    if (smsSimNumberEl) {
+      let n = Number(smsSimNumberEl.value);
+      if (!Number.isFinite(n)) n = 0;
+      n = Math.min(8, Math.max(0, Math.floor(n)));
+      displaySettings.smsGatewaySimNumber = n;
+      smsSimNumberEl.value = String(n);
+    }
+    if (smsTtlEl) {
+      let n = Number(smsTtlEl.value);
+      if (!Number.isFinite(n)) n = 0;
+      n = Math.min(604800, Math.max(0, Math.floor(n)));
+      displaySettings.smsGatewayTtlSeconds = n;
+      smsTtlEl.value = String(n);
+    }
+    if (smsPriorityEl) {
+      let n = Number(smsPriorityEl.value);
+      if (!Number.isFinite(n)) n = 0;
+      n = Math.min(100, Math.max(0, Math.floor(n)));
+      displaySettings.smsGatewayPriority = n;
+      smsPriorityEl.value = String(n);
+    }
+    if (smsSkipPhoneValidationEl) {
+      displaySettings.smsGatewaySkipPhoneValidation = Boolean(smsSkipPhoneValidationEl.checked);
+    }
+    if (smsDeviceWithinEl) {
+      let n = Number(smsDeviceWithinEl.value);
+      if (!Number.isFinite(n)) n = 0;
+      n = Math.min(720, Math.max(0, Math.floor(n)));
+      displaySettings.smsGatewayDeviceActiveWithinHours = n;
+      smsDeviceWithinEl.value = String(n);
+    }
+    if (smsPhoneFieldEl) displaySettings.smsGatewayPhoneField = String(smsPhoneFieldEl.value || "").trim() || "phone";
+    if (smsMessageFieldEl) displaySettings.smsGatewayMessageField = String(smsMessageFieldEl.value || "").trim() || "message";
+    if (smsSenderFieldEl) displaySettings.smsGatewaySenderField = String(smsSenderFieldEl.value || "").trim() || "sender";
+    if (smsTimeoutEl) {
+      let n = Number(smsTimeoutEl.value);
+      if (!Number.isFinite(n)) n = 15000;
+      n = Math.min(60000, Math.max(3000, Math.floor(n)));
+      displaySettings.smsGatewayTimeoutMs = n;
+      smsTimeoutEl.value = String(n);
+    }
+    if (smsTemplateEl) {
+      displaySettings.smsInviteTemplate = String(smsTemplateEl.value || "").trim();
+    }
+    saveDisplaySettings();
+  };
+  smsEnabledEl?.addEventListener("change", commitSmsSettings);
+  smsProviderEl?.addEventListener("change", commitSmsSettings);
+  smsUrlEl?.addEventListener("blur", commitSmsSettings);
+  smsMethodEl?.addEventListener("change", commitSmsSettings);
+  smsAuthTypeEl?.addEventListener("change", commitSmsSettings);
+  smsUsernameEl?.addEventListener("blur", commitSmsSettings);
+  smsPasswordEl?.addEventListener("blur", commitSmsSettings);
+  smsApiHeaderEl?.addEventListener("blur", commitSmsSettings);
+  smsApiKeyEl?.addEventListener("blur", commitSmsSettings);
+  smsSenderEl?.addEventListener("blur", commitSmsSettings);
+  smsDeviceIdEl?.addEventListener("blur", commitSmsSettings);
+  smsSimNumberEl?.addEventListener("change", commitSmsSettings);
+  smsSimNumberEl?.addEventListener("blur", commitSmsSettings);
+  smsTtlEl?.addEventListener("change", commitSmsSettings);
+  smsTtlEl?.addEventListener("blur", commitSmsSettings);
+  smsPriorityEl?.addEventListener("change", commitSmsSettings);
+  smsPriorityEl?.addEventListener("blur", commitSmsSettings);
+  smsSkipPhoneValidationEl?.addEventListener("change", commitSmsSettings);
+  smsDeviceWithinEl?.addEventListener("change", commitSmsSettings);
+  smsDeviceWithinEl?.addEventListener("blur", commitSmsSettings);
+  smsPhoneFieldEl?.addEventListener("blur", commitSmsSettings);
+  smsMessageFieldEl?.addEventListener("blur", commitSmsSettings);
+  smsSenderFieldEl?.addEventListener("blur", commitSmsSettings);
+  smsTimeoutEl?.addEventListener("change", commitSmsSettings);
+  smsTimeoutEl?.addEventListener("blur", commitSmsSettings);
+  smsTemplateEl?.addEventListener("blur", commitSmsSettings);
+
   const gsEnabledEl = document.getElementById("googleSheetsEnabledCheckbox");
   const gsAutoEl = document.getElementById("googleSheetsAutoSyncEnabledCheckbox");
   const gsSpreadsheetEl = document.getElementById("googleSheetsSpreadsheetIdInput");
@@ -17367,6 +17807,74 @@ function restoreDisplaySettings() {
     }
     if (typeof displaySettings.telegramAdminChatId !== "string") {
       displaySettings.telegramAdminChatId = "";
+    }
+    displaySettings.smsGatewayEnabled = Boolean(displaySettings.smsGatewayEnabled);
+    displaySettings.smsGatewayProvider = String(displaySettings.smsGatewayProvider || "").trim() === "sms-gate.app"
+      ? "sms-gate.app"
+      : "generic";
+    if (typeof displaySettings.smsGatewayUrl !== "string") {
+      displaySettings.smsGatewayUrl = "https://api.sms-gate.app/3rdparty/v1/messages";
+    }
+    if (!displaySettings.smsGatewayUrl.trim()) {
+      displaySettings.smsGatewayUrl = "https://api.sms-gate.app/3rdparty/v1/messages";
+    }
+    if (displaySettings.smsGatewayProvider === "sms-gate.app") {
+      displaySettings.smsGatewayMethod = "post-json";
+    } else {
+      displaySettings.smsGatewayMethod = String(displaySettings.smsGatewayMethod || "").trim() === "get-query"
+        ? "get-query"
+        : "post-json";
+    }
+    const smsAuthType = String(displaySettings.smsGatewayAuthType || "").trim();
+    displaySettings.smsGatewayAuthType = ["header", "basic", "bearer", "none"].includes(smsAuthType)
+      ? smsAuthType
+      : "header";
+    if (typeof displaySettings.smsGatewayUsername !== "string") {
+      displaySettings.smsGatewayUsername = "";
+    }
+    if (typeof displaySettings.smsGatewayPassword !== "string") {
+      displaySettings.smsGatewayPassword = "";
+    }
+    if (typeof displaySettings.smsGatewayApiKey !== "string") {
+      displaySettings.smsGatewayApiKey = "";
+    }
+    if (typeof displaySettings.smsGatewayApiKeyHeader !== "string" || !displaySettings.smsGatewayApiKeyHeader.trim()) {
+      displaySettings.smsGatewayApiKeyHeader = "Authorization";
+    }
+    if (typeof displaySettings.smsGatewaySender !== "string") {
+      displaySettings.smsGatewaySender = "";
+    }
+    if (typeof displaySettings.smsGatewayDeviceId !== "string") {
+      displaySettings.smsGatewayDeviceId = "";
+    }
+    let smsSimNumber = Number(displaySettings.smsGatewaySimNumber);
+    if (!Number.isFinite(smsSimNumber)) smsSimNumber = 0;
+    displaySettings.smsGatewaySimNumber = Math.min(8, Math.max(0, Math.floor(smsSimNumber)));
+    let smsTtlSeconds = Number(displaySettings.smsGatewayTtlSeconds);
+    if (!Number.isFinite(smsTtlSeconds)) smsTtlSeconds = 0;
+    displaySettings.smsGatewayTtlSeconds = Math.min(604800, Math.max(0, Math.floor(smsTtlSeconds)));
+    let smsPriority = Number(displaySettings.smsGatewayPriority);
+    if (!Number.isFinite(smsPriority)) smsPriority = 0;
+    displaySettings.smsGatewayPriority = Math.min(100, Math.max(0, Math.floor(smsPriority)));
+    displaySettings.smsGatewaySkipPhoneValidation = displaySettings.smsGatewaySkipPhoneValidation !== false;
+    let smsDeviceWithin = Number(displaySettings.smsGatewayDeviceActiveWithinHours);
+    if (!Number.isFinite(smsDeviceWithin)) smsDeviceWithin = 0;
+    displaySettings.smsGatewayDeviceActiveWithinHours = Math.min(720, Math.max(0, Math.floor(smsDeviceWithin)));
+    if (typeof displaySettings.smsGatewayPhoneField !== "string" || !displaySettings.smsGatewayPhoneField.trim()) {
+      displaySettings.smsGatewayPhoneField = "phone";
+    }
+    if (typeof displaySettings.smsGatewayMessageField !== "string" || !displaySettings.smsGatewayMessageField.trim()) {
+      displaySettings.smsGatewayMessageField = "message";
+    }
+    if (typeof displaySettings.smsGatewaySenderField !== "string" || !displaySettings.smsGatewaySenderField.trim()) {
+      displaySettings.smsGatewaySenderField = "sender";
+    }
+    let smsTimeout = Number(displaySettings.smsGatewayTimeoutMs);
+    if (!Number.isFinite(smsTimeout)) smsTimeout = 15000;
+    displaySettings.smsGatewayTimeoutMs = Math.min(60000, Math.max(3000, Math.floor(smsTimeout)));
+    if (typeof displaySettings.smsInviteTemplate !== "string" || !displaySettings.smsInviteTemplate.trim()) {
+      displaySettings.smsInviteTemplate =
+        "Здравствуйте, [ФИО]. Пожалуйста, пройдите регистрацию в Telegram-боте [Бот] по ссылке: [Ссылка_бота]. После регистрации вы будете получать задачи от руководителей.";
     }
     if (!Array.isArray(displaySettings.pendingImportedTaskIds)) {
       displaySettings.pendingImportedTaskIds = [];
