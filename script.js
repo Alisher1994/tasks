@@ -196,6 +196,36 @@ const SMS_HISTORY_COLUMNS = {
   gatewayResponse: 7,
   smsText: 8
 };
+
+function isStandalonePwaMode() {
+  try {
+    const byDisplayMode = typeof window.matchMedia === "function"
+      && window.matchMedia("(display-mode: standalone)").matches;
+    const byNavigator = window.navigator?.standalone === true;
+    return byDisplayMode || byNavigator;
+  } catch (_) {
+    return false;
+  }
+}
+
+function applyStandalonePwaClass() {
+  const enabled = isStandalonePwaMode();
+  document.documentElement.classList.toggle("pwa-standalone", enabled);
+  document.body.classList.toggle("pwa-standalone", enabled);
+}
+
+async function registerPwaServiceWorker() {
+  try {
+    if (!("serviceWorker" in navigator)) return;
+    const isLocal = location.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/i.test(location.hostname);
+    const isSecure = location.protocol === "https:" || isLocal;
+    if (!isSecure) return;
+    await navigator.serviceWorker.register("/sw.js");
+  } catch (_) {
+    // noop
+  }
+}
+
 const EMPLOYEE_TELEGRAM_OPTIONS = ["Подключен", "Не подключен"];
 const SYSTEM_ROLES = [
   "РП",
@@ -22041,6 +22071,18 @@ normalizePhaseAndSectionCatalogs();
 restoreTrashData();
 registerHotkeys();
 initGlobalScrollbarActivityTracker();
+applyStandalonePwaClass();
+void registerPwaServiceWorker();
+try {
+  const pwaMql = window.matchMedia("(display-mode: standalone)");
+  if (typeof pwaMql.addEventListener === "function") {
+    pwaMql.addEventListener("change", applyStandalonePwaClass);
+  } else if (typeof pwaMql.addListener === "function") {
+    pwaMql.addListener(applyStandalonePwaClass);
+  }
+} catch (_) {
+  // noop
+}
 activeSectionId = restoreActiveSection();
 isSettingsOpen = activeSectionId !== "tasks" && activeSectionId !== "report";
 sidebarBrandToggle?.addEventListener("click", () => toggleSidebarCollapse());

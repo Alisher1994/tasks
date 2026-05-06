@@ -19,6 +19,13 @@
   /** Фон строки и акцентов для статуса «Закрыт» (настройка «светло-зелёный фон») */
   --closed-highlight-surface: #f0fdf4;
   --closed-highlight-edge: #e3f4ea;
+  --app-viewport-h: 100vh;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-viewport-h: 100dvh;
+  }
 }
 
 body {
@@ -27,7 +34,7 @@ body {
   font-size: 13px;
   background: #f2f5f9;
   color: #1f2a37;
-  height: 100vh;
+  height: var(--app-viewport-h);
   overflow: hidden;
 }
 
@@ -113,7 +120,7 @@ body.login-intro-done .app-boot-loader {
   width: 98vw;
   margin: 0 auto;
   padding: 12px;
-  height: 100vh;
+  height: var(--app-viewport-h);
   overflow: hidden;
 }
 
@@ -649,7 +656,7 @@ button:hover {
   gap: 16px;
   align-items: stretch;
   min-height: 0;
-  height: calc(100vh - 24px);
+  height: calc(var(--app-viewport-h) - 24px);
 }
 
 .sidebar {
@@ -794,6 +801,11 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   display: inline-flex;
   gap: 8px;
   align-self: flex-start;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .other-settings-tab-btn {
@@ -804,6 +816,8 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   padding: 6px 12px;
   font-size: 12px;
   line-height: 1;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .other-settings-tab-btn:hover {
@@ -1610,7 +1624,7 @@ select.date-time-settings-select {
   border: 1px solid #dbe2ea;
   border-radius: 12px;
   padding: 16px;
-  height: calc(100vh - 24px);
+  height: calc(var(--app-viewport-h) - 24px);
   display: flex;
   flex-direction: column;
 }
@@ -1626,8 +1640,8 @@ select.date-time-settings-select {
 }
 
 .table-card.report-dashboard-card {
-  height: calc(100vh - 24px);
-  min-height: calc(100vh - 24px);
+  height: calc(var(--app-viewport-h) - 24px);
+  min-height: calc(var(--app-viewport-h) - 24px);
   max-width: 100%;
 }
 
@@ -2468,6 +2482,7 @@ tbody td.first-visible-col {
 .table-card--employees td:nth-child(9) { width: 90px; }
 .table-card--employees th:nth-child(10),
 .table-card--employees td:nth-child(10) { width: 170px; }
+.table-card--employees table { min-width: 1300px; }
 
 /* Должности и Отдел: убираем чрезмерную ширину одной колонки */
 .table-card--roles th:nth-child(3),
@@ -2494,6 +2509,11 @@ tbody td.first-visible-col {
   display: none;
 }
 
+.table-card--smsHistory table {
+  min-width: 1280px;
+  table-layout: fixed;
+}
+
 .table-card--smsHistory thead th.number-col,
 .table-card--smsHistory tbody td.number-col {
   position: static;
@@ -2510,6 +2530,21 @@ tbody td.first-visible-col {
 .table-card--smsHistory th:nth-child(3),
 .table-card--smsHistory td:nth-child(3) {
   width: 140px;
+}
+
+.table-card--smsHistory th:nth-child(8),
+.table-card--smsHistory td:nth-child(8) {
+  width: 170px;
+}
+
+.table-card--smsHistory th:nth-child(9),
+.table-card--smsHistory td:nth-child(9) {
+  width: 280px;
+}
+
+.table-card--smsHistory th:nth-child(10),
+.table-card--smsHistory td:nth-child(10) {
+  width: 300px;
 }
 
 .table-card--smsHistory td {
@@ -7115,11 +7150,11 @@ button.report-filter-icon-btn .lucide-icon {
 
   .app-layout {
     grid-template-columns: 1fr;
-    height: calc(100vh - 16px);
+    height: calc(var(--app-viewport-h) - 16px);
   }
 
   .table-card {
-    height: calc(100vh - 16px);
+    height: calc(var(--app-viewport-h) - 16px);
   }
 }
 
@@ -7133,7 +7168,7 @@ button.report-filter-icon-btn .lucide-icon {
   .app-layout {
     grid-template-columns: 82px minmax(0, 1fr);
     gap: 10px;
-    height: calc(100vh - 16px);
+    height: calc(var(--app-viewport-h) - 16px);
   }
 
   .sidebar {
@@ -7195,6 +7230,18 @@ button.report-filter-icon-btn .lucide-icon {
     row-gap: 8px;
   }
 
+  .table-card--employees table {
+    min-width: 1200px;
+  }
+
+  .table-card--smsHistory table {
+    min-width: 1180px;
+  }
+
+  .other-settings-block {
+    padding: 10px;
+  }
+
   .section-subtabs-row {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -7210,7 +7257,7 @@ button.report-filter-icon-btn .lucide-icon {
 @media (max-width: 760px) {
   .page {
     height: auto;
-    min-height: 100vh;
+    min-height: var(--app-viewport-h);
     overflow: auto;
     padding: 6px;
   }
@@ -7218,7 +7265,7 @@ button.report-filter-icon-btn .lucide-icon {
   .app-layout {
     grid-template-columns: 1fr;
     height: auto;
-    min-height: calc(100vh - 12px);
+    min-height: calc(var(--app-viewport-h) - 12px);
     gap: 8px;
   }
 
@@ -7260,6 +7307,33 @@ button.report-filter-icon-btn .lucide-icon {
     padding: 10px;
   }
 
+  .table-card--employees table {
+    min-width: 1080px;
+  }
+
+  .table-card--smsHistory table {
+    min-width: 1040px;
+  }
+
+  .table-card--employees thead th.checkbox-col,
+  .table-card--employees thead th.number-col,
+  .table-card--employees thead th.actions-col,
+  .table-card--employees tbody td.checkbox-col,
+  .table-card--employees tbody td.number-col,
+  .table-card--employees tbody td.actions-col {
+    position: static;
+    left: auto !important;
+    right: auto !important;
+    z-index: auto;
+    box-shadow: none;
+  }
+
+  .table-card--employees .checkbox-col::after,
+  .table-card--employees .number-col::before,
+  .table-card--employees .number-col::after {
+    display: none;
+  }
+
   .table-header-right {
     width: 100%;
     margin-left: 0;
@@ -7282,6 +7356,37 @@ button.report-filter-icon-btn .lucide-icon {
   .employee-create-dropdown {
     max-height: 180px;
   }
+
+  .other-settings-tabs {
+    gap: 6px;
+  }
+
+  .other-settings-tab-btn {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  .other-settings-block {
+    padding: 9px;
+  }
+}
+
+html.pwa-standalone,
+body.pwa-standalone {
+  background: #f2f5f9;
+}
+
+body.pwa-standalone .page {
+  width: 100%;
+  max-width: none;
+  padding-top: calc(8px + env(safe-area-inset-top));
+  padding-right: calc(8px + env(safe-area-inset-right));
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  padding-left: calc(8px + env(safe-area-inset-left));
+}
+
+body.pwa-standalone .app-layout {
+  height: calc(var(--app-viewport-h) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 16px);
 }
 
 /* Просмотр отчёта по временной ссылке */
