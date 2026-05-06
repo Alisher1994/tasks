@@ -16849,7 +16849,7 @@ function renderOtherSettingsPanel() {
               <option value="bearer" ${String(displaySettings.smsGatewayAuthType || "") === "bearer" ? "selected" : ""}>Bearer token</option>
               <option value="none" ${String(displaySettings.smsGatewayAuthType || "") === "none" ? "selected" : ""}>Без авторизации</option>
             </select>
-            <div class="settings-two-column">
+            <div class="settings-two-column" data-sms-auth-group="basic">
               <div>
                 <label class="settings-field-label" for="smsGatewayUsernameInput">Username</label>
                 <input id="smsGatewayUsernameInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayUsername || ""))}" placeholder="username" autocomplete="off" />
@@ -16859,15 +16859,23 @@ function renderOtherSettingsPanel() {
                 <input id="smsGatewayPasswordInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayPassword || ""))}" placeholder="password" autocomplete="off" />
               </div>
             </div>
-            <label class="settings-field-label" for="smsGatewayApiKeyHeaderInput">Заголовок API ключа</label>
-            <input id="smsGatewayApiKeyHeaderInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayApiKeyHeader || "Authorization"))}" placeholder="Authorization" autocomplete="off" />
-            <label class="settings-field-label" for="smsGatewayApiKeyInput">API ключ / токен</label>
-            <input id="smsGatewayApiKeyInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayApiKey || ""))}" placeholder="Bearer ... или raw token" autocomplete="off" />
-            <label class="settings-field-label" for="smsGatewaySenderInput">Sender (опционально)</label>
-            <input id="smsGatewaySenderInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewaySender || ""))}" placeholder="MBC" autocomplete="off" />
-            <label class="settings-field-label" for="smsGatewayDeviceIdInput">Device ID (sms-gate.app, опционально)</label>
-            <input id="smsGatewayDeviceIdInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayDeviceId || ""))}" placeholder="dev_abc123" autocomplete="off" />
-            <div class="settings-two-column">
+            <div data-sms-auth-group="header">
+              <label class="settings-field-label" for="smsGatewayApiKeyHeaderInput">Заголовок API ключа</label>
+              <input id="smsGatewayApiKeyHeaderInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayApiKeyHeader || "Authorization"))}" placeholder="Authorization" autocomplete="off" />
+            </div>
+            <div data-sms-auth-group="header,bearer">
+              <label class="settings-field-label" for="smsGatewayApiKeyInput">API ключ / токен</label>
+              <input id="smsGatewayApiKeyInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayApiKey || ""))}" placeholder="Bearer ... или raw token" autocomplete="off" />
+            </div>
+            <div data-sms-provider-group="generic">
+              <label class="settings-field-label" for="smsGatewaySenderInput">Sender (опционально)</label>
+              <input id="smsGatewaySenderInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewaySender || ""))}" placeholder="MBC" autocomplete="off" />
+            </div>
+            <div data-sms-provider-group="sms-gate.app">
+              <label class="settings-field-label" for="smsGatewayDeviceIdInput">Device ID (sms-gate.app, опционально)</label>
+              <input id="smsGatewayDeviceIdInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayDeviceId || ""))}" placeholder="dev_abc123" autocomplete="off" />
+            </div>
+            <div class="settings-two-column" data-sms-provider-group="sms-gate.app">
               <div>
                 <label class="settings-field-label" for="smsGatewaySimNumberInput">SIM №</label>
                 <input id="smsGatewaySimNumberInput" type="number" min="0" max="8" step="1" value="${Number(displaySettings.smsGatewaySimNumber) || 0}" />
@@ -16877,7 +16885,7 @@ function renderOtherSettingsPanel() {
                 <input id="smsGatewayTtlInput" type="number" min="0" max="604800" step="1" value="${Number(displaySettings.smsGatewayTtlSeconds) || 0}" />
               </div>
             </div>
-            <div class="settings-two-column">
+            <div class="settings-two-column" data-sms-provider-group="sms-gate.app">
               <div>
                 <label class="settings-field-label" for="smsGatewayPriorityInput">Priority (0-100)</label>
                 <input id="smsGatewayPriorityInput" type="number" min="0" max="100" step="1" value="${Number(displaySettings.smsGatewayPriority) || 0}" />
@@ -16887,11 +16895,11 @@ function renderOtherSettingsPanel() {
                 <input id="smsGatewayDeviceActiveWithinInput" type="number" min="0" max="720" step="1" value="${Number(displaySettings.smsGatewayDeviceActiveWithinHours) || 0}" />
               </div>
             </div>
-            <label class="settings-option settings-option--compact">
+            <label class="settings-option settings-option--compact" data-sms-provider-group="sms-gate.app">
               <input type="checkbox" id="smsGatewaySkipPhoneValidationCheckbox" ${displaySettings.smsGatewaySkipPhoneValidation !== false ? "checked" : ""} />
               <span>skipPhoneValidation=true (для sms-gate.app)</span>
             </label>
-            <div class="settings-two-column">
+            <div class="settings-two-column" data-sms-provider-group="generic">
               <div>
                 <label class="settings-field-label" for="smsGatewayPhoneFieldInput">Поле телефона</label>
                 <input id="smsGatewayPhoneFieldInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayPhoneField || "phone"))}" placeholder="phone" autocomplete="off" />
@@ -16901,8 +16909,10 @@ function renderOtherSettingsPanel() {
                 <input id="smsGatewayMessageFieldInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewayMessageField || "message"))}" placeholder="message" autocomplete="off" />
               </div>
             </div>
-            <label class="settings-field-label" for="smsGatewaySenderFieldInput">Поле sender</label>
-            <input id="smsGatewaySenderFieldInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewaySenderField || "sender"))}" placeholder="sender" autocomplete="off" />
+            <div data-sms-provider-group="generic">
+              <label class="settings-field-label" for="smsGatewaySenderFieldInput">Поле sender</label>
+              <input id="smsGatewaySenderFieldInput" type="text" value="${escapeHtmlAttr(String(displaySettings.smsGatewaySenderField || "sender"))}" placeholder="sender" autocomplete="off" />
+            </div>
             <label class="settings-field-label" for="smsGatewayTimeoutInput">Таймаут запроса, мс</label>
             <input id="smsGatewayTimeoutInput" type="number" min="3000" max="60000" step="500" value="${Number(displaySettings.smsGatewayTimeoutMs) || 15000}" />
             <label class="settings-field-label" for="smsInviteTemplateInput">Шаблон SMS</label>
@@ -17377,6 +17387,30 @@ function attachOtherSettingsHandlers() {
   const smsSenderFieldEl = document.getElementById("smsGatewaySenderFieldInput");
   const smsTimeoutEl = document.getElementById("smsGatewayTimeoutInput");
   const smsTemplateEl = document.getElementById("smsInviteTemplateInput");
+  const smsAuthGroups = Array.from(document.querySelectorAll("[data-sms-auth-group]"));
+  const smsProviderGroups = Array.from(document.querySelectorAll("[data-sms-provider-group]"));
+  const hasSmsGroupToken = (tokens, value) => {
+    const list = String(tokens || "")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (!list.length) return true;
+    return list.includes(value);
+  };
+  const updateSmsSettingsVisibility = () => {
+    const provider = smsProviderEl?.value === "sms-gate.app" ? "sms-gate.app" : "generic";
+    const auth = ["header", "basic", "bearer", "none"].includes(String(smsAuthTypeEl?.value || "").trim())
+      ? String(smsAuthTypeEl.value).trim()
+      : "header";
+    smsProviderGroups.forEach((el) => {
+      const visible = hasSmsGroupToken(el.getAttribute("data-sms-provider-group"), provider);
+      el.classList.toggle("hidden", !visible);
+    });
+    smsAuthGroups.forEach((el) => {
+      const visible = hasSmsGroupToken(el.getAttribute("data-sms-auth-group"), auth);
+      el.classList.toggle("hidden", !visible);
+    });
+  };
   const commitSmsSettings = () => {
     const provider = smsProviderEl?.value === "sms-gate.app" ? "sms-gate.app" : "generic";
     if (smsEnabledEl) displaySettings.smsGatewayEnabled = Boolean(smsEnabledEl.checked);
@@ -17443,6 +17477,7 @@ function attachOtherSettingsHandlers() {
       displaySettings.smsInviteTemplate = String(smsTemplateEl.value || "").trim();
     }
     saveDisplaySettings();
+    updateSmsSettingsVisibility();
   };
   smsEnabledEl?.addEventListener("change", commitSmsSettings);
   smsProviderEl?.addEventListener("change", commitSmsSettings);
@@ -17470,6 +17505,7 @@ function attachOtherSettingsHandlers() {
   smsTimeoutEl?.addEventListener("change", commitSmsSettings);
   smsTimeoutEl?.addEventListener("blur", commitSmsSettings);
   smsTemplateEl?.addEventListener("blur", commitSmsSettings);
+  updateSmsSettingsVisibility();
 
   const gsEnabledEl = document.getElementById("googleSheetsEnabledCheckbox");
   const gsAutoEl = document.getElementById("googleSheetsAutoSyncEnabledCheckbox");
