@@ -1371,9 +1371,10 @@ function saveActiveSection(sectionId) {
 function restoreActiveSection() {
   try {
     const saved = String(localStorage.getItem(ACTIVE_SECTION_STORAGE_KEY) || "").trim();
-    return isKnownSectionId(saved) ? saved : "tasks";
+    if (isKnownSectionId(saved)) return saved;
+    return isMobileCompactViewport() ? "report" : "tasks";
   } catch (_) {
-    return "tasks";
+    return isMobileCompactViewport() ? "report" : "tasks";
   }
 }
 
@@ -4586,6 +4587,7 @@ let displaySettings = {
   smsGatewayMessageField: "message",
   smsGatewaySenderField: "sender",
   smsGatewayTimeoutMs: 15000,
+  smsAutoSendOnEmployeeCreate: true,
   smsInviteTemplate:
     "Здравствуйте, [ФИО]. Пожалуйста, пройдите регистрацию в Telegram-боте [Бот] по ссылке: [Ссылка_бота]. После регистрации вы будете получать задачи от руководителей.",
   smsTaskTemplate:
@@ -4861,16 +4863,16 @@ function renderMobileBottomNav() {
 
   const items = [
     {
-      key: "tasks",
-      label: "Задачи",
-      icon: "listChecks",
-      active: activeSectionId === "tasks"
-    },
-    {
       key: "report",
       label: "Аналитика",
       icon: "barChart",
       active: activeSectionId === "report"
+    },
+    {
+      key: "tasks",
+      label: "Задачи",
+      icon: "listChecks",
+      active: activeSectionId === "tasks"
     }
   ];
 
@@ -5964,6 +5966,9 @@ function renderTable() {
   const visibleColumnIndexes = getVisibleColumnIndexes(section);
   const isTrashView = isTrashTab(section.id);
   const selectedRows = getSelectedRowsSet(getSelectionKey(section.id));
+  if (section.id === "tasks" && isMobileCompactViewport() && selectedRows.size) {
+    selectedRows.clear();
+  }
   const selectedCount = selectedRows.size;
   const isAllFilteredSelected = allFilteredEntries.length > 0
     && allFilteredEntries.every((entry) => selectedRows.has(entry.rowIndex));
@@ -6253,6 +6258,7 @@ function renderBulkActions(selectedCount, isTrashView, sectionId, options = {}) 
       </div>
     `;
   }
+  if (isMobileCompactViewport()) return "";
   return `
     <div class="${rowClass}">
       <span class="bulk-actions-count">Выбрано: ${selectedCount}</span>
@@ -6364,6 +6370,7 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
     `;
   }
   if (sectionId === "tasks") {
+    const isMobileTasks = isMobileCompactViewport();
     const canSendTaskSms = currentAuthRole === "admin";
     return `
       <div class="action-buttons">
@@ -6373,12 +6380,12 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
         <button type="button" class="icon-action-btn send-row-btn" title="Отправить в Telegram" data-row-index="${rowIndex}">
           <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
         </button>
-        <button type="button" class="icon-action-btn send-row-sms-btn" title="${canSendTaskSms ? "Отправить SMS по задаче" : "Доступно только администратору"}" data-row-index="${rowIndex}" ${canSendTaskSms ? "" : "disabled"}>
+        ${isMobileTasks ? "" : `<button type="button" class="icon-action-btn send-row-sms-btn" title="${canSendTaskSms ? "Отправить SMS по задаче" : "Доступно только администратору"}" data-row-index="${rowIndex}" ${canSendTaskSms ? "" : "disabled"}>
           <i data-lucide="message-square" class="lucide-icon" aria-hidden="true"></i>
-        </button>
-        <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
+        </button>`}
+        ${isMobileTasks ? "" : `<button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
           <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
-        </button>
+        </button>`}
       </div>
     `;
   }
@@ -13202,6 +13209,7 @@ function renderTasksSplitLayout(section, options) {
     selectedRows,
     isAllFilteredSelected
   } = options;
+  const hideSelectionControls = section.id === "tasks" && isMobileCompactViewport();
   const showHeaderNumbers = section.id === "tasks" && headerNumberingBySection[section.id] !== false;
   const idVisible = visibleColumnIndexes.includes(TASK_COLUMNS.number);
   const leftHasOrderRow = showHeaderNumbers && idVisible;
@@ -13235,9 +13243,9 @@ function renderTasksSplitLayout(section, options) {
   const leftThead = `
     <thead class="${showHeaderNumbers ? "table-head-has-order" : ""}">
       <tr class="table-head-main-row" data-split-row-key="head-main">
-        <th class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}"${checkboxHeadRowspan}>
+        ${hideSelectionControls ? "" : `<th class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}"${checkboxHeadRowspan}>
           <input type="checkbox" id="selectAllRows" ${isAllFilteredSelected ? "checked" : ""} />
-        </th>
+        </th>`}
         ${idVisible ? `<th class="number-col"${dataHeadRowspan}><span class="table-th-title">${escapeHtmlText(section.columns[TASK_COLUMNS.number] || "ID")}</span></th>` : ""}
       </tr>
       ${leftOrderHeaderCells}
@@ -13265,9 +13273,9 @@ function renderTasksSplitLayout(section, options) {
     const rowKey = `row-${rowIndex}`;
     leftBodyRows.push(`
       <tr class="${rowClass}" data-split-row-key="${rowKey}">
-        <td class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}">
+        ${hideSelectionControls ? "" : `<td class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}">
           <input type="checkbox" class="row-checkbox" data-row-index="${entry.rowIndex}" ${selectedRows.has(entry.rowIndex) ? "checked" : ""} />
-        </td>
+        </td>`}
         ${idVisible ? `<td class="number-col editable-cell readonly-cell" data-row-index="${entry.rowIndex}" data-col-index="${TASK_COLUMNS.number}">${renderCellContent(section, entry.row, TASK_COLUMNS.number, entry.row[TASK_COLUMNS.number], entry.rowIndex)}</td>` : ""}
       </tr>
     `);
@@ -13307,7 +13315,7 @@ function renderTasksSplitLayout(section, options) {
           const subKey = `${rowKey}-sub-${idx}`;
           leftBodyRows.push(`
             <tr class="task-assignee-subrow" data-split-row-key="${subKey}">
-              <td class="checkbox-col"><input type="checkbox" disabled aria-label="Подзадача ${escapeHtmlAttr(subId)}" /></td>
+              ${hideSelectionControls ? "" : `<td class="checkbox-col"><input type="checkbox" disabled aria-label="Подзадача ${escapeHtmlAttr(subId)}" /></td>`}
               ${idVisible ? `<td class="number-col task-accordion-readonly-cell">${renderTaskAccordionReadonlyCell(row, TASK_COLUMNS.number, name, state, subId)}</td>` : ""}
             </tr>
           `);
@@ -13330,9 +13338,9 @@ function renderTasksSplitLayout(section, options) {
                   <button type="button" class="icon-action-btn task-sub-send-btn" title="Отправить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
                     <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
                   </button>
-                  <button type="button" class="icon-action-btn danger-btn task-sub-remove-btn" title="Удалить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
+                  ${hideSelectionControls ? "" : `<button type="button" class="icon-action-btn danger-btn task-sub-remove-btn" title="Удалить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
                     <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
-                  </button>
+                  </button>`}
                 </div>
               </td>
             </tr>
@@ -13365,7 +13373,7 @@ function renderTasksSplitLayout(section, options) {
         const reassignKey = `${rowKey}-reassign-${idx}`;
         leftBodyRows.push(`
           <tr class="task-reassign-subrow" data-split-row-key="${reassignKey}">
-            <td class="checkbox-col"><input type="checkbox" disabled aria-label="Переназначение ${escapeHtmlAttr(subId)}" /></td>
+            ${hideSelectionControls ? "" : `<td class="checkbox-col"><input type="checkbox" disabled aria-label="Переназначение ${escapeHtmlAttr(subId)}" /></td>`}
             ${idVisible ? `<td class="number-col">${escapeHtmlText(`↪ ${subId}`)}</td>` : ""}
           </tr>
         `);
@@ -13403,7 +13411,7 @@ function renderTasksSplitLayout(section, options) {
 
   const leftEmpty = `
     <tbody>
-      ${leftBodyRows.join("") || `<tr data-split-row-key="empty"><td class="checkbox-col"></td>${idVisible ? `<td class="number-col"></td>` : ""}</tr>`}
+      ${leftBodyRows.join("") || `<tr data-split-row-key="empty">${hideSelectionControls ? "" : `<td class="checkbox-col"></td>`}${idVisible ? `<td class="number-col"></td>` : ""}</tr>`}
     </tbody>
   `;
   const mainEmptyColspan = mainVisibleColumnIndexes.length + (isTrashView ? 3 : 1);
@@ -14391,7 +14399,7 @@ function attachTableActionHandlers(section, filteredEntries) {
                 const taskId = String(row[TASK_COLUMNS.number] ?? "");
                 appendTaskHistoryEntry(
                   taskId,
-                  `Telegram: отправлено ${result.okCount}/${result.total}${result.missingNames?.length ? ` (не доставлено: ${result.missingNames.join(", ")})` : ""}; в сообщении — кнопки: смена статуса, комментарий, фото (обрабатываются на сервере при настроенном webhook)`
+                  `Telegram: отправлено ${result.okCount}/${result.total}${result.missingNames?.length ? ` (не доставлено: ${result.missingNames.join(", ")})` : ""}; в сообщении — кнопки: смена статуса, комментарий (обрабатываются на сервере при настроенном webhook)`
                 );
                 button.classList.add("is-sent");
                 button.title = `Отправлено: ${rowTitle}`;
@@ -17653,6 +17661,10 @@ function renderOtherSettingsPanel() {
                 <input type="checkbox" id="smsGatewayEnabledCheckbox" ${displaySettings.smsGatewayEnabled === true ? "checked" : ""} />
                 <span>Включить отправку SMS-приглашений</span>
               </label>
+              <label class="settings-option settings-option--compact sms-settings-grid__span-3">
+                <input type="checkbox" id="smsAutoSendOnEmployeeCreateCheckbox" ${displaySettings.smsAutoSendOnEmployeeCreate !== false ? "checked" : ""} />
+                <span>Автоматически отправлять SMS при добавлении сотрудника</span>
+              </label>
 
               <div class="sms-settings-field">
                 <label class="settings-field-label" for="smsGatewayProviderSelect">Провайдер</label>
@@ -18210,6 +18222,7 @@ function attachOtherSettingsHandlers() {
   adminChatInput?.addEventListener("blur", commitAdminChatId);
 
   const smsEnabledEl = document.getElementById("smsGatewayEnabledCheckbox");
+  const smsAutoSendOnCreateEl = document.getElementById("smsAutoSendOnEmployeeCreateCheckbox");
   const smsProviderEl = document.getElementById("smsGatewayProviderSelect");
   const smsUrlEl = document.getElementById("smsGatewayUrlInput");
   const smsMethodEl = document.getElementById("smsGatewayMethodSelect");
@@ -18258,6 +18271,7 @@ function attachOtherSettingsHandlers() {
   const commitSmsSettings = () => {
     const provider = smsProviderEl?.value === "sms-gate.app" ? "sms-gate.app" : "generic";
     if (smsEnabledEl) displaySettings.smsGatewayEnabled = Boolean(smsEnabledEl.checked);
+    if (smsAutoSendOnCreateEl) displaySettings.smsAutoSendOnEmployeeCreate = Boolean(smsAutoSendOnCreateEl.checked);
     displaySettings.smsGatewayProvider = provider;
     if (smsUrlEl) displaySettings.smsGatewayUrl = String(smsUrlEl.value || "").trim();
     if (smsMethodEl) {
@@ -18327,6 +18341,7 @@ function attachOtherSettingsHandlers() {
     updateSmsSettingsVisibility();
   };
   smsEnabledEl?.addEventListener("change", commitSmsSettings);
+  smsAutoSendOnCreateEl?.addEventListener("change", commitSmsSettings);
   smsProviderEl?.addEventListener("change", commitSmsSettings);
   smsUrlEl?.addEventListener("blur", commitSmsSettings);
   smsMethodEl?.addEventListener("change", commitSmsSettings);
@@ -18683,6 +18698,7 @@ function restoreDisplaySettings() {
       displaySettings.telegramAdminChatId = "";
     }
     displaySettings.smsGatewayEnabled = Boolean(displaySettings.smsGatewayEnabled);
+    displaySettings.smsAutoSendOnEmployeeCreate = displaySettings.smsAutoSendOnEmployeeCreate !== false;
     displaySettings.smsGatewayProvider = String(displaySettings.smsGatewayProvider || "").trim() === "sms-gate.app"
       ? "sms-gate.app"
       : "generic";
@@ -21222,7 +21238,7 @@ function openCreateEmployeeModal(section) {
   attachInlinePicker(departmentInput, departmentPickerBtn, departmentDropdown, departmentOptions);
   attachInlinePicker(roleInput, rolePickerBtn, roleDropdown, roleOptions);
 
-  const save = () => {
+  const save = async () => {
     const fullName = normalizePersonName(fullNameInput?.value || "");
     const phoneNormalized = normalizeUzPhone(phoneInputEl?.value || "");
     const phoneFormatted = formatUzPhoneDisplay(phoneNormalized);
@@ -21277,9 +21293,33 @@ function openCreateEmployeeModal(section) {
     saveSectionsData();
     renderTablePreserveScroll();
     close();
+
+    const canAutoSendInviteSms = displaySettings.smsAutoSendOnEmployeeCreate !== false
+      && isHostedRuntime()
+      && Boolean(getAuthToken())
+      && currentAuthRole === "admin";
+    if (!canAutoSendInviteSms) return;
+
+    const smsResult = await sendEmployeeInviteSms(row, null, { silent: true });
+    if (smsResult?.ok) {
+      showStatusDialog({
+        title: "Сотрудник добавлен",
+        message: `SMS-приглашение отправлено: ${fullName}`,
+        type: "success"
+      });
+      return;
+    }
+
+    showStatusDialog({
+      title: "Сотрудник добавлен",
+      message: `Не удалось отправить SMS-приглашение: ${String(smsResult?.error || "неизвестная ошибка")}`,
+      type: "error"
+    });
   };
 
-  overlay.querySelector(".employee-create-save")?.addEventListener("click", save);
+  overlay.querySelector(".employee-create-save")?.addEventListener("click", () => {
+    void save();
+  });
   overlay.querySelector(".employee-create-cancel")?.addEventListener("click", close);
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
@@ -21287,13 +21327,13 @@ function openCreateEmployeeModal(section) {
   fullNameInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      save();
+      void save();
     }
   });
   phoneInputEl?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      save();
+      void save();
     }
   });
   fullNameInput?.focus();
