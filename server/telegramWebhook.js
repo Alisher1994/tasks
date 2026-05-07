@@ -1,6 +1,6 @@
 /**
  * Обработка обновлений Telegram: /start → привязка chat_id к сотруднику, inline-кнопки у задачи,
- * комментарии, фото, согласование закрытия, запись в taskHistory в payload.
+ * комментарии, согласование закрытия, запись в taskHistory в payload.
  * Токен: TELEGRAM_BOT_TOKEN в окружении или displaySettings.telegramBotToken в JSON приложения (после синхронизации).
  */
 
@@ -285,7 +285,6 @@ function mainKeyboard(taskNumber, row, appTimeZone = "UTC") {
       { text: "⌛️ Сменить статус", callback_data: cb(n, "sm") },
       { text: "🗣 Комментарий", callback_data: cb(n, "cm") }
     ],
-    [{ text: "📸 Отправить фото", callback_data: cb(n, "ph") }],
     [{ text: "🔁 Переназначить задачу", callback_data: cb(n, "ra") }]
   ];
   if (isDelayReasonAllowedNow(row, appTimeZone)) {
@@ -1962,25 +1961,6 @@ async function handleCallback(q, pool, token) {
     return;
   }
 
-  if (parsed.action === "ph") {
-    if (!canChatUseTaskActions(payload, viewerRow, chatId)) {
-      await answerOk("Отправка фото доступна только исполнителю");
-      return;
-    }
-    if (!payload.telegramSessions) payload.telegramSessions = {};
-    payload.telegramSessions[String(chatId)] = { expect: "photo", taskId, promptMessageId: Number(messageId) || null };
-    setLastTaskContext(payload, chatId, taskId, messageId);
-    await savePayload(pool, payload);
-    await tg(token, "editMessageText", {
-      chat_id: chatId,
-      message_id: messageId,
-      text: `${taskCaptionWithPlan(viewerRow)}\n\nПришлите фото одним сообщением (или /отмена).`,
-      reply_markup: { inline_keyboard: backOnlyKeyboard(taskId) }
-    });
-    await answerOk();
-    return;
-  }
-
   if (parsed.action === "dr") {
     if (!canChatUseTaskActions(payload, viewerRow, chatId)) {
       await answerOk("Причина доступна только исполнителю");
@@ -2758,7 +2738,7 @@ async function handleMessage(msg, pool, token) {
     const freshEnough = lastAt > 0 && Date.now() - lastAt <= 6 * 60 * 60 * 1000;
     if (lastTaskId && freshEnough) {
       sess = {
-        expect: text ? "comment" : "photo",
+        expect: "comment",
         taskId: lastTaskId,
         promptMessageId: Number(last?.promptMessageId) || null
       };
@@ -2776,6 +2756,13 @@ async function handleMessage(msg, pool, token) {
         text:
           "Чтобы подключиться к задачам, нажмите кнопку ниже и отправьте свой контакт. Либо используйте ссылку вида /start e_<ID>.",
         reply_markup: contactShareKeyboard()
+      });
+      return;
+    }
+    if (emp && (hasPhoto || hasImageDocument)) {
+      await tg(token, "sendMessage", {
+        chat_id: chatId,
+        text: "Отправка фото по задачам отключена. Используйте комментарий и файлы в веб-интерфейсе."
       });
     }
     return;
@@ -2970,62 +2957,13 @@ async function handleMessage(msg, pool, token) {
     return;
   }
 
-  if (sess.expect === "photo" && (hasPhoto || hasImageDocument)) {
-    const fileId = hasPhoto ? String(msg.photo[msg.photo.length - 1]?.file_id || "") : String(msg.document?.file_id || "");
-    if (!fileId) {
-      await tg(token, "sendMessage", { chat_id: chatId, text: "Не удалось прочитать фото. Попробуйте ещё раз." });
-      return;
-    }
-    let storedName = "";
-    try {
-      const media = await addTelegramPhotoToTaskMediaAfter(row, token, fileId);
-      storedName = String(media?.fileName || "");
-    } catch (_) {
-      storedName = "";
-    }
-    const assigneeName = getTaskAssigneeNameByChat(payload, getChatRow(), chatKey);
-    if (assigneeName) {
-      const nowText = formatRuDateTime(new Date(), appTz);
-      const state = getTaskMultiStateForRow(payload, row, { create: true });
-      if (state && state[assigneeName]) {
-        state[assigneeName].updatedAt = nowText;
-      }
-    }
-    appendTaskHistory(
-      payload,
-      taskId,
-      empName,
-      `Telegram: отправлено фото${storedName ? ` (добавлено в «Медиа после»: ${storedName})` : ""} (file_id ${fileId})`
-    );
+  if (sess.expect === "photo") {
     clearSession(payload, chatKey);
     await savePayload(pool, payload);
-    await safeDeleteMessage(token, chatId, messageId);
-    if (promptMessageId) {
-      const edited = await tg(token, "editMessageText", {
-        chat_id: chatId,
-        message_id: promptMessageId,
-        text: `${taskCaptionWithPlan(getChatRow())}\n\nФото добавлено в «Медиа после».`,
-        reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
-      });
-      if (!edited?.ok) {
-        await tg(token, "sendMessage", {
-          chat_id: chatId,
-          text: `${taskCaptionWithPlan(getChatRow())}\n\nФото добавлено в «Медиа после».`,
-          reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
-        });
-      }
-    } else {
-      await tg(token, "sendMessage", {
-        chat_id: chatId,
-        text: `${taskCaptionWithPlan(getChatRow())}\n\nФото добавлено в «Медиа после».`,
-        reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
-      });
-    }
-    return;
-  }
-
-  if (sess.expect === "photo") {
-    await tg(token, "sendMessage", { chat_id: chatId, text: "Пожалуйста, отправьте фото (как фото или документ-изображение) или /отмена." });
+    await tg(token, "sendMessage", {
+      chat_id: chatId,
+      text: "Отправка фото по задачам отключена. Используйте комментарий и файлы в веб-интерфейсе."
+    });
   }
 }
 

@@ -2547,7 +2547,6 @@ function buildTelegramInlineKeyboardForTask(taskNumber) {
         { text: "⌛️ Сменить статус", callback_data: makeCb("sm") },
         { text: "🗣 Комментарий", callback_data: makeCb("cm") }
       ],
-      [{ text: "📸 Отправить фото", callback_data: makeCb("ph") }],
       [{ text: "🚧 Причина отставания", callback_data: makeCb("dr") }]
     ]
   };
@@ -2967,7 +2966,6 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
     return { ok: false, reason: "no_targets", message: msg, missingNames };
   }
 
-  const photoRefs = resolveTelegramSendablePhotoRefs(taskRow, token);
   const shortText = `У вас есть задача ID ${String(taskRow[TASK_COLUMNS.number] || "").trim() || "—"}.\nЧтобы прочитать полное содержание, нажмите «📖 Прочитать».`;
   const directAssignee = targetAssigneeNames.length === 1 ? targetAssigneeNames[0] : "";
   const results = await Promise.all(
@@ -2980,90 +2978,6 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
         const replyMarkup = !options.skipInlineKeyboard && isActionRecipient
           ? buildTelegramReadInlineKeyboardForTask(taskRow[TASK_COLUMNS.number])
           : undefined;
-        if (photoRefs.length) {
-          let photosOk = false;
-          let photoDescription = "";
-          let firstMessageId = null;
-
-          if (photoRefs.length > 1 && isHostedRuntime() && getAuthToken()) {
-            const group = await sendTelegramMediaGroupViaServerProxy({
-              chatId: t.chatId,
-              token,
-              photoRefs
-            });
-            photosOk = group.ok === true;
-            photoDescription = group.description || "";
-            firstMessageId = group.firstMessageId || null;
-          } else {
-            const firstRef = photoRefs[0];
-            if (isHostedRuntime() && getAuthToken()) {
-              const proxy = await sendTelegramPhotoViaServerProxy({
-                chatId: t.chatId,
-                token,
-                photoRef: firstRef,
-                caption: ""
-              });
-              photosOk = proxy.ok === true;
-              photoDescription = proxy.description || "";
-            } else {
-              const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  chat_id: t.chatId,
-                  photo: firstRef
-                })
-              });
-              const j = await r.json().catch(() => ({}));
-              photosOk = r.ok && j.ok === true;
-              photoDescription = String(j.description || "");
-              firstMessageId = Number(j?.result?.message_id) || null;
-            }
-          }
-
-          if (!photosOk) {
-            const fallbackBody = {
-              chat_id: t.chatId,
-              text: outgoingText,
-              ...(replyMarkup ? { reply_markup: replyMarkup } : {})
-            };
-            const fallbackResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(fallbackBody)
-            });
-            const fallbackJson = await fallbackResponse.json().catch(() => ({}));
-            return {
-              ...t,
-              ok: fallbackResponse.ok && fallbackJson.ok === true,
-              apiDescription: fallbackJson.description || photoDescription,
-              photoFallback: true,
-              photoError: photoDescription || "",
-              photoMode: "server_proxy"
-            };
-          }
-
-          const msgBody = {
-            chat_id: t.chatId,
-            text: outgoingText,
-            ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
-            ...(firstMessageId ? { reply_to_message_id: firstMessageId, allow_sending_without_reply: true } : {})
-          };
-          const textResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(msgBody)
-          });
-          const textJson = await textResponse.json().catch(() => ({}));
-          return {
-            ...t,
-            ok: textResponse.ok && textJson.ok === true,
-            apiDescription: textJson.description,
-            photoFallback: false,
-            photoMode: "server_proxy"
-          };
-        }
-
         const msgBody = {
           chat_id: t.chatId,
           text: outgoingText,
@@ -3110,11 +3024,6 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
 
   if (!suppressAlerts) {
     let msg = `Отправлено успешно: ${okCount} из ${results.length}.`;
-    const fallbackWithPhotoError = results.find((r) => r.photoFallback === true);
-    if (fallbackWithPhotoError) {
-      const why = "Telegram отклонил фото при серверной отправке.";
-      msg += `\n\nФото не прикрепилось: ${why}${fallbackWithPhotoError.photoError ? `\nПричина Telegram: ${fallbackWithPhotoError.photoError}` : ""}`;
-    }
     if (missingNames.length) {
       msg += `\n\nБез доставки (нет подключения Telegram или Chat ID): ${missingNames.join(", ")}.`;
     }
@@ -18081,9 +17990,6 @@ function renderOtherSettingsPanel() {
                     <span class="telegram-emulator-btn">🗣 Комментарий</span>
                   </div>
                   <div class="telegram-emulator-keyboard-row">
-                    <span class="telegram-emulator-btn telegram-emulator-btn--wide">📸 Отправить фото</span>
-                  </div>
-                  <div class="telegram-emulator-keyboard-row">
                     <span class="telegram-emulator-btn telegram-emulator-btn--wide">🚧 Причина отставания</span>
                   </div>
                 </div>
@@ -19055,9 +18961,17 @@ function openTaskDetailsModal(section, row, rowIndex) {
     const source = mediaPreviewStore[getMediaSlotKey(taskId, TASK_COLUMNS.mediaAfter, idx)];
     draftState.preview[key] = source ? { ...source } : { name, type: "", url: "" };
   });
+  const hiddenDetailColumns = new Set([
+    TASK_COLUMNS.addedDate,
+    TASK_COLUMNS.phase,
+    TASK_COLUMNS.phaseSection,
+    TASK_COLUMNS.phaseSubsection,
+    TASK_COLUMNS.mediaBefore,
+    TASK_COLUMNS.mediaAfter
+  ]);
   const details = columns
     .map((column, index) => {
-      if (index === TASK_COLUMNS.mediaBefore || index === TASK_COLUMNS.mediaAfter) return "";
+      if (hiddenDetailColumns.has(index)) return "";
       const value = index === TASK_COLUMNS.status ? getTaskDisplayStatus(row) : (row[index] || "-");
       return `<div class="detail-item"><span class="detail-label">${column}</span><span class="detail-value">${value}</span></div>`;
     })
@@ -19087,9 +19001,6 @@ function openTaskDetailsModal(section, row, rowIndex) {
       </div>
     `).join("")
     : '<span class="close-approver-empty">Нет активных заявок на переназначение.</span>';
-  const beforeGallery = buildDraftGallery(draftState.before, draftState.preview, "before");
-  const afterGallery = buildDraftGallery(draftState.after, draftState.preview, "after");
-
   const modal = document.createElement("div");
   modal.className = "details-modal-overlay";
   modal.tabIndex = -1;
@@ -19123,14 +19034,6 @@ function openTaskDetailsModal(section, row, rowIndex) {
           <div class="close-approvers-list">${reassignHtml}</div>
         </div>
         <div class="details-grid">${details}</div>
-        <div class="gallery-block">
-          <h4>Медиа до</h4>
-          <div class="gallery-list" data-gallery-kind="before">${beforeGallery}</div>
-        </div>
-        <div class="gallery-block">
-          <h4>Медиа после</h4>
-          <div class="gallery-list" data-gallery-kind="after">${afterGallery}</div>
-        </div>
       </div>
       <div class="task-card-panel task-card-panel--hidden" data-task-panel="files" role="tabpanel">
         <div class="task-files-panel">
@@ -21442,12 +21345,6 @@ function openCreateTaskModal(section) {
           <input id="taskCreateDueDate" type="date" class="cell-editor" />
         </label>
         <label class="employee-create-field task-create-field">
-          <span>Статус</span>
-          <select id="taskCreateStatus" class="cell-editor">
-            ${STATUS_OPTIONS.map((status) => `<option value="${escapeHtmlAttr(status)}" ${status === "Новый" ? "selected" : ""}>${escapeHtmlText(status)}</option>`).join("")}
-          </select>
-        </label>
-        <label class="employee-create-field task-create-field">
           <span>Приоритет</span>
           <select id="taskCreatePriority" class="cell-editor">
             ${PRIORITY_OPTIONS.map((priority) => `<option value="${escapeHtmlAttr(priority)}" ${priority === "Средний" ? "selected" : ""}>${escapeHtmlText(priority)}</option>`).join("")}
@@ -21472,7 +21369,6 @@ function openCreateTaskModal(section) {
   const assigneeInput = overlay.querySelector("#taskCreateAssignee");
   const responsibleInput = overlay.querySelector("#taskCreateResponsible");
   const dueDateInput = overlay.querySelector("#taskCreateDueDate");
-  const statusInput = overlay.querySelector("#taskCreateStatus");
   const priorityInput = overlay.querySelector("#taskCreatePriority");
   const noteInput = overlay.querySelector("#taskCreateNote");
   const errorBox = overlay.querySelector("#taskCreateError");
@@ -21512,7 +21408,7 @@ function openCreateTaskModal(section) {
     const objectName = String(objectInput?.value || "").trim();
     const assignee = normalizePersonName(assigneeInput?.value || "");
     const responsible = normalizePersonName(responsibleInput?.value || "") || defaultResponsible;
-    const status = normalizeTaskStatusValue(String(statusInput?.value || "Новый")) || "Новый";
+    const status = "Новый";
     const priority = normalizeTaskPriorityValue(String(priorityInput?.value || "Средний")) || "Средний";
     const note = String(noteInput?.value || "").trim();
     const dueParts = parseHtmlDateValue(String(dueDateInput?.value || ""));
