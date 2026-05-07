@@ -72,6 +72,8 @@ const SMS_DEFAULT_AUTH_TYPE = "header";
 const SMS_DEFAULT_GATE_URL = "https://api.sms-gate.app/3rdparty/v1/messages";
 const SMS_DEFAULT_INVITE_TEMPLATE =
   "Здравствуйте, [ФИО]. Пожалуйста, пройдите регистрацию в Telegram-боте [Бот] по ссылке: [Ссылка_бота]. После регистрации вы будете получать задачи от руководителей.";
+const SMS_DEFAULT_TASK_TEMPLATE =
+  "У вас есть задача №[ID_задачи]: [Название_задачи]. Для подробностей перейдите в Telegram-бот [Бот]: [Ссылка_бота].";
 let overdueDigestTickInFlight = false;
 let overdueDigestTimer = null;
 
@@ -313,6 +315,32 @@ function applySmsInviteTemplate(rawTemplate, context) {
   return truncateForLog(out, 2000);
 }
 
+function applySmsTaskTemplate(rawTemplate, context) {
+  let tpl = String(rawTemplate || "").trim();
+  if (!tpl) tpl = SMS_DEFAULT_TASK_TEMPLATE;
+  const replacements = new Map([
+    ["[ID_задачи]", context.taskId || ""],
+    ["[Название_задачи]", context.taskTitle || "задача"],
+    ["[Объект]", context.objectName || ""],
+    ["[Срок]", context.dueDate || ""],
+    ["[ФИО]", context.fullName || "сотрудник"],
+    ["[Бот]", context.botLabel || "бот"],
+    ["[Ссылка_бота]", context.botLink || "ссылка будет предоставлена администратором"],
+    ["[task_id]", context.taskId || ""],
+    ["[task_title]", context.taskTitle || ""],
+    ["[object]", context.objectName || ""],
+    ["[due_date]", context.dueDate || ""],
+    ["[full_name]", context.fullName || ""],
+    ["[bot]", context.botLabel || "bot"],
+    ["[bot_link]", context.botLink || ""]
+  ]);
+  let out = tpl;
+  replacements.forEach((value, token) => {
+    out = out.split(token).join(String(value || ""));
+  });
+  return truncateForLog(out, 2000);
+}
+
 function getSmsGatewaySettings(displaySettings) {
   const ds = displaySettings && typeof displaySettings === "object" ? displaySettings : {};
   const provider = normalizeSmsGatewayProvider(ds.smsGatewayProvider);
@@ -346,7 +374,8 @@ function getSmsGatewaySettings(displaySettings) {
     timeoutMs: Number.isFinite(timeoutRaw)
       ? Math.min(60000, Math.max(3000, Math.floor(timeoutRaw)))
       : SMS_DEFAULT_TIMEOUT_MS,
-    inviteTemplate: String(ds.smsInviteTemplate || "").trim()
+    inviteTemplate: String(ds.smsInviteTemplate || "").trim(),
+    taskTemplate: String(ds.smsTaskTemplate || "").trim()
   };
 }
 
@@ -363,6 +392,26 @@ function buildSmsInviteMessage(payload, employeeRow) {
     employeeId,
     fullName,
     phone,
+    botLabel,
+    botLink
+  });
+  return { text, botLink, botLabel };
+}
+
+function buildSmsTaskMessage(payload, taskRow, employeeRow) {
+  const displaySettings = payload?.displaySettings || {};
+  const settings = getSmsGatewaySettings(displaySettings);
+  const employeeId = String(employeeRow?.[0] || "").trim();
+  const fullName = String(employeeRow?.[EMPLOYEE_FULL_NAME_COL] || "").trim() || "Сотрудник";
+  const botUsername = String(displaySettings?.telegramBotUsername || "").trim().replace(/^@+/, "");
+  const botLabel = botUsername ? `@${botUsername}` : "Telegram-бот";
+  const botLink = buildSmsInviteBotLink(displaySettings, employeeId);
+  const text = applySmsTaskTemplate(settings.taskTemplate, {
+    taskId: String(taskRow?.[TASK_NUMBER_COL] || "").trim(),
+    taskTitle: String(taskRow?.[TASK_TITLE_COL] || "").trim(),
+    objectName: String(taskRow?.[1] || "").trim(),
+    dueDate: String(taskRow?.[TASK_DUE_DATE_COL] || "").trim(),
+    fullName,
     botLabel,
     botLink
   });
@@ -1810,6 +1859,143 @@ app.post("/api/sms/invite/send", authMiddleware, requireAdmin, async (req, res) 
       /* noop */
     }
     return res.status(500).json({ ok: false, error: "Ошибка отправки SMS-приглашения." });
+  }
+});
+
+app.post("/api/sms/task/send", authMiddleware, requireAdmin, async (req, res) => {
+  const nowMs = Date.now();
+  try {
+    const taskId = String(req.body?.taskId || "").trim();
+    if (!taskId) {
+      return res.status(400).json({ ok: false, error: "taskId обязателен." });
+    }
+
+    const payload = await loadAppPayload();
+    const smsSettings = getSmsGatewaySettings(payload?.displaySettings || {});
+    if (!smsSettings.enabled) {
+      return res.status(400).json({ ok: false, error: "SMS Gateway выключен в настройках." });
+    }
+    if (!smsSettings.url) {
+      return res.status(400).json({ ok: false, error: "Не указан URL SMS Gateway в настройках." });
+    }
+
+    const tasksRows = getTaskRows(payload);
+    const taskRow = tasksRows.find((row) => String(row?.[TASK_NUMBER_COL] || "").trim() === taskId);
+    if (!taskRow) {
+      return res.status(404).json({ ok: false, error: "Задача не найдена." });
+    }
+    const taskTitle = String(taskRow?.[TASK_TITLE_COL] || "").trim() || `Задача ${taskId}`;
+    const actorName = String(req.user?.name || "").trim() || "Администратор";
+
+    const recipientNames = collectTaskTelegramRecipientNames(taskRow);
+    if (!recipientNames.length) {
+      return res.status(400).json({ ok: false, error: "В задаче не указан исполнитель/ответственный для SMS." });
+    }
+
+    const recipientsByPhone = new Map();
+    for (const name of recipientNames) {
+      const employeeRow = findEmployeeByFullNameInPayload(payload, name);
+      if (!employeeRow) continue;
+      const phone = normalizePhone(employeeRow?.[4] || "");
+      if (!phone) continue;
+      if (!recipientsByPhone.has(phone)) {
+        recipientsByPhone.set(phone, employeeRow);
+      }
+    }
+
+    if (!recipientsByPhone.size) {
+      return res.status(400).json({ ok: false, error: "Не найдены сотрудники с корректным телефоном для отправки SMS." });
+    }
+
+    const logStore = ensureSmsInviteLogArray(payload);
+    let sentCount = 0;
+    let failCount = 0;
+    const errors = [];
+    const entries = [];
+
+    for (const [phone, employeeRow] of recipientsByPhone.entries()) {
+      const employeeId = String(employeeRow?.[0] || "").trim();
+      const employeeName = String(employeeRow?.[EMPLOYEE_FULL_NAME_COL] || "").trim() || "Сотрудник";
+      const chatId = String(employeeRow?.[EMPLOYEE_CHAT_ID_COL] || "").trim();
+      const taskMessage = buildSmsTaskMessage(payload, taskRow, employeeRow);
+      const logEntry = {
+        id: randomBytes(10).toString("hex"),
+        atMs: nowMs,
+        atIso: new Date(nowMs).toISOString(),
+        employeeId,
+        employeeName,
+        phone,
+        chatId,
+        text: truncateForLog(taskMessage.text, 2000),
+        actor: actorName,
+        status: "failed",
+        ok: false,
+        gatewayProvider: smsSettings.provider,
+        gatewayMethod: smsSettings.method,
+        gatewayUrl: truncateForLog(smsSettings.url, 240),
+        httpStatus: 0,
+        resultMessage: "",
+        responsePreview: "",
+        smsKind: "task",
+        taskId,
+        taskTitle: truncateForLog(taskTitle, 240)
+      };
+
+      if (!taskMessage.text) {
+        logEntry.resultMessage = "Текст SMS по задаче пустой. Проверьте шаблон.";
+      } else {
+        const sendResult = await sendSmsViaGateway(smsSettings, { phone, text: taskMessage.text });
+        logEntry.ok = sendResult.ok === true;
+        logEntry.status = sendResult.ok ? "sent" : "failed";
+        logEntry.httpStatus = Number(sendResult.httpStatus) || 0;
+        logEntry.resultMessage = truncateForLog(
+          sendResult.providerMessage || sendResult.reason || (sendResult.ok ? "SMS отправлено." : "Неизвестная ошибка."),
+          800
+        );
+        logEntry.responsePreview = truncateForLog(sendResult.responsePreview || "", 1200);
+      }
+
+      if (logEntry.ok) {
+        sentCount += 1;
+      } else {
+        failCount += 1;
+        errors.push(`${employeeName}: ${String(logEntry.resultMessage || "ошибка")}`);
+      }
+      entries.push(logEntry);
+      logStore.unshift(logEntry);
+    }
+
+    if (logStore.length > SMS_INVITE_LOG_LIMIT) {
+      logStore.length = SMS_INVITE_LOG_LIMIT;
+    }
+    await saveAppPayload(payload);
+
+    if (sentCount > 0) {
+      return res.json({
+        ok: true,
+        taskId,
+        taskTitle,
+        totalRecipients: recipientsByPhone.size,
+        sentCount,
+        failCount,
+        errors,
+        entries
+      });
+    }
+    return res.status(400).json({
+      ok: false,
+      error: errors[0] || "Не удалось отправить SMS по задаче.",
+      taskId,
+      taskTitle,
+      totalRecipients: recipientsByPhone.size,
+      sentCount,
+      failCount,
+      errors,
+      entries
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Ошибка отправки SMS по задаче." });
   }
 });
 

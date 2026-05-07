@@ -3679,6 +3679,12 @@ function summarizeSmsTextForHistory(rawValue) {
       fullText: full
     };
   }
+  if (/задач[аеи]\s*№/i.test(oneLine) && /t\.me\//i.test(oneLine)) {
+    return {
+      shortText: "Уведомление по задаче (ссылка на Telegram-бот).",
+      fullText: full
+    };
+  }
   if (oneLine.length > 160) {
     return { shortText: `${oneLine.slice(0, 157)}...`, fullText: full };
   }
@@ -4001,6 +4007,111 @@ async function sendEmployeeInviteSms(employeeRow, triggerButton = null, options 
       });
     }
     return { ok: false, error: msg, employeeId, fullName };
+  } finally {
+    if (triggerButton instanceof HTMLButtonElement) {
+      triggerButton.disabled = false;
+    }
+  }
+}
+
+async function sendTaskSmsNotification(taskRow, triggerButton = null, options = {}) {
+  const silent = options?.silent === true;
+  const taskId = String(taskRow?.[TASK_COLUMNS.number] || "").trim();
+  const taskTitle = String(taskRow?.[TASK_COLUMNS.task] || "").trim() || "Задача";
+  if (!taskId) {
+    const msg = "Не найден ID задачи.";
+    if (!silent) {
+      showStatusDialog({
+        title: "SMS по задаче",
+        message: msg,
+        type: "error"
+      });
+    }
+    return { ok: false, error: msg, taskId, taskTitle };
+  }
+  if (currentAuthRole !== "admin") {
+    const msg = "Отправка SMS по задаче доступна только администратору.";
+    if (!silent) {
+      showStatusDialog({
+        title: "SMS по задаче",
+        message: msg,
+        type: "error"
+      });
+    }
+    return { ok: false, error: msg, taskId, taskTitle };
+  }
+  if (!isHostedRuntime() || !getAuthToken()) {
+    const msg = "Отправка SMS доступна только в серверном режиме после входа.";
+    if (!silent) {
+      showStatusDialog({
+        title: "SMS по задаче",
+        message: msg,
+        type: "error"
+      });
+    }
+    return { ok: false, error: msg, taskId, taskTitle };
+  }
+
+  if (triggerButton instanceof HTMLButtonElement) {
+    triggerButton.disabled = true;
+  }
+  try {
+    const r = await fetch("/api/sms/task/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({ taskId })
+    });
+    if (r.status === 401) {
+      handleServerAuthExpired();
+      return { ok: false, error: "Сессия истекла.", taskId, taskTitle };
+    }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j?.ok !== true) {
+      const msg = String(j?.error || "Не удалось отправить SMS по задаче.");
+      if (!silent) {
+        showStatusDialog({
+          title: "SMS по задаче",
+          message: msg,
+          type: "error"
+        });
+      }
+      if (!silent && activeSectionId === "smsHistory") {
+        void refreshSmsHistorySection({ silent: true, forceRender: true });
+      }
+      return { ok: false, error: msg, taskId, taskTitle };
+    }
+
+    const sentCount = Number(j?.sentCount) || 0;
+    const totalRecipients = Number(j?.totalRecipients) || 0;
+    const failCount = Number(j?.failCount) || 0;
+    const errors = Array.isArray(j?.errors) ? j.errors : [];
+    if (!silent) {
+      const msg = failCount > 0
+        ? `Задача №${taskId}: отправлено ${sentCount} из ${totalRecipients}.\nОшибок: ${failCount}${errors.length ? `\n${errors.slice(0, 8).join("\n")}` : ""}`
+        : `Задача №${taskId}: SMS отправлено ${sentCount} получателям.`;
+      showStatusDialog({
+        title: failCount > 0 ? "SMS отправлено частично" : "SMS отправлено",
+        message: msg,
+        type: failCount > 0 ? "info" : "success"
+      });
+    }
+    if (activeSectionId === "smsHistory") {
+      void refreshSmsHistorySection({ silent: true, forceRender: true });
+    }
+    return { ok: true, error: "", taskId, taskTitle, sentCount, totalRecipients, failCount };
+  } catch (e) {
+    const msg = String(e?.message || "Ошибка сети при отправке SMS.");
+    if (!silent) {
+      showStatusDialog({
+        title: "SMS по задаче",
+        message: msg,
+        type: "error"
+      });
+    }
+    return { ok: false, error: msg, taskId, taskTitle };
   } finally {
     if (triggerButton instanceof HTMLButtonElement) {
       triggerButton.disabled = false;
@@ -4568,6 +4679,8 @@ let displaySettings = {
   smsGatewayTimeoutMs: 15000,
   smsInviteTemplate:
     "Здравствуйте, [ФИО]. Пожалуйста, пройдите регистрацию в Telegram-боте [Бот] по ссылке: [Ссылка_бота]. После регистрации вы будете получать задачи от руководителей.",
+  smsTaskTemplate:
+    "У вас есть задача №[ID_задачи]: [Название_задачи]. Для подробностей перейдите в Telegram-бот [Бот]: [Ссылка_бота].",
   /** Пустая строка = часовой пояс браузера */
   serverTimezone: "",
   dateDisplayFormat: "DMY_DOT",
@@ -6237,6 +6350,9 @@ function renderBulkActions(selectedCount, isTrashView, sectionId, options = {}) 
       <button type="button" class="icon-action-btn bulk-send-btn" id="bulkSendBtn" title="Отправить выбранные">
         <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
       </button>
+      <button type="button" class="icon-action-btn bulk-task-sms-btn" id="bulkTaskSmsBtn" title="Отправить SMS по выбранным задачам">
+        <i data-lucide="message-square" class="lucide-icon" aria-hidden="true"></i>
+      </button>
       <button type="button" class="icon-action-btn danger-btn bulk-delete-btn" id="bulkDeleteBtn" title="Удалить выбранные">
         <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
       </button>
@@ -6332,6 +6448,25 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
   if (sectionId === "objects") {
     return `
       <div class="action-buttons">
+        <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
+          <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+      </div>
+    `;
+  }
+  if (sectionId === "tasks") {
+    const canSendTaskSms = currentAuthRole === "admin";
+    return `
+      <div class="action-buttons">
+        <button type="button" class="icon-action-btn view-row-btn" title="Просмотр" data-row-index="${rowIndex}">
+          <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+        <button type="button" class="icon-action-btn send-row-btn" title="Отправить в Telegram" data-row-index="${rowIndex}">
+          <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+        <button type="button" class="icon-action-btn send-row-sms-btn" title="${canSendTaskSms ? "Отправить SMS по задаче" : "Доступно только администратору"}" data-row-index="${rowIndex}" ${canSendTaskSms ? "" : "disabled"}>
+          <i data-lucide="message-square" class="lucide-icon" aria-hidden="true"></i>
+        </button>
         <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
           <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
         </button>
@@ -14282,11 +14417,13 @@ function attachTableActionHandlers(section, filteredEntries) {
   const viewButtons = Array.from(document.querySelectorAll(".view-row-btn"));
   const restoreButtons = Array.from(document.querySelectorAll(".restore-row-btn"));
   const sendButtons = Array.from(document.querySelectorAll(".send-row-btn"));
+  const sendTaskSmsButtons = Array.from(document.querySelectorAll(".send-row-sms-btn"));
   const copyEmployeeMsgButtons = Array.from(document.querySelectorAll(".copy-employee-msg-btn"));
   const sendEmployeeSmsButtons = Array.from(document.querySelectorAll(".send-employee-sms-btn"));
   const clearEmployeeChatButtons = Array.from(document.querySelectorAll(".clear-employee-chat-btn"));
   const deleteButtons = Array.from(document.querySelectorAll(".delete-row-btn"));
   const bulkSendBtn = document.getElementById("bulkSendBtn");
+  const bulkTaskSmsBtn = document.getElementById("bulkTaskSmsBtn");
   const bulkEmployeeSmsBtn = document.getElementById("bulkEmployeeSmsBtn");
   const bulkDeleteBtn = document.getElementById("bulkDeleteBtn");
   const bulkRestoreBtn = document.getElementById("bulkRestoreBtn");
@@ -14388,6 +14525,23 @@ function attachTableActionHandlers(section, filteredEntries) {
       setTimeout(() => {
         button.title = "Скопировать сообщение сотруднику";
       }, 1200);
+    });
+  });
+
+  sendTaskSmsButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      if (section.id !== "tasks") return;
+      const rowIndex = Number(button.dataset.rowIndex);
+      const row = section.rows[rowIndex];
+      if (!row) return;
+      const taskId = String(row[TASK_COLUMNS.number] || "").trim() || "—";
+      confirmAction({
+        message: `Отправить SMS по задаче №${taskId}?`,
+        confirmLabel: "Отправить",
+        onConfirm: () => {
+          void sendTaskSmsNotification(row, button);
+        }
+      });
     });
   });
 
@@ -14613,6 +14767,54 @@ function attachTableActionHandlers(section, filteredEntries) {
               type: errors.length === 0 ? "success" : "error"
             });
             renderTablePreserveScroll();
+          })();
+        }
+      });
+    });
+  }
+
+  if (bulkTaskSmsBtn) {
+    bulkTaskSmsBtn.addEventListener("click", () => {
+      if (section.id !== "tasks") return;
+      const rowIndices = Array.from(selectedRows).sort((a, b) => a - b);
+      if (!rowIndices.length) return;
+      confirmAction({
+        message: `Отправить SMS по выбранным задачам (${rowIndices.length})?`,
+        confirmLabel: "Отправить",
+        onConfirm: () => {
+          void (async () => {
+            if (bulkTaskSmsBtn.dataset.busy === "1") return;
+            bulkTaskSmsBtn.dataset.busy = "1";
+            bulkTaskSmsBtn.disabled = true;
+            let okTasks = 0;
+            const errors = [];
+            try {
+              for (const rowIndex of rowIndices) {
+                const row = section.rows[rowIndex];
+                if (!row) continue;
+                const result = await sendTaskSmsNotification(row, null, { silent: true });
+                if (result.ok) {
+                  okTasks += 1;
+                } else {
+                  const label = String(row[TASK_COLUMNS.number] || row[TASK_COLUMNS.task] || rowIndex);
+                  errors.push(`№${label}: ${String(result.error || "ошибка")}`);
+                }
+              }
+            } finally {
+              bulkTaskSmsBtn.disabled = false;
+              bulkTaskSmsBtn.dataset.busy = "0";
+            }
+            const summary = errors.length
+              ? `SMS отправлено по задачам: ${okTasks} из ${rowIndices.length}.\nОшибки:\n${errors.slice(0, 10).join("\n")}${errors.length > 10 ? `\n... и еще ${errors.length - 10}` : ""}`
+              : `SMS успешно отправлено по ${okTasks} задачам.`;
+            showStatusDialog({
+              title: errors.length ? "SMS отправлено частично" : "SMS отправлено",
+              message: summary,
+              type: errors.length ? "info" : "success"
+            });
+            if (activeSectionId === "smsHistory") {
+              await refreshSmsHistorySection({ silent: true, forceRender: true });
+            }
           })();
         }
       });
@@ -17275,6 +17477,10 @@ function attachHeaderActionHandlers(section, filteredEntries) {
         openCreateEmployeeModal(section);
         return;
       }
+      if (section.id === "tasks" && isMobileCompactViewport()) {
+        openCreateTaskModal(section);
+        return;
+      }
       let prefillTaskObject = "";
       let shouldPrefillTaskObject = false;
       if (section.id === "tasks") {
@@ -17639,12 +17845,16 @@ function renderOtherSettingsPanel() {
               </div>
 
               <div class="sms-settings-field sms-settings-grid__span-3">
-                <label class="settings-field-label" for="smsInviteTemplateInput">Шаблон SMS</label>
+                <label class="settings-field-label" for="smsInviteTemplateInput">Шаблон SMS-приглашения</label>
                 <textarea id="smsInviteTemplateInput" class="sms-template-input" rows="4" placeholder="Текст приглашения с плейсхолдерами [ФИО], [Бот], [Ссылка_бота], [ID], [Телефон]">${escapeHtmlText(String(displaySettings.smsInviteTemplate || ""))}</textarea>
+              </div>
+              <div class="sms-settings-field sms-settings-grid__span-3">
+                <label class="settings-field-label" for="smsTaskTemplateInput">Шаблон SMS по задаче</label>
+                <textarea id="smsTaskTemplateInput" class="sms-template-input" rows="4" placeholder="Текст по задаче: [ID_задачи], [Название_задачи], [ФИО], [Бот], [Ссылка_бота], [Объект], [Срок]">${escapeHtmlText(String(displaySettings.smsTaskTemplate || ""))}</textarea>
               </div>
 
               <p class="other-settings-hint sms-settings-grid__span-3 sms-settings-hint">Для <strong>sms-gate.app</strong> используйте URL <code>https://api.sms-gate.app/3rdparty/v1/messages</code>, авторизацию Basic или Bearer и scope <code>messages:send</code> (если JWT).</p>
-              <p class="other-settings-hint sms-settings-grid__span-3 sms-settings-hint">Кнопка SMS доступна в строке сотрудника, а при множественном выборе в таблице можно отправить SMS сразу пачкой. История отправки фиксируется в журнале (иконка часов в разделе «Сотрудники»).</p>
+              <p class="other-settings-hint sms-settings-grid__span-3 sms-settings-hint">Кнопка SMS доступна в строке сотрудника и в строке задачи (SMS по задаче), а при множественном выборе можно отправлять SMS пачкой. История отправки фиксируется в журнале (иконка часов в разделе «Сотрудники»).</p>
             </div>
           </div>
         </div>
@@ -18114,6 +18324,7 @@ function attachOtherSettingsHandlers() {
   const smsSenderFieldEl = document.getElementById("smsGatewaySenderFieldInput");
   const smsTimeoutEl = document.getElementById("smsGatewayTimeoutInput");
   const smsTemplateEl = document.getElementById("smsInviteTemplateInput");
+  const smsTaskTemplateEl = document.getElementById("smsTaskTemplateInput");
   const smsAuthGroups = Array.from(document.querySelectorAll("[data-sms-auth-group]"));
   const smsProviderGroups = Array.from(document.querySelectorAll("[data-sms-provider-group]"));
   const hasSmsGroupToken = (tokens, value) => {
@@ -18203,6 +18414,9 @@ function attachOtherSettingsHandlers() {
     if (smsTemplateEl) {
       displaySettings.smsInviteTemplate = String(smsTemplateEl.value || "").trim();
     }
+    if (smsTaskTemplateEl) {
+      displaySettings.smsTaskTemplate = String(smsTaskTemplateEl.value || "").trim();
+    }
     saveDisplaySettings();
     updateSmsSettingsVisibility();
   };
@@ -18232,6 +18446,7 @@ function attachOtherSettingsHandlers() {
   smsTimeoutEl?.addEventListener("change", commitSmsSettings);
   smsTimeoutEl?.addEventListener("blur", commitSmsSettings);
   smsTemplateEl?.addEventListener("blur", commitSmsSettings);
+  smsTaskTemplateEl?.addEventListener("blur", commitSmsSettings);
   updateSmsSettingsVisibility();
 
   const gsEnabledEl = document.getElementById("googleSheetsEnabledCheckbox");
@@ -18628,6 +18843,10 @@ function restoreDisplaySettings() {
     if (typeof displaySettings.smsInviteTemplate !== "string" || !displaySettings.smsInviteTemplate.trim()) {
       displaySettings.smsInviteTemplate =
         "Здравствуйте, [ФИО]. Пожалуйста, пройдите регистрацию в Telegram-боте [Бот] по ссылке: [Ссылка_бота]. После регистрации вы будете получать задачи от руководителей.";
+    }
+    if (typeof displaySettings.smsTaskTemplate !== "string" || !displaySettings.smsTaskTemplate.trim()) {
+      displaySettings.smsTaskTemplate =
+        "У вас есть задача №[ID_задачи]: [Название_задачи]. Для подробностей перейдите в Telegram-бот [Бот]: [Ссылка_бота].";
     }
     if (!Array.isArray(displaySettings.pendingImportedTaskIds)) {
       displaySettings.pendingImportedTaskIds = [];
@@ -21175,6 +21394,170 @@ function openCreateEmployeeModal(section) {
     }
   });
   fullNameInput?.focus();
+}
+
+function openCreateTaskModal(section) {
+  if (!section || section.id !== "tasks") return;
+  const objectOptions = getUniqueValues(getSectionById("objects")?.rows || [], OBJECT_COLUMNS.name)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  const employeeOptions = getUniqueValues(getSectionById("employees")?.rows || [], EMPLOYEE_COLUMNS.fullName)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  const defaultResponsible = getTaskCreatorDisplayName();
+
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal employee-create-modal task-create-modal" role="dialog" aria-modal="true" aria-label="Добавить задачу">
+      <h4>Добавить задачу</h4>
+      <div class="employee-create-grid task-create-grid">
+        <label class="employee-create-field task-create-field task-create-field--span">
+          <span>Название задачи</span>
+          <input id="taskCreateTitle" type="text" class="cell-editor" placeholder="Введите название задачи" autocomplete="off" />
+        </label>
+        <label class="employee-create-field task-create-field">
+          <span>Объект</span>
+          <div class="task-create-picker-wrap">
+            <input id="taskCreateObject" type="text" class="cell-editor" placeholder="Выберите объект" autocomplete="off" />
+            <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreateObjectPickBtn" aria-label="Выбрать объект">▼</button>
+          </div>
+        </label>
+        <label class="employee-create-field task-create-field">
+          <span>Исполнитель</span>
+          <div class="task-create-picker-wrap">
+            <input id="taskCreateAssignee" type="text" class="cell-editor" placeholder="Выберите исполнителя" autocomplete="off" />
+            <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreateAssigneePickBtn" aria-label="Выбрать исполнителя">▼</button>
+          </div>
+        </label>
+        <label class="employee-create-field task-create-field">
+          <span>Постановщик</span>
+          <div class="task-create-picker-wrap">
+            <input id="taskCreateResponsible" type="text" class="cell-editor" value="${escapeHtmlAttr(defaultResponsible)}" placeholder="Постановщик" autocomplete="off" />
+            <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreateResponsiblePickBtn" aria-label="Выбрать постановщика">▼</button>
+          </div>
+        </label>
+        <label class="employee-create-field task-create-field">
+          <span>Срок</span>
+          <input id="taskCreateDueDate" type="date" class="cell-editor" />
+        </label>
+        <label class="employee-create-field task-create-field">
+          <span>Статус</span>
+          <select id="taskCreateStatus" class="cell-editor">
+            ${STATUS_OPTIONS.map((status) => `<option value="${escapeHtmlAttr(status)}" ${status === "Новый" ? "selected" : ""}>${escapeHtmlText(status)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="employee-create-field task-create-field">
+          <span>Приоритет</span>
+          <select id="taskCreatePriority" class="cell-editor">
+            ${PRIORITY_OPTIONS.map((priority) => `<option value="${escapeHtmlAttr(priority)}" ${priority === "Средний" ? "selected" : ""}>${escapeHtmlText(priority)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="employee-create-field task-create-field task-create-field--span">
+          <span>Комментарий (опционально)</span>
+          <textarea id="taskCreateNote" class="cell-editor task-create-textarea" rows="3" placeholder="Комментарий к задаче"></textarea>
+        </label>
+      </div>
+      <div class="employee-create-error hidden" id="taskCreateError"></div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary task-create-cancel">Отмена</button>
+        <button type="button" class="responsible-apply-btn task-create-save">Сохранить</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const titleInput = overlay.querySelector("#taskCreateTitle");
+  const objectInput = overlay.querySelector("#taskCreateObject");
+  const assigneeInput = overlay.querySelector("#taskCreateAssignee");
+  const responsibleInput = overlay.querySelector("#taskCreateResponsible");
+  const dueDateInput = overlay.querySelector("#taskCreateDueDate");
+  const statusInput = overlay.querySelector("#taskCreateStatus");
+  const priorityInput = overlay.querySelector("#taskCreatePriority");
+  const noteInput = overlay.querySelector("#taskCreateNote");
+  const errorBox = overlay.querySelector("#taskCreateError");
+
+  const close = () => overlay.remove();
+  const setError = (text = "") => {
+    if (!(errorBox instanceof HTMLElement)) return;
+    const msg = String(text || "").trim();
+    errorBox.textContent = msg;
+    errorBox.classList.toggle("hidden", !msg);
+  };
+
+  const attachPicker = (buttonEl, inputEl, title, options) => {
+    if (!(buttonEl instanceof HTMLButtonElement) || !(inputEl instanceof HTMLInputElement)) return;
+    buttonEl.addEventListener("click", () => {
+      const values = Array.from(new Set((options || []).map((item) => String(item || "").trim()).filter(Boolean)));
+      if (!values.length) {
+        showStatusDialog({
+          title: "Справочник пуст",
+          message: `Нет доступных значений для поля «${title}».`,
+          type: "info"
+        });
+        return;
+      }
+      openSingleLookupModal(`Выбор: ${title}`, values, String(inputEl.value || "").trim(), (nextValue) => {
+        inputEl.value = String(nextValue || "").trim();
+      });
+    });
+  };
+
+  attachPicker(overlay.querySelector("#taskCreateObjectPickBtn"), objectInput, "Объект", objectOptions);
+  attachPicker(overlay.querySelector("#taskCreateAssigneePickBtn"), assigneeInput, "Исполнитель", employeeOptions);
+  attachPicker(overlay.querySelector("#taskCreateResponsiblePickBtn"), responsibleInput, "Постановщик", employeeOptions);
+
+  const save = () => {
+    const title = String(titleInput?.value || "").trim();
+    const objectName = String(objectInput?.value || "").trim();
+    const assignee = normalizePersonName(assigneeInput?.value || "");
+    const responsible = normalizePersonName(responsibleInput?.value || "") || defaultResponsible;
+    const status = normalizeTaskStatusValue(String(statusInput?.value || "Новый")) || "Новый";
+    const priority = normalizeTaskPriorityValue(String(priorityInput?.value || "Средний")) || "Средний";
+    const note = String(noteInput?.value || "").trim();
+    const dueParts = parseHtmlDateValue(String(dueDateInput?.value || ""));
+
+    if (!title) {
+      setError("Укажите название задачи.");
+      titleInput?.focus();
+      return;
+    }
+
+    addEmptyRow(section);
+    const row = section.rows[section.rows.length - 1];
+    row[TASK_COLUMNS.task] = title;
+    row[TASK_COLUMNS.object] = objectName;
+    row[TASK_COLUMNS.assignedResponsible] = assignee;
+    row[TASK_COLUMNS.responsible] = responsible;
+    row[TASK_COLUMNS.status] = status;
+    row[TASK_COLUMNS.priority] = priority;
+    row[TASK_COLUMNS.note] = note;
+    row[TASK_COLUMNS.dueDate] = dueParts
+      ? formatDatePartsStorage(dueParts.day, dueParts.month, dueParts.year)
+      : "";
+    if (status === "Закрыт") {
+      row[TASK_COLUMNS.closedDate] = getTodayRuDate();
+    } else {
+      row[TASK_COLUMNS.closedDate] = "";
+    }
+
+    saveSectionsData();
+    renderTablePreserveScroll();
+    close();
+  };
+
+  overlay.querySelector(".task-create-save")?.addEventListener("click", save);
+  overlay.querySelector(".task-create-cancel")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  titleInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      save();
+    }
+  });
+  titleInput?.focus();
 }
 
 function getTodayRuDate() {

@@ -3351,8 +3351,42 @@ tr:nth-child(even) td {
   font-size: 12px;
 }
 
+.task-create-modal {
+  width: min(760px, 100%);
+}
+
+.task-create-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.task-create-field--span {
+  grid-column: 1 / -1;
+}
+
+.task-create-picker-wrap {
+  position: relative;
+}
+
+.task-create-picker-wrap .cell-editor {
+  padding-right: 32px;
+}
+
+.task-create-picker-btn {
+  font-size: 0;
+  line-height: 0;
+}
+
+.task-create-textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
 @media (max-width: 760px) {
   .employee-create-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .task-create-grid {
     grid-template-columns: 1fr;
   }
 }
