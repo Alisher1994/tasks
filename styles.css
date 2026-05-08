@@ -3140,9 +3140,9 @@ tr:nth-child(even) td {
   justify-content: center;
   padding: 24px;
   background:
-    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.5) 0 190px, rgba(15, 23, 42, 0.34) 191px),
-    rgba(15, 23, 42, 0.18);
-  backdrop-filter: blur(7px);
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.58) 0 210px, rgba(230, 236, 246, 0.52) 211px),
+    rgba(239, 243, 249, 0.54);
+  backdrop-filter: blur(6px);
 }
 
 .quick-access-wheel {
@@ -3152,9 +3152,9 @@ tr:nth-child(even) td {
   max-height: calc(100vh - 48px);
   aspect-ratio: 1;
   border-radius: 50%;
-  background: rgba(16, 24, 38, 0.9);
-  border: 1px solid rgba(180, 192, 212, 0.38);
-  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.28);
+  background: #e9eef7;
+  border: 1px solid rgba(126, 143, 168, 0.58);
+  box-shadow: 0 24px 62px rgba(70, 84, 105, 0.3);
   overflow: hidden;
 }
 
@@ -3165,27 +3165,57 @@ tr:nth-child(even) td {
   height: 100%;
 }
 
-.quick-access-slice {
-  fill: rgba(255, 255, 255, 0.035);
-  stroke: rgba(202, 213, 232, 0.18);
-  stroke-width: 1;
+.quick-access-sector {
   cursor: pointer;
+}
+
+.quick-access-slice {
+  fill: rgba(233, 238, 247, 0.98);
+  stroke: rgba(117, 135, 163, 0.46);
+  stroke-width: 1;
   transition: fill 0.14s ease, stroke 0.14s ease, filter 0.14s ease;
 }
 
-.quick-access-slice:hover,
-.quick-access-slice.is-selected {
-  fill: rgba(62, 64, 149, 0.28);
-  stroke: rgba(132, 143, 232, 0.95);
-  filter: drop-shadow(0 0 12px rgba(62, 64, 149, 0.42));
+.quick-access-sector:hover .quick-access-slice,
+.quick-access-sector.is-selected .quick-access-slice {
+  fill: rgba(220, 224, 252, 0.96);
+  stroke: rgba(92, 99, 202, 0.95);
+  filter: drop-shadow(0 0 12px rgba(62, 64, 149, 0.3));
 }
 
-.quick-access-slice.is-active {
-  fill: rgba(255, 255, 255, 0.08);
+.quick-access-sector.is-active .quick-access-slice {
+  fill: rgba(241, 244, 250, 0.98);
 }
 
-.quick-access-slice.is-selected.is-active {
-  fill: rgba(62, 64, 149, 0.36);
+.quick-access-sector.is-selected.is-active .quick-access-slice {
+  fill: rgba(213, 218, 250, 0.98);
+}
+
+.quick-access-sector-content {
+  pointer-events: none;
+}
+
+.quick-access-sector-icon .lucide-icon {
+  width: 24px;
+  height: 24px;
+  color: #536177;
+  stroke-width: 2.2;
+}
+
+.quick-access-sector-label {
+  fill: #4d596d;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.quick-access-sector.is-selected .quick-access-sector-icon .lucide-icon {
+  color: #3e4095;
+}
+
+.quick-access-sector.is-selected .quick-access-sector-label {
+  fill: #303388;
 }
 
 .quick-access-center {
@@ -3199,7 +3229,7 @@ tr:nth-child(even) td {
   border-radius: 50%;
   border: 1px solid rgba(62, 64, 149, 0.95);
   background: radial-gradient(circle, rgba(255, 255, 255, 0.96) 0%, rgba(239, 242, 251, 0.98) 100%);
-  box-shadow: 0 0 0 5px rgba(62, 64, 149, 0.14), 0 12px 30px rgba(15, 23, 42, 0.22);
+  box-shadow: 0 0 0 5px rgba(62, 64, 149, 0.12), 0 12px 30px rgba(68, 82, 104, 0.2);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3233,54 +3263,6 @@ tr:nth-child(even) td {
   overflow-wrap: anywhere;
 }
 
-.quick-access-item {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: clamp(70px, 14vw, 98px);
-  min-height: clamp(54px, 11vw, 70px);
-  transform: translate(-50%, -50%) rotate(var(--qa-angle)) translate(var(--qa-radius)) rotate(var(--qa-angle-back));
-  color: rgba(255, 255, 255, 0.78);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0;
-  pointer-events: none;
-  transition: color 0.14s ease, transform 0.14s ease, text-shadow 0.14s ease;
-}
-
-.quick-access-item.is-selected {
-  color: #ffffff;
-  text-shadow: 0 0 14px rgba(132, 143, 232, 0.88);
-  transform: translate(-50%, -50%) rotate(var(--qa-angle)) translate(var(--qa-radius)) rotate(var(--qa-angle-back)) scale(1.06);
-}
-
-.quick-access-item-icon {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.quick-access-item-icon .lucide-icon {
-  width: 22px;
-  height: 22px;
-  stroke-width: 2.1;
-}
-
-.quick-access-item-label {
-  max-width: 100%;
-  font-size: clamp(9px, 1.75vw, 11px);
-  line-height: 1.15;
-  font-weight: 800;
-  text-transform: uppercase;
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-
 @media (max-width: 560px) {
   .quick-access-overlay {
     padding: 14px;
@@ -3300,11 +3282,6 @@ tr:nth-child(even) td {
   .quick-access-center img {
     width: 32px;
     height: 32px;
-  }
-
-  .quick-access-item {
-    width: 66px;
-    min-height: 50px;
   }
 }
 

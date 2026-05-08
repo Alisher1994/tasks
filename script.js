@@ -5152,7 +5152,7 @@ function setQuickAccessSelectedIndex(overlay, nextIndex) {
   if (!items.length) return;
   const normalized = ((nextIndex % items.length) + items.length) % items.length;
   overlay.dataset.quickAccessSelected = String(normalized);
-  overlay.querySelectorAll("[data-quick-access-index]").forEach((el) => {
+  overlay.querySelectorAll(".quick-access-sector[data-quick-access-index]").forEach((el) => {
     const on = Number(el.getAttribute("data-quick-access-index")) === normalized;
     el.classList.toggle("is-selected", on);
   });
@@ -5191,20 +5191,41 @@ function openQuickAccessMenu() {
   overlay.dataset.quickAccessSelected = String(selectedIndex);
   const sectorStep = 360 / items.length;
   const sectorGap = Math.min(1.4, sectorStep * 0.12);
-  const labelRadius = "clamp(118px, 26vw, 178px)";
   overlay.innerHTML = `
     <div class="quick-access-wheel" role="menu" aria-label="Быстрый выбор раздела">
-      <svg class="quick-access-slices" viewBox="0 0 500 500" aria-hidden="true">
+      <svg class="quick-access-slices" viewBox="0 0 500 500">
         ${items.map((item, index) => {
           const start = -90 + sectorStep * index + sectorGap;
           const end = -90 + sectorStep * (index + 1) - sectorGap;
+          const mid = -90 + sectorStep * index + sectorStep / 2;
+          const label = quickAccessPolarToPoint(250, 250, 162, mid);
+          const labelLines = String(item.label || "").split(/\s+/).reduce((acc, word) => {
+            const last = acc[acc.length - 1] || "";
+            if (!last || `${last} ${word}`.length > 12) acc.push(word);
+            else acc[acc.length - 1] = `${last} ${word}`;
+            return acc;
+          }, []).slice(0, 2);
+          if (labelLines.length < 2 && String(item.label || "").length > 12) {
+            labelLines[0] = String(item.label || "").slice(0, 12);
+            labelLines[1] = String(item.label || "").slice(12, 24);
+          }
+          const firstDy = labelLines.length > 1 ? 18 : 23;
           return `
-            <path
-              class="quick-access-slice ${isQuickAccessItemActive(item.id) ? "is-active" : ""} ${index === selectedIndex ? "is-selected" : ""}"
+            <g
+              class="quick-access-sector ${isQuickAccessItemActive(item.id) ? "is-active" : ""} ${index === selectedIndex ? "is-selected" : ""}"
               data-quick-access-id="${escapeHtmlAttr(item.id)}"
               data-quick-access-index="${index}"
-              d="${describeQuickAccessSector(start, end)}"
-            ></path>
+            >
+              <path class="quick-access-slice" d="${describeQuickAccessSector(start, end)}"></path>
+              <g class="quick-access-sector-content" transform="translate(${label.x.toFixed(2)} ${label.y.toFixed(2)})">
+                <g class="quick-access-sector-icon" transform="translate(-11 -25) scale(0.92)">
+                  ${iconSvg(item.icon)}
+                </g>
+                <text class="quick-access-sector-label" text-anchor="middle">
+                  ${labelLines.map((line, lineIndex) => `<tspan x="0" dy="${lineIndex === 0 ? firstDy : 13}">${escapeHtmlText(line)}</tspan>`).join("")}
+                </text>
+              </g>
+            </g>
           `;
         }).join("")}
       </svg>
@@ -5213,20 +5234,6 @@ function openQuickAccessMenu() {
         <span class="quick-access-center-title">Меню</span>
         <span class="quick-access-center-label">${escapeHtmlText(items[selectedIndex]?.label || "Меню")}</span>
       </div>
-      ${items.map((item, index) => {
-        const angle = -90 + sectorStep * index + sectorStep / 2;
-        return `
-          <div
-            class="quick-access-item ${isQuickAccessItemActive(item.id) ? "is-active" : ""} ${index === selectedIndex ? "is-selected" : ""}"
-            data-quick-access-id="${escapeHtmlAttr(item.id)}"
-            data-quick-access-index="${index}"
-            style="--qa-angle: ${angle}deg; --qa-angle-back: ${-angle}deg; --qa-radius: ${labelRadius};"
-          >
-            <span class="quick-access-item-icon">${iconSvg(item.icon)}</span>
-            <span class="quick-access-item-label">${escapeHtmlText(item.label)}</span>
-          </div>
-        `;
-      }).join("")}
     </div>
   `;
   overlay.addEventListener("click", (event) => {
