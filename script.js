@@ -4761,6 +4761,13 @@ function isQuickAccessMenuOpen() {
   return Boolean(document.querySelector(".quick-access-overlay"));
 }
 
+function getQuickAccessVisibleItems() {
+  const allowSettings = canAccessSettingsMenu();
+  return allowSettings
+    ? QUICK_ACCESS_MENU_ITEMS
+    : QUICK_ACCESS_MENU_ITEMS.filter((item) => ["tasks", "gantt", "analytics", "kpi"].includes(item.id));
+}
+
 function activateQuickAccessItem(itemId) {
   closeQuickAccessMenu();
   const id = String(itemId || "").trim();
@@ -4821,40 +4828,116 @@ function activateQuickAccessItem(itemId) {
   }
 }
 
+function quickAccessPolarToPoint(cx, cy, radius, angleDeg) {
+  const angle = (angleDeg - 90) * Math.PI / 180;
+  return {
+    x: cx + radius * Math.cos(angle),
+    y: cy + radius * Math.sin(angle)
+  };
+}
+
+function describeQuickAccessSector(startAngle, endAngle, outerRadius = 246, innerRadius = 86) {
+  const cx = 250;
+  const cy = 250;
+  const outerStart = quickAccessPolarToPoint(cx, cy, outerRadius, endAngle);
+  const outerEnd = quickAccessPolarToPoint(cx, cy, outerRadius, startAngle);
+  const innerStart = quickAccessPolarToPoint(cx, cy, innerRadius, startAngle);
+  const innerEnd = quickAccessPolarToPoint(cx, cy, innerRadius, endAngle);
+  const largeArc = endAngle - startAngle <= 180 ? "0" : "1";
+  return [
+    `M ${outerStart.x.toFixed(2)} ${outerStart.y.toFixed(2)}`,
+    `A ${outerRadius} ${outerRadius} 0 ${largeArc} 0 ${outerEnd.x.toFixed(2)} ${outerEnd.y.toFixed(2)}`,
+    `L ${innerStart.x.toFixed(2)} ${innerStart.y.toFixed(2)}`,
+    `A ${innerRadius} ${innerRadius} 0 ${largeArc} 1 ${innerEnd.x.toFixed(2)} ${innerEnd.y.toFixed(2)}`,
+    "Z"
+  ].join(" ");
+}
+
+function getQuickAccessSelectedIndex(overlay, items) {
+  const raw = Number(overlay?.dataset.quickAccessSelected || 0);
+  if (!Number.isFinite(raw) || raw < 0) return 0;
+  return Math.min(items.length - 1, Math.floor(raw));
+}
+
+function setQuickAccessSelectedIndex(overlay, nextIndex) {
+  if (!(overlay instanceof HTMLElement)) return;
+  const items = getQuickAccessVisibleItems();
+  if (!items.length) return;
+  const normalized = ((nextIndex % items.length) + items.length) % items.length;
+  overlay.dataset.quickAccessSelected = String(normalized);
+  overlay.querySelectorAll("[data-quick-access-index]").forEach((el) => {
+    const on = Number(el.getAttribute("data-quick-access-index")) === normalized;
+    el.classList.toggle("is-selected", on);
+  });
+  const centerLabel = overlay.querySelector(".quick-access-center-label");
+  if (centerLabel) centerLabel.textContent = items[normalized]?.label || "Меню";
+}
+
+function moveQuickAccessSelection(step) {
+  const overlay = document.querySelector(".quick-access-overlay");
+  if (!(overlay instanceof HTMLElement)) return;
+  const items = getQuickAccessVisibleItems();
+  if (!items.length) return;
+  setQuickAccessSelectedIndex(overlay, getQuickAccessSelectedIndex(overlay, items) + step);
+}
+
+function activateQuickAccessSelectedItem() {
+  const overlay = document.querySelector(".quick-access-overlay");
+  if (!(overlay instanceof HTMLElement)) return;
+  const items = getQuickAccessVisibleItems();
+  if (!items.length) return;
+  const selectedIndex = getQuickAccessSelectedIndex(overlay, items);
+  activateQuickAccessItem(items[selectedIndex]?.id);
+}
+
 function openQuickAccessMenu() {
   if (!isAppVisible()) return;
   closeQuickAccessMenu();
-  const allowSettings = canAccessSettingsMenu();
-  const items = allowSettings
-    ? QUICK_ACCESS_MENU_ITEMS
-    : QUICK_ACCESS_MENU_ITEMS.filter((item) => ["tasks", "gantt", "analytics", "kpi"].includes(item.id));
+  const items = getQuickAccessVisibleItems();
+  const activeIndex = Math.max(0, items.findIndex((item) => isQuickAccessItemActive(item.id)));
+  const selectedIndex = activeIndex >= 0 ? activeIndex : 0;
   const overlay = document.createElement("div");
   overlay.className = "quick-access-overlay";
   overlay.setAttribute("role", "dialog");
   overlay.setAttribute("aria-modal", "true");
   overlay.setAttribute("aria-label", "Быстрый доступ к меню");
-  const radius = "clamp(108px, 24vw, 190px)";
+  overlay.dataset.quickAccessSelected = String(selectedIndex);
+  const sectorStep = 360 / items.length;
+  const sectorGap = Math.min(1.4, sectorStep * 0.12);
+  const labelRadius = "clamp(118px, 26vw, 178px)";
   overlay.innerHTML = `
-    <div class="quick-access-wheel" role="menu">
-      <div class="quick-access-center" aria-hidden="true">
+    <div class="quick-access-wheel" role="menu" aria-label="Быстрый выбор раздела">
+      <svg class="quick-access-slices" viewBox="0 0 500 500" aria-hidden="true">
+        ${items.map((item, index) => {
+          const start = -90 + sectorStep * index + sectorGap;
+          const end = -90 + sectorStep * (index + 1) - sectorGap;
+          return `
+            <path
+              class="quick-access-slice ${isQuickAccessItemActive(item.id) ? "is-active" : ""} ${index === selectedIndex ? "is-selected" : ""}"
+              data-quick-access-id="${escapeHtmlAttr(item.id)}"
+              data-quick-access-index="${index}"
+              d="${describeQuickAccessSector(start, end)}"
+            ></path>
+          `;
+        }).join("")}
+      </svg>
+      <div class="quick-access-center">
         <img src="mb new logo 1.svg" alt="" />
-        <span>Меню</span>
+        <span class="quick-access-center-title">Меню</span>
+        <span class="quick-access-center-label">${escapeHtmlText(items[selectedIndex]?.label || "Меню")}</span>
       </div>
       ${items.map((item, index) => {
-        const angle = -90 + (360 / items.length) * index;
+        const angle = -90 + sectorStep * index + sectorStep / 2;
         return `
-          <button
-            type="button"
-            class="quick-access-item ${isQuickAccessItemActive(item.id) ? "is-active" : ""}"
+          <div
+            class="quick-access-item ${isQuickAccessItemActive(item.id) ? "is-active" : ""} ${index === selectedIndex ? "is-selected" : ""}"
             data-quick-access-id="${escapeHtmlAttr(item.id)}"
-            style="--qa-angle: ${angle}deg; --qa-angle-back: ${-angle}deg; --qa-radius: ${radius};"
-            title="${escapeHtmlAttr(item.label)}"
-            aria-label="${escapeHtmlAttr(item.label)}"
-            role="menuitem"
+            data-quick-access-index="${index}"
+            style="--qa-angle: ${angle}deg; --qa-angle-back: ${-angle}deg; --qa-radius: ${labelRadius};"
           >
             <span class="quick-access-item-icon">${iconSvg(item.icon)}</span>
             <span class="quick-access-item-label">${escapeHtmlText(item.label)}</span>
-          </button>
+          </div>
         `;
       }).join("")}
     </div>
@@ -4864,9 +4947,11 @@ function openQuickAccessMenu() {
       closeQuickAccessMenu();
       return;
     }
-    const button = event.target instanceof HTMLElement ? event.target.closest("[data-quick-access-id]") : null;
-    if (!(button instanceof HTMLButtonElement)) return;
-    activateQuickAccessItem(button.dataset.quickAccessId);
+    const target = event.target instanceof Element ? event.target.closest("[data-quick-access-id]") : null;
+    if (!(target instanceof Element)) return;
+    const index = Number(target.getAttribute("data-quick-access-index"));
+    if (Number.isFinite(index)) setQuickAccessSelectedIndex(overlay, index);
+    activateQuickAccessItem(target.getAttribute("data-quick-access-id"));
   });
   document.body.appendChild(overlay);
   initLucideIcons();
@@ -23285,17 +23370,37 @@ function expandSidebarMenu() {
 function registerHotkeys() {
   document.addEventListener("keydown", (event) => {
     if (!isAppVisible()) return;
-    if (event.key === "Escape" && isQuickAccessMenuOpen()) {
-      event.preventDefault();
-      event.stopPropagation();
-      closeQuickAccessMenu();
-      return;
-    }
     if ((event.ctrlKey || event.metaKey) && event.code === "Space") {
       event.preventDefault();
       event.stopPropagation();
       toggleQuickAccessMenu();
       return;
+    }
+    if (isQuickAccessMenuOpen()) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeQuickAccessMenu();
+        return;
+      }
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+        event.preventDefault();
+        event.stopPropagation();
+        moveQuickAccessSelection(1);
+        return;
+      }
+      if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+        event.preventDefault();
+        event.stopPropagation();
+        moveQuickAccessSelection(-1);
+        return;
+      }
+      if (event.key === "Enter" || event.code === "Space") {
+        event.preventDefault();
+        event.stopPropagation();
+        activateQuickAccessSelectedItem();
+        return;
+      }
     }
     if (event.key === "Insert") {
       event.preventDefault();
