@@ -1428,12 +1428,22 @@ async function pushAppToServer() {
     }
     if (r.status === 409) {
       const j = await r.json().catch(() => null);
-      if (j?.data && typeof j.data === "object") {
-        applyServerBundle(j.data, { rerender: activeSectionId === "tasks" });
-      }
       const rev = Number(j?.rev) || 0;
       if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
-      hasUnsyncedLocalChanges = false;
+      const retry = await fetch("/api/data", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getAuthToken()}`
+        },
+        body: JSON.stringify({ data, baseRev: serverDataRevision })
+      });
+      if (retry.ok) {
+        const retryJson = await retry.json().catch(() => null);
+        const retryRev = Number(retryJson?.rev) || 0;
+        if (Number.isFinite(retryRev) && retryRev > 0) serverDataRevision = retryRev;
+        hasUnsyncedLocalChanges = false;
+      }
       return;
     }
     if (r.ok) {
@@ -1477,13 +1487,27 @@ async function pushAppToServerImmediate() {
     }
     if (r.status === 409) {
       const j = await r.json().catch(() => null);
-      if (j?.data && typeof j.data === "object") {
-        applyServerBundle(j.data, { rerender: true });
-      }
       const rev = Number(j?.rev) || 0;
       if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
-      hasUnsyncedLocalChanges = false;
-      return false;
+      const retry = await fetch("/api/data", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getAuthToken()}`
+        },
+        body: JSON.stringify({ data, baseRev: serverDataRevision })
+      });
+      if (retry.status === 401) {
+        handleServerAuthExpired();
+        return false;
+      }
+      if (retry.ok) {
+        const retryJson = await retry.json().catch(() => null);
+        const retryRev = Number(retryJson?.rev) || 0;
+        if (Number.isFinite(retryRev) && retryRev > 0) serverDataRevision = retryRev;
+        hasUnsyncedLocalChanges = false;
+      }
+      return retry.ok;
     }
     if (r.ok) {
       const j = await r.json().catch(() => null);
@@ -1619,6 +1643,7 @@ function mergeCellCommentsPreferRemoteKeepLocal(remoteRaw, localRaw) {
       if (!item || typeof item !== "object" || Array.isArray(item)) return;
       const id = String(item.id || "").trim();
       if (!id) return;
+      if (cellCommentDeletedIds instanceof Set && cellCommentDeletedIds.has(id)) return;
       merged.set(id, cloneJsonSafe(item));
     });
 
@@ -1628,6 +1653,7 @@ function mergeCellCommentsPreferRemoteKeepLocal(remoteRaw, localRaw) {
       if (!item || typeof item !== "object" || Array.isArray(item)) return;
       const id = String(item.id || "").trim();
       if (!id) return;
+      if (cellCommentDeletedIds instanceof Set && cellCommentDeletedIds.has(id)) return;
       merged.set(id, cloneJsonSafe(item));
     });
 
@@ -1685,12 +1711,8 @@ async function mergeTaskReadStateFromServer(localPayload) {
     if (remotePayload?.taskReassignLog && typeof remotePayload.taskReassignLog === "object" && !Array.isArray(remotePayload.taskReassignLog)) {
       localPayload.taskReassignLog = JSON.parse(JSON.stringify(remotePayload.taskReassignLog));
     }
-    if (remotePayload?.cellComments && typeof remotePayload.cellComments === "object" && !Array.isArray(remotePayload.cellComments)) {
-      localPayload.cellComments = mergeCellCommentsPreferRemoteKeepLocal(
-        remotePayload.cellComments,
-        localPayload.cellComments
-      );
-    }
+    // Комментарии к ячейкам не подтягиваем во время push: иначе удалённый локально
+    // комментарий может вернуться из старого серверного снимка до завершения PUT.
   } catch (_) {
     /* noop */
   }
@@ -2125,7 +2147,7 @@ function isTasksGraphModeActive() {
 function hasActiveTaskUiOverlay() {
   return Boolean(
     document.querySelector(
-      ".details-modal-overlay, .task-file-viewer-overlay, .responsible-modal-overlay"
+      ".details-modal-overlay, .task-file-viewer-overlay, .responsible-modal-overlay, .cell-comment-overlay"
     )
   );
 }
@@ -4656,6 +4678,7 @@ let taskAttachmentsByTaskId = {};
 let telegramReassignRequests = {};
 let taskReassignLog = {};
 let cellCommentsByCellKey = {};
+let cellCommentDeletedIds = new Set();
 const expandedTaskAssigneeRows = new Set();
 
 function iconSvg(name) {
@@ -6232,6 +6255,9 @@ function renderBulkActions(selectedCount, isTrashView, sectionId, options = {}) 
         <button type="button" class="icon-action-btn bulk-restore-btn" id="bulkRestoreBtn" title="Восстановить выбранные">
           <i data-lucide="rotate-ccw" class="lucide-icon" aria-hidden="true"></i>
         </button>
+        <button type="button" class="icon-action-btn danger-btn bulk-trash-delete-btn" id="bulkTrashDeleteBtn" title="Удалить из корзины">
+          <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
+        </button>
       </div>
     `;
   }
@@ -6281,6 +6307,9 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
       <div class="action-buttons">
         <button type="button" class="icon-action-btn restore-row-btn" title="Восстановить" data-row-index="${rowIndex}">
           <i data-lucide="rotate-ccw" class="lucide-icon" aria-hidden="true"></i>
+        </button>
+        <button type="button" class="icon-action-btn danger-btn delete-trash-row-btn" title="Удалить из корзины" data-row-index="${rowIndex}">
+          <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
         </button>
       </div>
     `;
@@ -12943,7 +12972,10 @@ function isReadonlyColumn(section, colIndex) {
   if (
     section.id === "tasks" &&
     (
-      colIndex === TASK_COLUMNS.closedDate
+      colIndex === TASK_COLUMNS.plan
+      || colIndex === TASK_COLUMNS.delayReason
+      || colIndex === TASK_COLUMNS.reassignReason
+      || colIndex === TASK_COLUMNS.closedDate
       || colIndex === TASK_COLUMNS.readState
       || colIndex === TASK_COLUMNS.lastSentAt
       || colIndex === TASK_COLUMNS.createdBy
@@ -14333,6 +14365,7 @@ function attachTableActionHandlers(section, filteredEntries) {
   const rowCheckboxes = Array.from(document.querySelectorAll(".row-checkbox"));
   const viewButtons = Array.from(document.querySelectorAll(".view-row-btn"));
   const restoreButtons = Array.from(document.querySelectorAll(".restore-row-btn"));
+  const deleteTrashButtons = Array.from(document.querySelectorAll(".delete-trash-row-btn"));
   const sendButtons = Array.from(document.querySelectorAll(".send-row-btn"));
   const sendTaskSmsButtons = Array.from(document.querySelectorAll(".send-row-sms-btn"));
   const copyEmployeeMsgButtons = Array.from(document.querySelectorAll(".copy-employee-msg-btn"));
@@ -14344,6 +14377,7 @@ function attachTableActionHandlers(section, filteredEntries) {
   const bulkEmployeeSmsBtn = document.getElementById("bulkEmployeeSmsBtn");
   const bulkDeleteBtn = document.getElementById("bulkDeleteBtn");
   const bulkRestoreBtn = document.getElementById("bulkRestoreBtn");
+  const bulkTrashDeleteBtn = document.getElementById("bulkTrashDeleteBtn");
   const selectedRows = getSelectedRowsSet(getSelectionKey(section.id));
   const trashView = isTrashTab(section.id);
 
@@ -14752,6 +14786,25 @@ function attachTableActionHandlers(section, filteredEntries) {
     });
   });
 
+  deleteTrashButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const rowIndex = Number(button.dataset.rowIndex);
+      confirmAction({
+        message: "Удалить запись из корзины без восстановления?",
+        confirmLabel: "Удалить",
+        onConfirm: () => {
+          permanentlyDeleteFromTrash(section.id, rowIndex);
+          normalizeSelectedRowsAfterDelete(getSelectionKey(section.id), rowIndex);
+          saveTrashData();
+          if (section.id === "tasks" && isHostedRuntime() && getAuthToken()) {
+            void pushAppToServerImmediate();
+          }
+          renderTable();
+        }
+      });
+    });
+  });
+
   if (bulkRestoreBtn) {
     bulkRestoreBtn.addEventListener("click", () => {
       const indexes = Array.from(selectedRows).sort((a, b) => b - a);
@@ -14765,6 +14818,26 @@ function attachTableActionHandlers(section, filteredEntries) {
         void pushAppToServerImmediate();
       }
       renderTable();
+    });
+  }
+
+  if (bulkTrashDeleteBtn) {
+    bulkTrashDeleteBtn.addEventListener("click", () => {
+      const indexes = Array.from(selectedRows).sort((a, b) => b - a);
+      if (!indexes.length) return;
+      confirmAction({
+        message: `Удалить из корзины выбранные записи (${indexes.length})?`,
+        confirmLabel: "Удалить",
+        onConfirm: () => {
+          indexes.forEach((index) => permanentlyDeleteFromTrash(section.id, index));
+          selectedRows.clear();
+          saveTrashData();
+          if (section.id === "tasks" && isHostedRuntime() && getAuthToken()) {
+            void pushAppToServerImmediate();
+          }
+          renderTable();
+        }
+      });
     });
   }
 }
@@ -14980,9 +15053,13 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
       return;
     }
     if (action === "delete") {
+      cellCommentDeletedIds.add(id);
       cellCommentsByCellKey[key] = list.filter((comment) => String(comment?.id || "").trim() !== id);
       normalizeCellCommentsStore();
       saveSectionsData();
+      if (isHostedRuntime() && getAuthToken()) {
+        void pushAppToServerImmediate();
+      }
       applyCellCommentDecorations(sectionId);
       renderThread();
     }
@@ -17184,15 +17261,8 @@ function openDatePickerModal(title, currentRuDate, onApply, historyCtx) {
   const input = overlay.querySelector(".date-modal-input");
   const cancelBtn = overlay.querySelector(".responsible-cancel-btn");
   const applyBtn = overlay.querySelector(".responsible-apply-btn");
-
-  input?.addEventListener("change", () => {
-    selected = String(input.value || "");
-  });
-  cancelBtn?.addEventListener("click", () => {
-    overlay.remove();
-    renderTablePreserveScroll();
-  });
-  applyBtn?.addEventListener("click", () => {
+  const applySelectedDate = () => {
+    selected = String(input?.value || selected || "");
     const newVal = fromInputDate(selected);
     if (historyCtx?.taskId && typeof historyCtx.getOld === "function") {
       const oldVal = historyCtx.getOld();
@@ -17207,7 +17277,22 @@ function openDatePickerModal(title, currentRuDate, onApply, historyCtx) {
     saveSectionsData();
     overlay.remove();
     renderTablePreserveScroll();
+  };
+
+  input?.addEventListener("change", () => {
+    selected = String(input.value || "");
   });
+  input?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      applySelectedDate();
+    }
+  });
+  cancelBtn?.addEventListener("click", () => {
+    overlay.remove();
+    renderTablePreserveScroll();
+  });
+  applyBtn?.addEventListener("click", applySelectedDate);
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) {
       overlay.remove();
@@ -17394,7 +17479,7 @@ function attachHeaderActionHandlers(section, filteredEntries) {
         openCreateEmployeeModal(section);
         return;
       }
-      if (section.id === "tasks" && isMobileCompactViewport()) {
+      if (section.id === "tasks") {
         openCreateTaskModal(section);
         return;
       }
@@ -21816,6 +21901,13 @@ function restoreTaskFromTrash(sectionId, trashIndex) {
   if (!section || !trash[trashIndex]) return;
   const [item] = trash.splice(trashIndex, 1);
   section.rows.push(item.row);
+}
+
+function permanentlyDeleteFromTrash(sectionId, trashIndex) {
+  const trash = getTrashRows(sectionId);
+  if (!trash[trashIndex]) return false;
+  trash.splice(trashIndex, 1);
+  return true;
 }
 
 function cleanupExpiredTrash(sectionId) {

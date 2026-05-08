@@ -2844,6 +2844,7 @@ tr:nth-child(even) td {
 
 .cell-comment-modal {
   width: min(560px, 100%);
+  max-height: min(640px, calc(100vh - 32px));
   background: #ffffff;
   border: 1px solid #d7e0ea;
   border-radius: 12px;
@@ -2889,14 +2890,20 @@ tr:nth-child(even) td {
 }
 
 .cell-comment-thread {
-  max-height: 280px;
+  max-height: min(360px, 42vh);
   overflow: auto;
+  scrollbar-width: none;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 8px;
   background: #fcfdff;
   display: grid;
   gap: 8px;
+}
+
+.cell-comment-thread::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .cell-comment-thread[hidden],
