@@ -21638,6 +21638,21 @@ function openCreateTaskModal(section) {
   const employeeOptions = getUniqueValues(getSectionById("employees")?.rows || [], EMPLOYEE_COLUMNS.fullName)
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, "ru"));
+  const employeeMetaByName = new Map();
+  (getSectionById("employees")?.rows || []).forEach((row) => {
+    const name = normalizePersonName(row?.[EMPLOYEE_COLUMNS.fullName]);
+    const key = name.toLowerCase();
+    if (!key || employeeMetaByName.has(key)) return;
+    employeeMetaByName.set(key, {
+      position: normalizePersonName(row?.[EMPLOYEE_COLUMNS.position]),
+      department: normalizePersonName(row?.[EMPLOYEE_COLUMNS.department])
+    });
+  });
+  const getEmployeeOptionMeta = (name) => {
+    const meta = employeeMetaByName.get(normalizePersonName(name).toLowerCase());
+    if (!meta) return "";
+    return [meta.position, meta.department].filter(Boolean).join(" · ");
+  };
   const phaseOptions = getUniqueValues(getSectionById("phases")?.rows || [], 1)
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, "ru"));
@@ -21876,13 +21891,21 @@ function openCreateTaskModal(section) {
     const render = (open = true) => {
       const values = getValues();
       const q = String(inputEl.value || "").trim().toLowerCase();
-      const shown = values.filter((item) => !q || item.toLowerCase().includes(q)).slice(0, 80);
+      const shown = values.filter((item) => {
+        const meta = hooks.getOptionMeta?.(item) || "";
+        const haystack = `${item} ${meta}`.toLowerCase();
+        return !q || haystack.includes(q);
+      }).slice(0, 80);
       dropdownEl.innerHTML = shown.length
-        ? shown.map((item) => `
+        ? shown.map((item) => {
+            const meta = hooks.getOptionMeta?.(item) || "";
+            return `
             <button type="button" class="employee-create-dropdown-item task-create-dropdown-item" data-combobox-value="${escapeHtmlAttr(item)}">
-              ${escapeHtmlText(item)}
+              <span class="task-create-dropdown-item__name">${escapeHtmlText(item)}</span>
+              ${meta ? `<span class="task-create-dropdown-item__meta">${escapeHtmlText(meta)}</span>` : ""}
             </button>
-          `).join("")
+          `;
+          }).join("")
         : `<div class="employee-create-dropdown-empty">Ничего не найдено</div>`;
       if (open) {
         closeDropdowns(dropdownEl);
@@ -21950,8 +21973,20 @@ function openCreateTaskModal(section) {
   };
 
   attachCombobox(objectInput, overlay.querySelector("#taskCreateObjectPickBtn"), overlay.querySelector("#taskCreateObjectDropdown"), objectOptions);
-  attachCombobox(assigneeInput, overlay.querySelector("#taskCreateAssigneePickBtn"), overlay.querySelector("#taskCreateAssigneeDropdown"), getTaskCreateAssigneeOptions);
-  attachCombobox(responsibleInput, overlay.querySelector("#taskCreateResponsiblePickBtn"), overlay.querySelector("#taskCreateResponsibleDropdown"), employeeOptions);
+  attachCombobox(
+    assigneeInput,
+    overlay.querySelector("#taskCreateAssigneePickBtn"),
+    overlay.querySelector("#taskCreateAssigneeDropdown"),
+    getTaskCreateAssigneeOptions,
+    { getOptionMeta: getEmployeeOptionMeta }
+  );
+  attachCombobox(
+    responsibleInput,
+    overlay.querySelector("#taskCreateResponsiblePickBtn"),
+    overlay.querySelector("#taskCreateResponsibleDropdown"),
+    employeeOptions,
+    { getOptionMeta: getEmployeeOptionMeta }
+  );
   attachCombobox(priorityInput, overlay.querySelector("#taskCreatePriorityPickBtn"), overlay.querySelector("#taskCreatePriorityDropdown"), PRIORITY_OPTIONS);
   attachCombobox(phaseInput, overlay.querySelector("#taskCreatePhasePickBtn"), overlay.querySelector("#taskCreatePhaseDropdown"), getTaskCreatePhaseOptions, {
     onPick: () => refreshTaskCreateHierarchy("phase"),

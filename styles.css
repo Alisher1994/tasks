@@ -798,14 +798,13 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
 }
 
 .other-settings-tabs {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-self: flex-start;
   max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: visible;
   padding-bottom: 2px;
-  -webkit-overflow-scrolling: touch;
 }
 
 .other-settings-tab-btn {
@@ -3402,6 +3401,25 @@ tr:nth-child(even) td {
   font-size: 14px;
   color: #233244;
   cursor: pointer;
+}
+
+.task-create-dropdown-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 38px;
+}
+
+.task-create-dropdown-item__name {
+  color: #233244;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.task-create-dropdown-item__meta {
+  color: #7b8794;
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .employee-create-dropdown-item:last-child {
