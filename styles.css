@@ -1466,24 +1466,6 @@ body.sidebar-collapsed .sidebar-account-info {
   box-shadow: 0 0 0 2px var(--brand-focus-ring);
 }
 
-.settings-swagger-frame {
-  width: 100%;
-  min-height: 620px;
-  height: calc(100vh - 250px);
-  border: 1px solid #dce4ee;
-  border-radius: 10px;
-  background: #f4f7fb;
-}
-
-.settings-swagger-denied {
-  border: 1px dashed #cbd5e1;
-  border-radius: 10px;
-  background: #f8fafd;
-  color: #506176;
-  padding: 18px;
-  font-size: 13px;
-}
-
 @media (max-width: 1100px) {
   .documentation-split-layout {
     grid-template-columns: 1fr;
