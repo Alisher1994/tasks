@@ -133,6 +133,17 @@ function findEmployeeByDisplayNameInPayload(payload, displayName) {
   return null;
 }
 
+function findEmployeeForAuthUserInPayload(payload, user) {
+  if (!user) return null;
+  const byPhone = findEmployeeByPhoneInPayload(payload, normalizePhone(user.phone || ""));
+  if (byPhone) return byPhone;
+  const sub = String(user.sub || "").trim();
+  const employeeId = sub.startsWith("emp:") ? "" : sub;
+  const byId = findEmployeeByIdInPayload(payload, employeeId);
+  if (byId) return byId;
+  return findEmployeeByDisplayNameInPayload(payload, user.name || "");
+}
+
 function normalizeLabelKey(raw) {
   return String(raw || "")
     .toLowerCase()
@@ -475,7 +486,8 @@ function buildOpenApiSpec(req) {
                     type: "object",
                     properties: {
                       token: { type: "string" },
-                      displayName: { type: "string" }
+                      displayName: { type: "string" },
+                      role: { type: "string", example: "admin" }
                     }
                   }
                 }
@@ -1590,10 +1602,27 @@ function isAdminUser(req) {
   return false;
 }
 
-function requireAdmin(req, res, next) {
-  if (!isAdminUser(req)) {
-    return res.status(403).json({ error: "Недостаточно прав" });
+async function resolveEffectiveAuthRole(req) {
+  if (isAdminUser(req)) return "admin";
+  try {
+    const payload = await loadAppPayload();
+    const employee = findEmployeeForAuthUserInPayload(payload, req.user);
+    if (isEmployeeAdminAccessEnabled(payload, employee)) return "admin";
+  } catch (e) {
+    console.warn("Не удалось проверить админ-доступ сотрудника:", e?.message || e);
   }
+  return "user";
+}
+
+async function requireAdmin(req, res, next) {
+  const role = await resolveEffectiveAuthRole(req);
+  if (role !== "admin") {
+    return res.status(403).json({
+      error: "Недостаточно прав",
+      hint: "Токен действителен, но сервер не видит у пользователя права администратора. Проверьте галочку Админ у сотрудника и войдите заново."
+    });
+  }
+  req.user.role = "admin";
   next();
 }
 
@@ -1804,12 +1833,12 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       const subject = String(u.id);
       const sessionVersion = await issueSingleSessionVersion(subject);
       const token = jwt.sign(
-        { sub: subject, role: effectiveRole, name: u.display_name, sv: sessionVersion },
+        { sub: subject, role: effectiveRole, name: u.display_name, phone: u.phone || phone, sv: sessionVersion },
         JWT_SECRET,
         { expiresIn: "30d" }
       );
       await recordEmployeeLastLogin({ phone: u.phone || phone, displayName: u.display_name });
-      return res.json({ token, displayName: u.display_name });
+      return res.json({ token, displayName: u.display_name, role: effectiveRole });
     }
 
     /** Фолбэк-вход сотрудника: пароль = последние 4 цифры телефона из справочника. */
@@ -1824,12 +1853,12 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
         const subject = `emp:${phone}`;
         const sessionVersion = await issueSingleSessionVersion(subject);
         const token = jwt.sign(
-          { sub: subject, role, name: displayName, sv: sessionVersion },
+          { sub: subject, role, name: displayName, phone, sv: sessionVersion },
           JWT_SECRET,
           { expiresIn: "30d" }
         );
         await recordEmployeeLastLogin({ phone, displayName });
-        return res.json({ token, displayName });
+        return res.json({ token, displayName, role });
       }
     }
 
@@ -1844,8 +1873,8 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       password === ADMIN_PASSWORD
     ) {
       const sessionVersion = await issueSingleSessionVersion("admin");
-      const token = jwt.sign({ sub: "admin", role: "admin", name: "Пользователь", sv: sessionVersion }, JWT_SECRET, { expiresIn: "30d" });
-      return res.json({ token, displayName: "Пользователь" });
+      const token = jwt.sign({ sub: "admin", role: "admin", name: "Пользователь", phone: envPhone, sv: sessionVersion }, JWT_SECRET, { expiresIn: "30d" });
+      return res.json({ token, displayName: "Пользователь", role: "admin" });
     }
   } catch (e) {
     console.error(e);
@@ -1855,9 +1884,9 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
   return res.status(401).json({ error: "Неверный логин или пароль" });
 });
 
-app.get("/api/auth/me", authMiddleware, (req, res) => {
+app.get("/api/auth/me", authMiddleware, async (req, res) => {
   const name = String(req.user?.name || "").trim() || "Пользователь";
-  const role = req.user?.role === "admin" || req.user?.sub === "admin" ? "admin" : req.user?.role || "user";
+  const role = await resolveEffectiveAuthRole(req);
   const id = req.user?.sub != null ? String(req.user.sub) : "";
   return res.json({ id, displayName: name, role });
 });
