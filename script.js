@@ -4523,6 +4523,7 @@ const filtersBySection = {};
 const selectedRowsBySection = {};
 const filterPanelOpenBySection = {};
 const statusTabBySection = {};
+let pendingAddedRowAnchor = null;
 let isSidebarCollapsed = false;
 const activeRowBySection = {};
 const visibleColumnsBySection = {};
@@ -5326,61 +5327,140 @@ function attachTasksObjectPickerHandlers(section) {
 function renderSectionHeaderIconButtons(section) {
   const canImportCatalog = isCatalogImportableSectionId(section.id);
   const canAddRow = section.id !== "smsHistory";
-  return `
-        <div class="table-header-right">
-          ${canAddRow ? `
-          <button type="button" class="icon-action-btn add-row-btn" id="addRowBtn" title="Добавить">
-            <i data-lucide="plus" class="lucide-icon" aria-hidden="true"></i>
-          </button>` : ""}
-          <button type="button" class="icon-action-btn filter-toggle-btn" id="toggleFiltersBtn" title="Фильтр">
-            <i data-lucide="filter" class="lucide-icon" aria-hidden="true"></i>
-          </button>
+  const moreButtons = `
           ${section.id === "tasks" ? `
-          <button type="button" class="icon-action-btn import-tasks-btn" id="openTaskImportModalBtn" title="Импорт задач">
-            <i data-lucide="file-up" class="lucide-icon" aria-hidden="true"></i>
+          <button type="button" class="header-more-menu-item import-tasks-btn" id="openTaskImportModalBtn" title="Импорт задач">
+            ${withLucideIcon("file-up", "Импорт задач")}
           </button>` : ""}
           ${section.id === "tasks" ? `
-          <button type="button" class="icon-action-btn" id="googleSheetsSyncTasksBtn" title="Синхронизация">
-            <span class="gs-mini-icon" aria-hidden="true">
-              <svg viewBox="0 0 48 48" fill="none">
-                <path d="M8 5h20l12 12v24a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" fill="#0F9D58"/>
-                <path d="M28 5v10a2 2 0 0 0 2 2h10L28 5z" fill="#B7E1CD"/>
-                <rect x="14" y="22" width="20" height="3" rx="1.5" fill="#fff"/>
-                <rect x="14" y="28" width="20" height="3" rx="1.5" fill="#fff"/>
-                <rect x="14" y="34" width="12" height="3" rx="1.5" fill="#fff"/>
-              </svg>
+          <button type="button" class="header-more-menu-item" id="googleSheetsSyncTasksBtn" title="Синхронизация">
+            <span class="icon-label">
+              <span class="gs-mini-icon" aria-hidden="true">
+                <svg viewBox="0 0 48 48" fill="none">
+                  <path d="M8 5h20l12 12v24a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" fill="#0F9D58"/>
+                  <path d="M28 5v10a2 2 0 0 0 2 2h10L28 5z" fill="#B7E1CD"/>
+                  <rect x="14" y="22" width="20" height="3" rx="1.5" fill="#fff"/>
+                  <rect x="14" y="28" width="20" height="3" rx="1.5" fill="#fff"/>
+                  <rect x="14" y="34" width="12" height="3" rx="1.5" fill="#fff"/>
+                </svg>
+              </span>
+              <span>Синхронизация</span>
             </span>
           </button>` : ""}
           ${section.id === "tasks" ? `
-          <button type="button" class="icon-action-btn" id="sendOverdueTasksBtn" title="Отправить просроченные">
-            <i data-lucide="bell-ring" class="lucide-icon" aria-hidden="true"></i>
+          <button type="button" class="header-more-menu-item" id="sendOverdueTasksBtn" title="Отправить просроченные">
+            ${withLucideIcon("bell-ring", "Просроченные")}
           </button>` : ""}
           ${section.id === "employees" ? `
-          <button type="button" class="icon-action-btn import-employees-btn" id="openEmployeeImportModalBtn" title="Импорт сотрудников">
-            <i data-lucide="file-up" class="lucide-icon" aria-hidden="true"></i>
+          <button type="button" class="header-more-menu-item import-employees-btn" id="openEmployeeImportModalBtn" title="Импорт сотрудников">
+            ${withLucideIcon("file-up", "Импорт сотрудников")}
           </button>` : ""}
           ${canImportCatalog ? `
-          <button type="button" class="icon-action-btn import-catalog-btn" id="openCatalogImportModalBtn" title="Импорт значений">
-            <i data-lucide="file-up" class="lucide-icon" aria-hidden="true"></i>
+          <button type="button" class="header-more-menu-item import-catalog-btn" id="openCatalogImportModalBtn" title="Импорт значений">
+            ${withLucideIcon("file-up", "Импорт значений")}
           </button>` : ""}
           ${section.id === "employees" ? `
-          <button type="button" class="icon-action-btn" id="refreshEmployeeChatIdsBtn" title="Обновить Chat ID сотрудников">
-            <i data-lucide="rotate-cw" class="lucide-icon" aria-hidden="true"></i>
+          <button type="button" class="header-more-menu-item" id="refreshEmployeeChatIdsBtn" title="Обновить Chat ID сотрудников">
+            ${withLucideIcon("rotate-cw", "Обновить Chat ID")}
           </button>` : ""}
           ${section.id === "employees" ? `
-          <button type="button" class="icon-action-btn" id="openSmsInviteHistoryBtn" title="История SMS-рассылок">
-            <i data-lucide="history" class="lucide-icon" aria-hidden="true"></i>
+          <button type="button" class="header-more-menu-item" id="openSmsInviteHistoryBtn" title="История SMS-рассылок">
+            ${withLucideIcon("history", "История SMS")}
           </button>` : ""}
-          <button type="button" class="icon-action-btn refresh-section-btn" id="refreshSectionBtn" title="Обновить">
-            <i data-lucide="refresh-cw" class="lucide-icon" aria-hidden="true"></i>
+          <button type="button" class="header-more-menu-item refresh-section-btn" id="refreshSectionBtn" title="Обновить">
+            ${withLucideIcon("refresh-cw", "Обновить")}
           </button>
-          <button type="button" class="icon-action-btn export-open-btn" id="openExportModalBtn" title="Скачать">
-            <i data-lucide="download" class="lucide-icon" aria-hidden="true"></i>
+          <button type="button" class="header-more-menu-item export-open-btn" id="openExportModalBtn" title="Скачать">
+            ${withLucideIcon("download", "Скачать")}
           </button>
-          <button type="button" class="icon-action-btn settings-toggle-btn" id="toggleTableSettingsBtn" title="Настройки таблицы">
-            <i data-lucide="settings" class="lucide-icon" aria-hidden="true"></i>
+          <button type="button" class="header-more-menu-item settings-toggle-btn" id="toggleTableSettingsBtn" title="Настройки таблицы">
+            ${withLucideIcon("settings", "Настройки таблицы")}
           </button>
+  `;
+  return `
+        <div class="table-header-right">
+          ${canAddRow ? `
+          <button type="button" class="icon-action-btn add-row-btn" id="addRowBtn" title="${escapeHtmlAttr(section.id === "tasks" ? "Добавить задачу" : "Добавить запись")}" aria-label="${escapeHtmlAttr(section.id === "tasks" ? "Добавить задачу" : "Добавить запись")}">
+            <i data-lucide="plus" class="lucide-icon" aria-hidden="true"></i>
+          </button>` : ""}
+          <button type="button" class="icon-action-btn filter-toggle-btn" id="toggleFiltersBtn" title="Фильтр" aria-label="Фильтр">
+            <i data-lucide="filter" class="lucide-icon" aria-hidden="true"></i>
+          </button>
+          <div class="header-more-actions">
+            <button type="button" class="icon-action-btn header-more-btn" id="headerMoreActionsBtn" title="Ещё" aria-label="Ещё" aria-expanded="false" aria-haspopup="menu">
+              <i data-lucide="ellipsis" class="lucide-icon" aria-hidden="true"></i>
+            </button>
+            <div class="header-more-menu hidden" id="headerMoreActionsMenu" role="menu">
+              ${moreButtons}
+            </div>
+          </div>
         </div>`;
+}
+
+function attachHeaderMoreActionsMenu() {
+  const btn = document.getElementById("headerMoreActionsBtn");
+  const menu = document.getElementById("headerMoreActionsMenu");
+  if (!(btn instanceof HTMLButtonElement) || !(menu instanceof HTMLElement)) return;
+  const close = () => {
+    menu.classList.add("hidden");
+    btn.setAttribute("aria-expanded", "false");
+    document.removeEventListener("click", onDocClick);
+  };
+  const onDocClick = (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target) return;
+    if (target.closest(".header-more-actions")) return;
+    close();
+  };
+  const open = () => {
+    menu.classList.remove("hidden");
+    btn.setAttribute("aria-expanded", "true");
+    setTimeout(() => document.addEventListener("click", onDocClick), 0);
+  };
+  btn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (menu.classList.contains("hidden")) open();
+    else close();
+  });
+  menu.addEventListener("click", () => close());
+}
+
+function markPendingAddedRow(sectionId, rowIndex) {
+  pendingAddedRowAnchor = {
+    sectionId: String(sectionId || ""),
+    rowIndex: Number(rowIndex)
+  };
+}
+
+function scrollPendingAddedRowIntoView(sectionId) {
+  if (!pendingAddedRowAnchor || pendingAddedRowAnchor.sectionId !== sectionId) return;
+  const rowIndex = Number(pendingAddedRowAnchor.rowIndex);
+  pendingAddedRowAnchor = null;
+  if (!Number.isInteger(rowIndex) || rowIndex < 0) return;
+  requestAnimationFrame(() => {
+    const cells = Array.from(document.querySelectorAll(`[data-row-index="${rowIndex}"]`));
+    const firstCell = cells.find((el) => el instanceof HTMLElement);
+    const rowKeys = new Set(
+      cells
+        .map((el) => el instanceof HTMLElement ? el.closest("tr")?.getAttribute("data-split-row-key") : "")
+        .filter(Boolean)
+    );
+    const escapeSelector = (value) => typeof CSS !== "undefined" && typeof CSS.escape === "function"
+      ? CSS.escape(value)
+      : String(value).replace(/["\\]/g, "\\$&");
+    const rows = rowKeys.size
+      ? Array.from(rowKeys).flatMap((key) => Array.from(document.querySelectorAll(`tr[data-split-row-key="${escapeSelector(key)}"]`)))
+      : cells.map((el) => el instanceof HTMLElement ? el.closest("tr") : null).filter(Boolean);
+    const uniqueRows = Array.from(new Set(rows)).filter((el) => el instanceof HTMLElement);
+    const target = firstCell instanceof HTMLElement ? firstCell.closest("tr") || firstCell : uniqueRows[0];
+    if (target instanceof HTMLElement) {
+      target.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+    }
+    uniqueRows.forEach((row) => {
+      row.classList.add("row-anchor-flash");
+      window.setTimeout(() => row.classList.remove("row-anchor-flash"), 1800);
+    });
+  });
 }
 
 function attachTasksBrowseModeSwitchHandlers() {
@@ -6196,6 +6276,7 @@ function renderTable() {
   }
   initLucideIcons();
   updateTableStickyHeaderOffsets();
+  scrollPendingAddedRowIntoView(section.id);
 }
 
 function getSectionGroupBySectionId(sectionId) {
@@ -17423,6 +17504,7 @@ function fromInputDate(value) {
 }
 
 function attachHeaderActionHandlers(section, filteredEntries) {
+  attachHeaderMoreActionsMenu();
   const refreshSectionBtn = document.getElementById("refreshSectionBtn");
   const refreshEmployeeChatIdsBtn = document.getElementById("refreshEmployeeChatIdsBtn");
   const openSmsInviteHistoryBtn = document.getElementById("openSmsInviteHistoryBtn");
@@ -17522,6 +17604,7 @@ function attachHeaderActionHandlers(section, filteredEntries) {
         resetTasksListPagingWindow();
       }
       addEmptyRow(section);
+      markPendingAddedRow(section.id, section.rows.length - 1);
       if (section.id === "tasks" && shouldPrefillTaskObject) {
         const newRow = section.rows[section.rows.length - 1];
         if (Array.isArray(newRow)) {
@@ -21394,6 +21477,7 @@ function openCreateEmployeeModal(section) {
     }
 
     addEmptyRow(section);
+    markPendingAddedRow(section.id, section.rows.length - 1);
     const row = section.rows[section.rows.length - 1];
     row[EMPLOYEE_COLUMNS.fullName] = fullName;
     row[EMPLOYEE_COLUMNS.department] = department;
@@ -21693,6 +21777,7 @@ function openCreateTaskModal(section) {
     }
 
     addEmptyRow(section);
+    markPendingAddedRow(section.id, section.rows.length - 1);
     const row = section.rows[section.rows.length - 1];
     row[TASK_COLUMNS.task] = title;
     row[TASK_COLUMNS.object] = objectName;
@@ -22684,6 +22769,7 @@ function closeOpenFiltersFromOutsideClick(event) {
   if (!target) return;
   if (target.closest(".filter-panel")) return;
   if (target.closest("#toggleFiltersBtn")) return;
+  if (target.closest(".header-more-actions")) return;
   if (target.closest(".responsible-modal-overlay, .details-modal-overlay, .task-file-viewer-overlay, .cell-comment-overlay, .cell-context-menu")) return;
   filterPanelOpenBySection[activeSectionId] = false;
   renderTablePreserveScroll();
