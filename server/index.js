@@ -54,8 +54,10 @@ const TASK_CREATED_BY_COL = 21;
 const TASK_CREATED_AT_COL = 22;
 const TASK_REASSIGN_REASON_COL = 23;
 const EMPLOYEE_FULL_NAME_COL = 1;
+const EMPLOYEE_PHONE_COL = 4;
 const EMPLOYEE_TELEGRAM_COL = 5;
 const EMPLOYEE_CHAT_ID_COL = 6;
+const EMPLOYEE_LAST_ACTIVITY_COL = 7;
 const CHAT_CLEAR_CODE_TTL_MS = 10 * 60 * 1000;
 const CHAT_CLEAR_DELETE_SCAN_BEFORE = 3000;
 const CHAT_CLEAR_DELETE_SCAN_AFTER = 40;
@@ -157,6 +159,29 @@ function isEmployeeAdminAccessEnabled(payload, employeeRow) {
   const idx = resolveEmployeeAdminAccessColumnIndex(payload);
   const raw = String(employeeRow[idx] || "").trim().toLowerCase();
   return ["да", "true", "1", "yes", "on", "admin", "админ"].includes(raw);
+}
+
+function touchEmployeeLastLoginInPayload(payload, employeeRow, at = new Date()) {
+  if (!Array.isArray(employeeRow)) return false;
+  employeeRow[EMPLOYEE_LAST_ACTIVITY_COL] = at.toISOString();
+  return true;
+}
+
+async function recordEmployeeLastLogin({ phone = "", displayName = "" } = {}) {
+  try {
+    const payload = await loadAppPayload();
+    const normalizedPhone = normalizePhone(phone);
+    const row = normalizedPhone
+      ? findEmployeeByPhoneInPayload(payload, normalizedPhone)
+      : findEmployeeByDisplayNameInPayload(payload, displayName);
+    if (!row) return false;
+    touchEmployeeLastLoginInPayload(payload, row);
+    await saveAppPayload(payload);
+    return true;
+  } catch (e) {
+    console.warn("Не удалось записать последнюю активность сотрудника:", e?.message || e);
+    return false;
+  }
 }
 
 function ensureObjectStore(payload, key) {
@@ -1002,6 +1027,47 @@ function latestHistoryTs(store, taskId) {
   return maxTs;
 }
 
+function employeeLastActivityMs(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "—") return 0;
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function mergeEmployeeLastActivityFields(currentPayload, nextPayload) {
+  const currentRows = Array.isArray(getEmployeesSection(currentPayload)?.rows)
+    ? getEmployeesSection(currentPayload).rows
+    : [];
+  const nextRows = Array.isArray(getEmployeesSection(nextPayload)?.rows)
+    ? getEmployeesSection(nextPayload).rows
+    : [];
+  if (!currentRows.length || !nextRows.length) return;
+  const currentByKey = new Map();
+  currentRows.forEach((row) => {
+    const id = String(row?.[0] || "").trim();
+    const phone = normalizePhone(row?.[EMPLOYEE_PHONE_COL] || "");
+    const name = String(row?.[EMPLOYEE_FULL_NAME_COL] || "").trim().replace(/\s+/g, " ").toLowerCase();
+    const keys = [id ? `id:${id}` : "", phone ? `phone:${phone}` : "", name ? `name:${name}` : ""].filter(Boolean);
+    keys.forEach((key) => {
+      if (!currentByKey.has(key)) currentByKey.set(key, row);
+    });
+  });
+  nextRows.forEach((row) => {
+    const id = String(row?.[0] || "").trim();
+    const phone = normalizePhone(row?.[EMPLOYEE_PHONE_COL] || "");
+    const name = String(row?.[EMPLOYEE_FULL_NAME_COL] || "").trim().replace(/\s+/g, " ").toLowerCase();
+    const current = (id && currentByKey.get(`id:${id}`))
+      || (phone && currentByKey.get(`phone:${phone}`))
+      || (name && currentByKey.get(`name:${name}`));
+    if (!current) return;
+    const currentMs = employeeLastActivityMs(current[EMPLOYEE_LAST_ACTIVITY_COL]);
+    const nextMs = employeeLastActivityMs(row[EMPLOYEE_LAST_ACTIVITY_COL]);
+    if (currentMs > nextMs) {
+      row[EMPLOYEE_LAST_ACTIVITY_COL] = current[EMPLOYEE_LAST_ACTIVITY_COL];
+    }
+  });
+}
+
 function appendTaskHistory(payload, taskId, who, actionText) {
   const id = String(taskId ?? "").trim() || "—";
   const actor = String(who || "").trim() || "Система";
@@ -1018,6 +1084,7 @@ function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
   const next = incomingPayload && typeof incomingPayload === "object"
     ? JSON.parse(JSON.stringify(incomingPayload))
     : incomingPayload;
+  mergeEmployeeLastActivityFields(currentPayload, next);
   const incomingRows = getTaskRows(next);
   const currentRows = getTaskRows(currentPayload);
   if (!currentRows.length) return next;
@@ -1362,6 +1429,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
         JWT_SECRET,
         { expiresIn: "30d" }
       );
+      await recordEmployeeLastLogin({ phone: u.phone || phone, displayName: u.display_name });
       return res.json({ token, displayName: u.display_name });
     }
 
@@ -1381,6 +1449,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
           JWT_SECRET,
           { expiresIn: "30d" }
         );
+        await recordEmployeeLastLogin({ phone, displayName });
         return res.json({ token, displayName });
       }
     }

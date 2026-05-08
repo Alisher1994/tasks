@@ -1834,6 +1834,20 @@ select.date-time-settings-select {
   color: #4a5868;
 }
 
+.filter-field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 230px;
+  padding-top: 18px;
+}
+
+.filter-field--check input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
 .filter-grow {
   flex: 1 1 260px;
 }
@@ -2538,6 +2552,40 @@ tbody td.first-visible-col {
 .table-card--employees th:nth-child(9),
 .table-card--employees td:nth-child(9) { width: 170px; }
 .table-card--employees table { min-width: 1180px; }
+
+.employee-department-group-row td {
+  background: #eef3f9;
+  border-top: 1px solid #cbd7e6;
+  border-bottom: 1px solid #cbd7e6;
+  padding: 8px 12px;
+}
+
+.employee-department-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: #233244;
+}
+
+.employee-department-group__name {
+  font-weight: 700;
+}
+
+.employee-department-group__stats {
+  color: #536274;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.employee-last-activity--empty {
+  color: #9aa6b2;
+}
+
+.employee-last-activity--set {
+  color: #233244;
+}
 
 /* Должности и Отдел: убираем чрезмерную ширину одной колонки */
 .table-card--roles th:nth-child(3),

@@ -3461,7 +3461,6 @@ async function triggerEmployeesChatIdRefresh(options = {}) {
       }
       row[EMPLOYEE_COLUMNS.telegram] = "Не подключен";
       row[EMPLOYEE_COLUMNS.chatId] = "";
-      row[EMPLOYEE_COLUMNS.activity] = "Не активен";
     });
     saveSectionsData();
     renderTablePreserveScroll();
@@ -4379,11 +4378,11 @@ let sections = [
   {
     id: "employees",
     title: "Сотрудники",
-    columns: ["ID", "ФИО", "Отдел", "Должность", "Телефон", "Telegram", "Chat ID", "Активность", "Админ доступ"],
+    columns: ["ID", "ФИО", "Отдел", "Должность", "Телефон", "Telegram", "Chat ID", "Последний вход", "Админ доступ"],
     rows: [
-      ["1", "Ольга Смирнова", "Проектная группа", "Frontend", "+998 90 111 11 11", "Подключен", "901111111", "Активен", "Нет"],
-      ["2", "Сергей Орлов", "ПТО", "Backend", "+998 90 222 22 22", "Не подключен", "", "Активен", "Нет"],
-      ["3", "Елена Белова", "Плановый отдел", "QA", "+998 90 333 33 33", "Подключен", "903333333", "В отпуске", "Нет"]
+      ["1", "Ольга Смирнова", "Проектная группа", "Frontend", "+998 90 111 11 11", "Подключен", "901111111", "", "Нет"],
+      ["2", "Сергей Орлов", "ПТО", "Backend", "+998 90 222 22 22", "Не подключен", "", "", "Нет"],
+      ["3", "Елена Белова", "Плановый отдел", "QA", "+998 90 333 33 33", "Подключен", "903333333", "", "Нет"]
     ]
   },
   {
@@ -6097,6 +6096,13 @@ function renderTable() {
     && allFilteredEntries.every((entry) => selectedRows.has(entry.rowIndex));
   const compactCatalogSectionIds = new Set(["roles", "departments", "phases", "phaseSections", "phaseSubsections", "delayReasons"]);
   const useVisualSpacerCol = compactCatalogSectionIds.has(section.id);
+  const tableBodyColspan = visibleColumnIndexes.length + (isTrashView ? 4 : 2) + (useVisualSpacerCol ? 1 : 0);
+  const groupEmployeesByDepartment = section.id === "employees"
+    && !isTrashView
+    && sectionFilters.groupByDepartment !== "0";
+  const entriesForRenderedTbody = groupEmployeesByDepartment
+    ? buildEmployeeGroupedEntries(entriesForTbody)
+    : entriesForTbody;
 
   if (section.id === "tasks") {
     renderTasksSplitLayout(section, {
@@ -6176,8 +6182,11 @@ function renderTable() {
 
   const tbody = `
     <tbody>
-      ${entriesForTbody
+      ${entriesForRenderedTbody
         .map((entry) => {
+          if (entry?.type === "employeeDepartmentGroup") {
+            return renderEmployeeDepartmentGroupRow(entry, tableBodyColspan);
+          }
           const rowCells = visibleColumnIndexes
             .map((colIndex, viewOrder) => {
               const cell = entry.row[colIndex];
@@ -6219,7 +6228,7 @@ function renderTable() {
             ${reassignRows}
           `;
         })
-        .join("") || `<tr><td colspan="${visibleColumnIndexes.length + (isTrashView ? 4 : 2) + (useVisualSpacerCol ? 1 : 0)}" class="empty-state">Нет данных по выбранным фильтрам</td></tr>`}
+        .join("") || `<tr><td colspan="${tableBodyColspan}" class="empty-state">Нет данных по выбранным фильтрам</td></tr>`}
     </tbody>
   `;
 
@@ -11973,7 +11982,6 @@ function dedupeEmployeesInPlace(employeesSection) {
       if (first !== -1 && first !== rowIndex) {
         row[EMPLOYEE_COLUMNS.phone] = DEFAULT_PHONE_PREFIX;
         row[EMPLOYEE_COLUMNS.chatId] = "";
-        row[EMPLOYEE_COLUMNS.activity] = row[EMPLOYEE_COLUMNS.telegram] === "Подключен" ? "Активен" : "Не активен";
       }
     }
     const name = normalizePersonName(row[EMPLOYEE_COLUMNS.fullName] || "");
@@ -12001,7 +12009,6 @@ function enforceEmployeeUniquenessAfterEdit(section, rowIndex) {
       window.alert("Этот номер телефона уже указан у другого сотрудника. Поле очищено.");
       row[EMPLOYEE_COLUMNS.phone] = DEFAULT_PHONE_PREFIX;
       row[EMPLOYEE_COLUMNS.chatId] = "";
-      row[EMPLOYEE_COLUMNS.activity] = row[EMPLOYEE_COLUMNS.telegram] === "Подключен" ? "Активен" : "Не активен";
       changed = true;
     }
   }
@@ -12673,7 +12680,7 @@ function createEmployeeRowFromImport(values, employeeId) {
   row[EMPLOYEE_COLUMNS.phone] = phone;
   row[EMPLOYEE_COLUMNS.telegram] = normalizeEmployeeImportTelegram(values.telegram);
   row[EMPLOYEE_COLUMNS.chatId] = "";
-  row[EMPLOYEE_COLUMNS.activity] = row[EMPLOYEE_COLUMNS.telegram] === "Подключен" ? "Активен" : "Не активен";
+  row[EMPLOYEE_COLUMNS.activity] = "";
   row[EMPLOYEE_COLUMNS.adminAccess] = "Нет";
   return row;
 }
@@ -12990,6 +12997,23 @@ function renderFilters(section, sectionFilters, isOpen) {
     `;
   }
 
+  if (section.id === "employees") {
+    const groupByDepartment = sectionFilters.groupByDepartment !== "0";
+    return `
+      <div class="filter-panel">
+        <label class="filter-field filter-grow" for="filterSearch">
+          <span>Поиск</span>
+          <input id="filterSearch" type="text" placeholder="Поиск по сотрудникам..." value="${commonSearch}" />
+        </label>
+        <label class="filter-field filter-field--check">
+          <input id="filterEmployeeGroupDepartments" type="checkbox" ${groupByDepartment ? "checked" : ""} />
+          <span>Группировать по отделам</span>
+        </label>
+        <button id="filterResetBtn" type="button" class="secondary">Сбросить</button>
+      </div>
+    `;
+  }
+
   if (section.id !== "tasks") {
     return `
       <div class="filter-panel">
@@ -13120,6 +13144,66 @@ function getFilteredRows(section, sectionFilters) {
 
     return statusMatch && responsibleMatch && objectMatch && phaseMatch && sectionMatch && subsectionMatch && delayReasonMatch && readStateMatch;
   });
+}
+
+function parseEmployeeLastActivityMs(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "—") return 0;
+  const lower = raw.toLowerCase();
+  if (lower === "активен" || lower === "не активен" || lower === "в отпуске") return 0;
+  const isoMs = Date.parse(raw);
+  if (Number.isFinite(isoMs)) return isoMs;
+  const ruMs = parseRuDateTimeToMs(raw);
+  return Number.isFinite(ruMs) ? ruMs : 0;
+}
+
+function formatEmployeeLastActivity(value) {
+  const ms = parseEmployeeLastActivityMs(value);
+  if (!ms) return "—";
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function employeeHasSystemActivity(row) {
+  return parseEmployeeLastActivityMs(row?.[EMPLOYEE_COLUMNS.activity]) > 0;
+}
+
+function getEmployeeDepartmentGroupName(row) {
+  return String(row?.[EMPLOYEE_COLUMNS.department] || "").trim() || "Без отдела";
+}
+
+function buildEmployeeGroupedEntries(entries) {
+  const groups = new Map();
+  entries.forEach((entry) => {
+    const department = getEmployeeDepartmentGroupName(entry.row);
+    if (!groups.has(department)) groups.set(department, []);
+    groups.get(department).push(entry);
+  });
+  const out = [];
+  groups.forEach((items, department) => {
+    out.push({ type: "employeeDepartmentGroup", department, entries: items });
+    items.forEach((entry) => out.push(entry));
+  });
+  return out;
+}
+
+function renderEmployeeDepartmentGroupRow(item, colspan) {
+  const total = item.entries.length;
+  const active = item.entries.filter((entry) => employeeHasSystemActivity(entry.row)).length;
+  const inactive = Math.max(0, total - active);
+  return `
+    <tr class="employee-department-group-row">
+      <td colspan="${colspan}">
+        <div class="employee-department-group">
+          <span class="employee-department-group__name">${escapeHtmlText(item.department)}</span>
+          <span class="employee-department-group__stats">
+            Всего: ${total} · Активные: ${active} · Не активные: ${inactive}
+          </span>
+        </div>
+      </td>
+    </tr>
+  `;
 }
 
 function getWideColumnClass(colIndex) {
@@ -14037,6 +14121,11 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
       return `<span class="employee-chat-id-value employee-chat-id-value--empty">—</span>`;
     }
     return `<span class="employee-chat-id-value">${escapeHtmlText(chatId)}</span>`;
+  }
+  if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.activity) {
+    const shown = formatEmployeeLastActivity(value);
+    const activeClass = shown === "—" ? "employee-last-activity--empty" : "employee-last-activity--set";
+    return `<span class="employee-last-activity ${activeClass}">${escapeHtmlText(shown)}</span>`;
   }
   if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.adminAccess) {
     const checked = isEmployeeAdminAccessEnabled(value);
@@ -15987,7 +16076,6 @@ function resetEmployeeTelegramBindingOnPhoneChange(row, prevPhoneRaw) {
   if (!prev || !next || prev === next) return;
   row[EMPLOYEE_COLUMNS.chatId] = "";
   row[EMPLOYEE_COLUMNS.telegram] = "Не подключен";
-  row[EMPLOYEE_COLUMNS.activity] = "Не активен";
 }
 
 /** При «Подключен» не заполняем Chat ID из телефона — только реальный user id (/start или вручную). */
@@ -15995,13 +16083,11 @@ function applyEmployeeTelegramDerivedFields(row) {
   const isConnected = String(row[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен";
   if (!isConnected) {
     row[EMPLOYEE_COLUMNS.chatId] = "";
-    row[EMPLOYEE_COLUMNS.activity] = "Не активен";
     return;
   }
   if (isPhoneDerivedEmployeeChatId(row[EMPLOYEE_COLUMNS.phone], row[EMPLOYEE_COLUMNS.chatId])) {
     row[EMPLOYEE_COLUMNS.chatId] = "";
   }
-  row[EMPLOYEE_COLUMNS.activity] = "Активен";
 }
 
 function isEmployeeAdminAccessEnabled(value) {
@@ -21071,6 +21157,7 @@ function attachFilterHandlers(section) {
   const smsPeriodSelect = document.getElementById("filterSmsPeriod");
   const smsDateFromInput = document.getElementById("filterSmsDateFrom");
   const smsDateToInput = document.getElementById("filterSmsDateTo");
+  const employeeGroupDepartmentsInput = document.getElementById("filterEmployeeGroupDepartments");
 
   const ensureSectionFilters = () => {
     if (!filtersBySection[section.id]) {
@@ -21223,6 +21310,14 @@ function attachFilterHandlers(section) {
     });
   }
 
+  if (employeeGroupDepartmentsInput) {
+    employeeGroupDepartmentsInput.addEventListener("change", () => {
+      const sectionFilters = ensureSectionFilters();
+      sectionFilters.groupByDepartment = employeeGroupDepartmentsInput.checked ? "1" : "0";
+      renderTablePreserveScroll();
+    });
+  }
+
   if (resetButton) {
     resetButton.addEventListener("click", () => {
       filtersBySection[section.id] = {};
@@ -21341,7 +21436,7 @@ function addEmptyRow(section) {
     row[EMPLOYEE_COLUMNS.phone] = DEFAULT_PHONE_PREFIX;
     row[EMPLOYEE_COLUMNS.telegram] = "Не подключен";
     row[EMPLOYEE_COLUMNS.chatId] = "";
-    row[EMPLOYEE_COLUMNS.activity] = "Не активен";
+    row[EMPLOYEE_COLUMNS.activity] = "";
     row[EMPLOYEE_COLUMNS.adminAccess] = "Нет";
   }
   if (section.id === "roles") {
