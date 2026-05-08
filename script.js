@@ -11545,6 +11545,77 @@ function getEmployeesList() {
   return getUniqueValues(employees.rows, EMPLOYEE_COLUMNS.fullName);
 }
 
+function getEmployeeNameMap() {
+  const map = new Map();
+  getEmployeesList().forEach((name) => {
+    const value = normalizePersonName(name);
+    const key = value.toLowerCase();
+    if (key && !map.has(key)) {
+      map.set(key, value);
+    }
+  });
+  return map;
+}
+
+function syncResponsibleCatalogEmployeeNames({
+  oldName = "",
+  newName = "",
+  removedNames = [],
+  removeMissing = true
+} = {}) {
+  const dataSection = getSectionById("data");
+  if (!dataSection) return false;
+  const existingNames = getEmployeeNameMap();
+  const oldKey = normalizePersonName(oldName).toLowerCase();
+  const nextName = normalizePersonName(newName);
+  const removedKeys = new Set(
+    (Array.isArray(removedNames) ? removedNames : [removedNames])
+      .map((name) => normalizePersonName(name).toLowerCase())
+      .filter(Boolean)
+  );
+  let changed = false;
+
+  dataSection.rows.forEach((row) => {
+    const current = parseTaskAssigneeNames(row[4]);
+    const next = [];
+    const seen = new Set();
+    current.forEach((name) => {
+      let value = normalizePersonName(name);
+      const key = value.toLowerCase();
+      if (oldKey && key === oldKey) {
+        value = nextName;
+      }
+      const nextKey = normalizePersonName(value).toLowerCase();
+      if (removedKeys.has(key) || removedKeys.has(nextKey)) {
+        changed = true;
+        return;
+      }
+      if (!nextKey) {
+        changed = true;
+        return;
+      }
+      if (removeMissing && !existingNames.has(nextKey)) {
+        changed = true;
+        return;
+      }
+      value = existingNames.get(nextKey) || value;
+      if (seen.has(nextKey)) {
+        changed = true;
+        return;
+      }
+      seen.add(nextKey);
+      next.push(value);
+    });
+    const nextValue = next.join(", ");
+    if (String(row[4] || "").trim() !== nextValue) {
+      row[4] = nextValue;
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
 function normalizeUzPhone(rawValue) {
   const raw = String(rawValue || "").trim();
   if (!raw) return DEFAULT_PHONE_PREFIX;
@@ -15547,7 +15618,7 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
         if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.phone) {
           section.rows[rowIndex].__prevEmployeePhoneForNormalize = previousTextValue;
         }
-        normalizeRowAfterEdit(section, rowIndex, colIndex);
+        normalizeRowAfterEdit(section, rowIndex, colIndex, previousTextValue);
       }
       cell.contentEditable = "false";
       cell.classList.remove("editing");
@@ -15583,7 +15654,7 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
         `${section.columns[colIndex]}: «${shortenHistorySnippet(prev)}» → «${shortenHistorySnippet(nextValue)}»`
       );
     }
-    normalizeRowAfterEdit(section, rowIndex, colIndex);
+    normalizeRowAfterEdit(section, rowIndex, colIndex, prev);
     cleanupEditorResources(editor);
     cell.classList.remove("editing");
     clearActiveRow(section.id);
@@ -15682,7 +15753,7 @@ function focusQueuedCell(targetCell) {
   });
 }
 
-function normalizeRowAfterEdit(section, rowIndex, colIndex) {
+function normalizeRowAfterEdit(section, rowIndex, colIndex, previousValue = "") {
   const row = section.rows[rowIndex];
   if (!row) return;
 
@@ -15714,6 +15785,9 @@ function normalizeRowAfterEdit(section, rowIndex, colIndex) {
   }
 
   if (section.id === "employees") {
+    if (colIndex === EMPLOYEE_COLUMNS.fullName) {
+      row[EMPLOYEE_COLUMNS.fullName] = normalizePersonName(row[EMPLOYEE_COLUMNS.fullName]);
+    }
     if (colIndex === EMPLOYEE_COLUMNS.phone) {
       const prevPhoneRaw = row.__prevEmployeePhoneForNormalize || "";
       row[EMPLOYEE_COLUMNS.phone] = formatUzPhoneDisplay(normalizeUzPhone(row[EMPLOYEE_COLUMNS.phone]));
@@ -15728,6 +15802,12 @@ function normalizeRowAfterEdit(section, rowIndex, colIndex) {
       row[EMPLOYEE_COLUMNS.position] = String(row[EMPLOYEE_COLUMNS.position] || "").trim();
     }
     enforceEmployeeUniquenessAfterEdit(section, rowIndex);
+    if (colIndex === EMPLOYEE_COLUMNS.fullName) {
+      syncResponsibleCatalogEmployeeNames({
+        oldName: previousValue,
+        newName: row[EMPLOYEE_COLUMNS.fullName]
+      });
+    }
     return;
   }
 
@@ -16179,7 +16259,7 @@ function replaceTaskSubAssignee(taskId, oldName, newName) {
 
 function syncEmployeesDerivedFields() {
   const employeesSection = getSectionById("employees");
-  if (!employeesSection) return;
+  if (!employeesSection) return false;
   const defaultDepartment = String(getSectionById("departments")?.rows?.[0]?.[1] || "");
   employeesSection.rows.forEach((row) => {
     row[EMPLOYEE_COLUMNS.phone] = formatUzPhoneDisplay(normalizeUzPhone(row[EMPLOYEE_COLUMNS.phone] || DEFAULT_PHONE_PREFIX));
@@ -16190,6 +16270,7 @@ function syncEmployeesDerivedFields() {
     row[EMPLOYEE_COLUMNS.adminAccess] = toEmployeeAdminAccessStorageValue(row[EMPLOYEE_COLUMNS.adminAccess]);
   });
   dedupeEmployeesInPlace(employeesSection);
+  return syncResponsibleCatalogEmployeeNames();
 }
 
 function dedupeCatalogRowsInPlace(section, valueIndex = 1) {
@@ -22247,7 +22328,13 @@ function moveTaskToTrash(sectionId, rowIndex) {
   if (sectionId === "tasks") {
     markTaskAsSentImported(row[TASK_COLUMNS.number], { save: false });
   }
+  const removedEmployeeName = sectionId === "employees"
+    ? normalizePersonName(row[EMPLOYEE_COLUMNS.fullName])
+    : "";
   section.rows.splice(rowIndex, 1);
+  if (removedEmployeeName) {
+    syncResponsibleCatalogEmployeeNames({ removedNames: [removedEmployeeName] });
+  }
   const now = Date.now();
   const expiresAt = now + (365 * 24 * 60 * 60 * 1000);
   getTrashRows(sectionId).push({ row, deletedAt: now, expiresAt });
@@ -23099,8 +23186,12 @@ applyObjectsSeedIfNeeded();
 loadObjectPhotoThumbsFromStorage();
 ensureSystemRoles();
 ensureSystemDepartments();
+const responsibleCatalogCleaned = syncEmployeesDerivedFields();
 normalizePhaseAndSectionCatalogs();
 restoreTrashData();
+if (responsibleCatalogCleaned) {
+  saveSectionsData();
+}
 registerHotkeys();
 document.addEventListener("click", closeOpenFiltersFromOutsideClick);
 initGlobalScrollbarActivityTracker();
