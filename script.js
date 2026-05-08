@@ -13423,8 +13423,11 @@ function renderTasksSplitLayout(section, options) {
           ? String(String(item.closedAt).split(",")[0] || "").trim()
           : cloned[TASK_COLUMNS.closedDate];
         const reassignKey = `${rowKey}-reassign-${idx}`;
+        const reassignRowClass = normalizeTaskStatusValue(label) === "Закрыт" && displaySettings.highlightClosed
+          ? "task-reassign-subrow row-highlight-closed"
+          : "task-reassign-subrow";
         leftBodyRows.push(`
-          <tr class="task-reassign-subrow" data-split-row-key="${reassignKey}">
+          <tr class="${reassignRowClass}" data-split-row-key="${reassignKey}">
             ${hideSelectionControls ? "" : `<td class="checkbox-col"><input type="checkbox" disabled aria-label="Переназначение ${escapeHtmlAttr(subId)}" /></td>`}
             ${idVisible ? `<td class="number-col">${escapeHtmlText(`↪ ${subId}`)}</td>` : ""}
           </tr>
@@ -13452,7 +13455,7 @@ function renderTasksSplitLayout(section, options) {
           return `<td class="task-reassign-subrow-cell ${statusClass} ${wideClass}">${rendered}</td>`;
         }).join("");
         mainBodyRows.push(`
-          <tr class="task-reassign-subrow" data-split-row-key="${reassignKey}">
+          <tr class="${reassignRowClass}" data-split-row-key="${reassignKey}">
             ${reassignMainCells}
             <td class="actions-col">—</td>
           </tr>
@@ -13815,6 +13818,9 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
     cloned[TASK_COLUMNS.closedDate] = String(item?.closedAt || "").trim()
       ? String(String(item.closedAt).split(",")[0] || "").trim()
       : cloned[TASK_COLUMNS.closedDate];
+    const reassignRowClass = normalizeTaskStatusValue(label) === "Закрыт" && displaySettings.highlightClosed
+      ? "task-reassign-subrow row-highlight-closed"
+      : "task-reassign-subrow";
     const cells = visibleColumnIndexes.map((colIndex, viewOrder) => {
       const firstVisibleClass = "";
       const stickyClass = colIndex === 0 ? "number-col" : "";
@@ -13840,7 +13846,7 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
       return `<td class="task-reassign-subrow-cell ${firstVisibleClass} ${stickyClass} ${statusClass}">${rendered}</td>`;
     }).join("");
     return `
-      <tr class="task-reassign-subrow">
+      <tr class="${reassignRowClass}">
         <td class="checkbox-col"><input type="checkbox" disabled aria-label="Переназначение ${escapeHtmlAttr(subId)}" /></td>
         ${cells}
         <td class="actions-col">—</td>
@@ -21455,7 +21461,17 @@ function openCreateTaskModal(section) {
   const employeeOptions = getUniqueValues(getSectionById("employees")?.rows || [], EMPLOYEE_COLUMNS.fullName)
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, "ru"));
+  const phaseOptions = getUniqueValues(getSectionById("phases")?.rows || [], 1)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  const phaseSectionOptions = getUniqueValues(getSectionById("phaseSections")?.rows || [], 1)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  const phaseSubsectionOptions = getUniqueValues(getSectionById("phaseSubsections")?.rows || [], 1)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "ru"));
   const defaultResponsible = getTaskCreatorDisplayName();
+  const defaultAddedDate = toInputDate(getTodayRuDate());
 
   const overlay = document.createElement("div");
   overlay.className = "responsible-modal-overlay";
@@ -21472,6 +21488,7 @@ function openCreateTaskModal(section) {
           <div class="task-create-picker-wrap">
             <input id="taskCreateObject" type="text" class="cell-editor" placeholder="Выберите объект" autocomplete="off" />
             <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreateObjectPickBtn" aria-label="Выбрать объект">▼</button>
+            <div id="taskCreateObjectDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
           </div>
         </label>
         <label class="employee-create-field task-create-field">
@@ -21479,6 +21496,7 @@ function openCreateTaskModal(section) {
           <div class="task-create-picker-wrap">
             <input id="taskCreateAssignee" type="text" class="cell-editor" placeholder="Выберите исполнителя" autocomplete="off" />
             <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreateAssigneePickBtn" aria-label="Выбрать исполнителя">▼</button>
+            <div id="taskCreateAssigneeDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
           </div>
         </label>
         <label class="employee-create-field task-create-field">
@@ -21486,17 +21504,48 @@ function openCreateTaskModal(section) {
           <div class="task-create-picker-wrap">
             <input id="taskCreateResponsible" type="text" class="cell-editor" value="${escapeHtmlAttr(defaultResponsible)}" placeholder="Постановщик" autocomplete="off" />
             <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreateResponsiblePickBtn" aria-label="Выбрать постановщика">▼</button>
+            <div id="taskCreateResponsibleDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
           </div>
         </label>
         <label class="employee-create-field task-create-field">
-          <span>Срок</span>
+          <span>Дата постановки задачи</span>
+          <input id="taskCreateAddedDate" type="date" class="cell-editor" value="${escapeHtmlAttr(defaultAddedDate)}" />
+        </label>
+        <label class="employee-create-field task-create-field">
+          <span>Плановый срок устранения</span>
           <input id="taskCreateDueDate" type="date" class="cell-editor" />
         </label>
         <label class="employee-create-field task-create-field">
           <span>Приоритет</span>
-          <select id="taskCreatePriority" class="cell-editor">
-            ${PRIORITY_OPTIONS.map((priority) => `<option value="${escapeHtmlAttr(priority)}" ${priority === "Средний" ? "selected" : ""}>${escapeHtmlText(priority)}</option>`).join("")}
-          </select>
+          <div class="task-create-picker-wrap">
+            <input id="taskCreatePriority" type="text" class="cell-editor" value="Средний" placeholder="Выберите приоритет" autocomplete="off" />
+            <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreatePriorityPickBtn" aria-label="Выбрать приоритет">▼</button>
+            <div id="taskCreatePriorityDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
+          </div>
+        </label>
+        <label class="employee-create-field task-create-field">
+          <span>Фаза</span>
+          <div class="task-create-picker-wrap">
+            <input id="taskCreatePhase" type="text" class="cell-editor" placeholder="Выберите фазу" autocomplete="off" />
+            <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreatePhasePickBtn" aria-label="Выбрать фазу">▼</button>
+            <div id="taskCreatePhaseDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
+          </div>
+        </label>
+        <label class="employee-create-field task-create-field">
+          <span>Раздел</span>
+          <div class="task-create-picker-wrap">
+            <input id="taskCreatePhaseSection" type="text" class="cell-editor" placeholder="Выберите раздел" autocomplete="off" />
+            <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreatePhaseSectionPickBtn" aria-label="Выбрать раздел">▼</button>
+            <div id="taskCreatePhaseSectionDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
+          </div>
+        </label>
+        <label class="employee-create-field task-create-field">
+          <span>Подраздел</span>
+          <div class="task-create-picker-wrap">
+            <input id="taskCreatePhaseSubsection" type="text" class="cell-editor" placeholder="Выберите подраздел" autocomplete="off" />
+            <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreatePhaseSubsectionPickBtn" aria-label="Выбрать подраздел">▼</button>
+            <div id="taskCreatePhaseSubsectionDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
+          </div>
         </label>
         <label class="employee-create-field task-create-field task-create-field--span">
           <span>Комментарий (опционально)</span>
@@ -21529,8 +21578,12 @@ function openCreateTaskModal(section) {
   const objectInput = overlay.querySelector("#taskCreateObject");
   const assigneeInput = overlay.querySelector("#taskCreateAssignee");
   const responsibleInput = overlay.querySelector("#taskCreateResponsible");
+  const addedDateInput = overlay.querySelector("#taskCreateAddedDate");
   const dueDateInput = overlay.querySelector("#taskCreateDueDate");
   const priorityInput = overlay.querySelector("#taskCreatePriority");
+  const phaseInput = overlay.querySelector("#taskCreatePhase");
+  const phaseSectionInput = overlay.querySelector("#taskCreatePhaseSection");
+  const phaseSubsectionInput = overlay.querySelector("#taskCreatePhaseSubsection");
   const noteInput = overlay.querySelector("#taskCreateNote");
   const sendTelegramInput = overlay.querySelector("#taskCreateSendTelegram");
   const sendSmsInput = overlay.querySelector("#taskCreateSendSms");
@@ -21544,27 +21597,78 @@ function openCreateTaskModal(section) {
     errorBox.classList.toggle("hidden", !msg);
   };
 
-  const attachPicker = (buttonEl, inputEl, title, options) => {
-    if (!(buttonEl instanceof HTMLButtonElement) || !(inputEl instanceof HTMLInputElement)) return;
-    buttonEl.addEventListener("click", () => {
-      const values = Array.from(new Set((options || []).map((item) => String(item || "").trim()).filter(Boolean)));
-      if (!values.length) {
-        showStatusDialog({
-          title: "Справочник пуст",
-          message: `Нет доступных значений для поля «${title}».`,
-          type: "info"
-        });
-        return;
-      }
-      openSingleLookupModal(`Выбор: ${title}`, values, String(inputEl.value || "").trim(), (nextValue) => {
-        inputEl.value = String(nextValue || "").trim();
-      });
+  const closeDropdowns = (except = null) => {
+    overlay.querySelectorAll(".task-create-dropdown").forEach((el) => {
+      if (el !== except) el.classList.add("hidden");
     });
   };
 
-  attachPicker(overlay.querySelector("#taskCreateObjectPickBtn"), objectInput, "Объект", objectOptions);
-  attachPicker(overlay.querySelector("#taskCreateAssigneePickBtn"), assigneeInput, "Исполнитель", employeeOptions);
-  attachPicker(overlay.querySelector("#taskCreateResponsiblePickBtn"), responsibleInput, "Постановщик", employeeOptions);
+  const attachCombobox = (inputEl, buttonEl, dropdownEl, options) => {
+    if (!(inputEl instanceof HTMLInputElement) || !(dropdownEl instanceof HTMLElement)) return;
+    const getValues = () => Array.from(new Set((options || []).map((item) => String(item || "").trim()).filter(Boolean)));
+    const render = (open = true) => {
+      const values = getValues();
+      const q = String(inputEl.value || "").trim().toLowerCase();
+      const shown = values.filter((item) => !q || item.toLowerCase().includes(q)).slice(0, 80);
+      dropdownEl.innerHTML = shown.length
+        ? shown.map((item) => `
+            <button type="button" class="employee-create-dropdown-item task-create-dropdown-item" data-combobox-value="${escapeHtmlAttr(item)}">
+              ${escapeHtmlText(item)}
+            </button>
+          `).join("")
+        : `<div class="employee-create-dropdown-empty">Ничего не найдено</div>`;
+      if (open) {
+        closeDropdowns(dropdownEl);
+        dropdownEl.classList.remove("hidden");
+      }
+    };
+    const pick = (value) => {
+      inputEl.value = String(value || "").trim();
+      dropdownEl.classList.add("hidden");
+      inputEl.focus();
+    };
+    inputEl.addEventListener("focus", () => render(true));
+    inputEl.addEventListener("input", () => render(true));
+    inputEl.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        dropdownEl.classList.add("hidden");
+        return;
+      }
+      if (event.key !== "Enter") return;
+      const first = dropdownEl.querySelector(".task-create-dropdown-item");
+      if (!(first instanceof HTMLButtonElement)) return;
+      event.preventDefault();
+      pick(first.getAttribute("data-combobox-value") || "");
+    });
+    if (buttonEl instanceof HTMLButtonElement) {
+      buttonEl.addEventListener("click", (event) => {
+        event.preventDefault();
+        const shouldOpen = dropdownEl.classList.contains("hidden");
+        if (shouldOpen) {
+          inputEl.focus();
+          render(true);
+        } else {
+          dropdownEl.classList.add("hidden");
+        }
+      });
+    }
+    dropdownEl.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+    });
+    dropdownEl.addEventListener("click", (event) => {
+      const btn = event.target instanceof HTMLElement ? event.target.closest(".task-create-dropdown-item") : null;
+      if (!(btn instanceof HTMLButtonElement)) return;
+      pick(btn.getAttribute("data-combobox-value") || "");
+    });
+  };
+
+  attachCombobox(objectInput, overlay.querySelector("#taskCreateObjectPickBtn"), overlay.querySelector("#taskCreateObjectDropdown"), objectOptions);
+  attachCombobox(assigneeInput, overlay.querySelector("#taskCreateAssigneePickBtn"), overlay.querySelector("#taskCreateAssigneeDropdown"), employeeOptions);
+  attachCombobox(responsibleInput, overlay.querySelector("#taskCreateResponsiblePickBtn"), overlay.querySelector("#taskCreateResponsibleDropdown"), employeeOptions);
+  attachCombobox(priorityInput, overlay.querySelector("#taskCreatePriorityPickBtn"), overlay.querySelector("#taskCreatePriorityDropdown"), PRIORITY_OPTIONS);
+  attachCombobox(phaseInput, overlay.querySelector("#taskCreatePhasePickBtn"), overlay.querySelector("#taskCreatePhaseDropdown"), phaseOptions);
+  attachCombobox(phaseSectionInput, overlay.querySelector("#taskCreatePhaseSectionPickBtn"), overlay.querySelector("#taskCreatePhaseSectionDropdown"), phaseSectionOptions);
+  attachCombobox(phaseSubsectionInput, overlay.querySelector("#taskCreatePhaseSubsectionPickBtn"), overlay.querySelector("#taskCreatePhaseSubsectionDropdown"), phaseSubsectionOptions);
 
   const save = async () => {
     const title = String(titleInput?.value || "").trim();
@@ -21573,7 +21677,11 @@ function openCreateTaskModal(section) {
     const responsible = normalizePersonName(responsibleInput?.value || "") || defaultResponsible;
     const status = "Новый";
     const priority = normalizeTaskPriorityValue(String(priorityInput?.value || "Средний")) || "Средний";
+    const phase = String(phaseInput?.value || "").trim();
+    const phaseSection = String(phaseSectionInput?.value || "").trim();
+    const phaseSubsection = String(phaseSubsectionInput?.value || "").trim();
     const note = String(noteInput?.value || "").trim();
+    const addedParts = parseHtmlDateValue(String(addedDateInput?.value || ""));
     const dueParts = parseHtmlDateValue(String(dueDateInput?.value || ""));
     const shouldSendTelegram = Boolean(sendTelegramInput?.checked);
     const shouldSendSms = Boolean(sendSmsInput?.checked);
@@ -21592,6 +21700,12 @@ function openCreateTaskModal(section) {
     row[TASK_COLUMNS.responsible] = responsible;
     row[TASK_COLUMNS.status] = status;
     row[TASK_COLUMNS.priority] = priority;
+    row[TASK_COLUMNS.addedDate] = addedParts
+      ? formatDatePartsStorage(addedParts.day, addedParts.month, addedParts.year)
+      : getTodayRuDate();
+    row[TASK_COLUMNS.phase] = phase;
+    row[TASK_COLUMNS.phaseSection] = phaseSection;
+    row[TASK_COLUMNS.phaseSubsection] = phaseSubsection;
     row[TASK_COLUMNS.note] = note;
     row[TASK_COLUMNS.dueDate] = dueParts
       ? formatDatePartsStorage(dueParts.day, dueParts.month, dueParts.year)
@@ -21639,6 +21753,8 @@ function openCreateTaskModal(section) {
   overlay.querySelector(".task-create-save")?.addEventListener("click", save);
   overlay.querySelector(".task-create-cancel")?.addEventListener("click", close);
   overlay.addEventListener("click", (event) => {
+    const insideDropdown = event.target instanceof HTMLElement ? event.target.closest(".task-create-picker-wrap") : null;
+    if (!insideDropdown) closeDropdowns();
     if (event.target === overlay) close();
   });
   titleInput?.addEventListener("keydown", (event) => {

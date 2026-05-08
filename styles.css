@@ -2711,6 +2711,17 @@ tr:nth-child(even) td {
   font-size: 12px;
 }
 
+.task-reassign-subrow.row-highlight-closed td {
+  background: var(--closed-highlight-surface) !important;
+}
+
+.task-reassign-subrow.row-highlight-closed .checkbox-col,
+.task-reassign-subrow.row-highlight-closed .first-visible-col,
+.task-reassign-subrow.row-highlight-closed .number-col,
+.task-reassign-subrow.row-highlight-closed .actions-col {
+  background: var(--closed-highlight-edge) !important;
+}
+
 .task-reassign-subrow .status-badge {
   font-size: 11px;
 }
