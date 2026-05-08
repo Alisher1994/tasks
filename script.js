@@ -53,6 +53,7 @@ const TASK_CLOSE_META_STORAGE_KEY = "mbc_task_close_meta";
 const TASK_ATTACHMENTS_STORAGE_KEY = "mbc_task_attachments";
 const TASK_REASSIGN_REQUESTS_STORAGE_KEY = "mbc_task_reassign_requests";
 const TASK_REASSIGN_LOG_STORAGE_KEY = "mbc_task_reassign_log";
+const TASK_MESSAGE_RECIPIENTS_STORAGE_KEY = "mbc_task_message_recipients";
 const TABLE_LAYOUT_STORAGE_KEY = "mbc_table_layout_state_v1";
 const CELL_COMMENTS_STORAGE_KEY = "mbc_cell_comments";
 const TASK_HISTORY_MAX_PER_TASK = 300;
@@ -1313,6 +1314,7 @@ function buildAppPayload() {
     taskCloseMeta: JSON.parse(JSON.stringify(taskCloseMeta)),
     telegramReassignRequests: JSON.parse(JSON.stringify(telegramReassignRequests)),
     taskReassignLog: JSON.parse(JSON.stringify(taskReassignLog)),
+    taskMessageRecipients: loadTaskMessageRecipientSnapshots(),
     cellComments: JSON.parse(JSON.stringify(cellCommentsByCellKey)),
     taskAttachments: JSON.parse(JSON.stringify(taskAttachmentsByTaskId)),
     reportShares: loadReportShares(),
@@ -2076,6 +2078,13 @@ function applyServerBundle(data, options = {}) {
       /* noop */
     }
   }
+  if (data.taskMessageRecipients && typeof data.taskMessageRecipients === "object" && !Array.isArray(data.taskMessageRecipients)) {
+    try {
+      localStorage.setItem(TASK_MESSAGE_RECIPIENTS_STORAGE_KEY, JSON.stringify(data.taskMessageRecipients));
+    } catch (_) {
+      /* noop */
+    }
+  }
   if (data.cellComments && typeof data.cellComments === "object" && !Array.isArray(data.cellComments)) {
     try {
       const mergedComments = mergeCellCommentsPreferRemoteKeepLocal(data.cellComments, cellCommentsByCellKey || {});
@@ -2360,6 +2369,97 @@ function renderTaskHistoryTableHtml(taskId) {
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+}
+
+function renderTaskMessageRecipientsHtml(taskRow) {
+  const taskId = String(taskRow?.[TASK_COLUMNS.number] || "").trim();
+  const snapshots = loadTaskMessageRecipientSnapshots();
+  const snapshot = taskId ? snapshots[taskId] : null;
+  const rows = snapshot?.rows?.length
+    ? snapshot.rows
+    : collectTaskMessageRecipientRows(taskRow);
+  const sentAt = snapshot?.t
+    ? `Последняя Telegram-отправка: ${escapeHtmlText(formatTaskHistoryWhen(snapshot.t))}`
+    : "Показан расчёт по текущим настройкам. После новой отправки здесь появится фактический статус доставки.";
+  const adminChat = String(displaySettings.telegramAdminChatId || "").trim();
+  const summary = {
+    total: rows.length,
+    sent: rows.filter((r) => r.delivery === "sent").length,
+    actions: rows.filter((r) => r.canUseTaskActions).length,
+    close: rows.filter((r) => r.canConfirmClose).length,
+    duplicates: rows.filter((r) => Array.isArray(r.duplicateReasons) && r.duplicateReasons.length).length
+  };
+  const deliveryLabel = (row) => {
+    if (row.delivery === "sent") return "Отправлено";
+    if (row.delivery === "failed") return "Ошибка";
+    if (row.delivery === "ready") return "Готов";
+    if (row.delivery === "not_found") return "Не найден";
+    return "Нет связи";
+  };
+  const deliveryClass = (row) => {
+    if (row.delivery === "sent" || row.delivery === "ready") return "is-ok";
+    if (row.delivery === "failed") return "is-bad";
+    return "is-muted";
+  };
+  const body = rows.length
+    ? rows.map((row) => {
+      const reasons = (Array.isArray(row.reasons) ? row.reasons : []).join("; ") || "—";
+      const duplicates = (Array.isArray(row.duplicateReasons) && row.duplicateReasons.length)
+        ? row.duplicateReasons.join("; ")
+        : "—";
+      const permissions = [
+        row.canUseTaskActions ? "меняет статус/комментирует" : "только видит сообщение",
+        row.canRequestReassign ? "может запросить переназначение" : "",
+        row.canConfirmClose ? `подтверждает закрытие${row.closeConfirmReason ? `: ${row.closeConfirmReason}` : ""}` : ""
+      ].filter(Boolean).join("; ");
+      return `
+        <tr>
+          <td>
+            <div class="task-recipient-name">${escapeHtmlText(row.name || "—")}</div>
+            <div class="task-recipient-sub">ID: ${escapeHtmlText(row.id || "—")} · Chat ID: ${escapeHtmlText(row.chatId || "—")}</div>
+          </td>
+          <td>${escapeHtmlText(row.position || "—")}</td>
+          <td>${escapeHtmlText(row.department || "—")}</td>
+          <td><span class="task-recipient-badge ${deliveryClass(row)}">${escapeHtmlText(deliveryLabel(row))}</span><div class="task-recipient-sub">${escapeHtmlText(row.deliveryText || "")}</div></td>
+          <td>${escapeHtmlText(permissions || "только видит сообщение")}</td>
+          <td>${escapeHtmlText(duplicates)}</td>
+          <td>${escapeHtmlText(reasons)}</td>
+        </tr>
+      `;
+    }).join("")
+    : `<tr><td colspan="7" class="task-recipients-empty">Получатели не определены.</td></tr>`;
+
+  return `
+    <div class="task-recipients-panel">
+      <div class="task-recipients-summary">
+        <span>Всего: <b>${summary.total}</b></span>
+        <span>Отправлено: <b>${summary.sent}</b></span>
+        <span>С действиями: <b>${summary.actions}</b></span>
+        <span>Подтверждают закрытие: <b>${summary.close}</b></span>
+        <span>Дубликаты: <b>${summary.duplicates}</b></span>
+      </div>
+      <p class="task-recipients-note">${sentAt}</p>
+      ${adminChat
+        ? `<p class="task-recipients-note">Chat ID администратора в настройках: <b>${escapeHtmlText(adminChat)}</b>. По текущему коду он используется для проверки бота, а не как автоматический получатель задач.</p>`
+        : ""}
+      <div class="task-recipients-scroll">
+        <table class="task-recipients-table">
+          <thead>
+            <tr>
+              <th>Получатель</th>
+              <th>Должность</th>
+              <th>Отдел</th>
+              <th>Доставка</th>
+              <th>Доступ</th>
+              <th>Почему дубликат</th>
+              <th>Почему получил</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 function taskHistoryCtx(section, rowIndex, colIndex) {
@@ -2823,6 +2923,191 @@ function resolveTaskActionChatIds(taskRow) {
   return new Set(targets.map((t) => String(t.chatId || "").trim()).filter(Boolean));
 }
 
+function loadTaskMessageRecipientSnapshots() {
+  try {
+    const raw = localStorage.getItem(TASK_MESSAGE_RECIPIENTS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveTaskMessageRecipientSnapshots(store) {
+  try {
+    localStorage.setItem(TASK_MESSAGE_RECIPIENTS_STORAGE_KEY, JSON.stringify(store && typeof store === "object" ? store : {}));
+  } catch (_) {
+    /* noop */
+  }
+}
+
+function getEmployeePrimaryRowByName(fullName) {
+  return getEmployeeRowsByDisplayName(fullName)[0] || null;
+}
+
+function collectTaskMessageRecipientRows(taskRow, deliveryResults = []) {
+  if (!Array.isArray(taskRow)) return [];
+  const rowsByName = new Map();
+  const deliveryByName = new Map(
+    (Array.isArray(deliveryResults) ? deliveryResults : [])
+      .map((item) => [normalizePersonName(item?.fullName), item])
+      .filter(([name]) => Boolean(name))
+  );
+  const actionChatIds = resolveTaskActionChatIds(taskRow);
+  const closeApprovers = collectTaskCloseApproverNames(taskRow);
+  const closeApproverReasonsByName = new Map(closeApprovers.map((item) => [normalizePersonName(item.name), item.reason]));
+
+  const ensure = (name) => {
+    const fullName = normalizePersonName(name);
+    if (!fullName) return null;
+    if (!rowsByName.has(fullName)) {
+      rowsByName.set(fullName, {
+        name: fullName,
+        id: "",
+        department: "",
+        position: "",
+        chatId: "",
+        telegramConnected: false,
+        delivery: "not_configured",
+        deliveryText: "нет Telegram/Chat ID",
+        reasons: new Set(),
+        duplicateReasons: new Set(),
+        canUseTaskActions: false,
+        canConfirmClose: false,
+        closeConfirmReason: "",
+        canRequestReassign: false
+      });
+    }
+    return rowsByName.get(fullName);
+  };
+  const enrich = (entry) => {
+    if (!entry) return;
+    const emp = getEmployeePrimaryRowByName(entry.name);
+    if (emp) {
+      entry.id = String(emp[EMPLOYEE_COLUMNS.id] || "").trim();
+      entry.department = String(emp[EMPLOYEE_COLUMNS.department] || "").trim();
+      entry.position = String(emp[EMPLOYEE_COLUMNS.position] || "").trim();
+      entry.chatId = String(emp[EMPLOYEE_COLUMNS.chatId] || "").trim();
+      entry.telegramConnected = employeeHasTelegramBinding(emp);
+      entry.delivery = entry.telegramConnected ? "ready" : "not_configured";
+      entry.deliveryText = entry.telegramConnected ? "готов к отправке" : "нет Telegram/Chat ID";
+    } else {
+      entry.delivery = "not_found";
+      entry.deliveryText = "сотрудник не найден";
+    }
+    const sent = deliveryByName.get(entry.name);
+    if (sent) {
+      entry.delivery = sent.ok ? "sent" : "failed";
+      entry.deliveryText = sent.ok ? "отправлено" : String(sent.apiDescription || "ошибка отправки");
+      if (sent.chatId) entry.chatId = String(sent.chatId).trim();
+    }
+    if (entry.chatId && actionChatIds.has(entry.chatId)) {
+      entry.canUseTaskActions = true;
+      entry.canRequestReassign = true;
+    }
+    if (closeApproverReasonsByName.has(entry.name)) {
+      entry.canConfirmClose = true;
+      entry.closeConfirmReason = closeApproverReasonsByName.get(entry.name);
+    }
+  };
+  const add = (name, reason, duplicateReason = "") => {
+    const entry = ensure(name);
+    if (!entry) return;
+    entry.reasons.add(reason);
+    if (duplicateReason) entry.duplicateReasons.add(duplicateReason);
+  };
+
+  parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible]).forEach((name) => {
+    add(name, "исполнитель задачи");
+    const headName = getDepartmentHeadNameByEmployeeName(name);
+    if (headName) add(headName, `руководитель отдела исполнителя: ${name}`, "системная копия руководителю отдела");
+  });
+  add(taskRow[TASK_COLUMNS.responsible], "постановщик задачи");
+
+  const baseNames = collectTaskTelegramRecipientNames(taskRow);
+  const oz = getObjectRpZrpForTask(taskRow);
+  if (oz && oz.rp && oz.zrp) {
+    const assigneeAndResponsible = new Set([
+      ...parseTaskAssigneeNames(taskRow[TASK_COLUMNS.assignedResponsible]).map(normalizePersonName),
+      normalizePersonName(taskRow[TASK_COLUMNS.responsible])
+    ].filter(Boolean));
+    if (assigneeAndResponsible.has(oz.rp) && baseNames.includes(oz.zrp)) {
+      add(oz.zrp, `пара ЗРП к РП объекта: ${oz.rp}`, "системная копия РП/ЗРП");
+    }
+    if (assigneeAndResponsible.has(oz.zrp) && baseNames.includes(oz.rp)) {
+      add(oz.rp, `пара РП к ЗРП объекта: ${oz.zrp}`, "системная копия РП/ЗРП");
+    }
+  }
+
+  const dupIds = new Set(
+    Array.isArray(displaySettings.telegramGlobalDuplicateRecipientIds)
+      ? displaySettings.telegramGlobalDuplicateRecipientIds.map((x) => String(x).trim()).filter(Boolean)
+      : []
+  );
+  const allowCloseIds = new Set(
+    Array.isArray(displaySettings.telegramCloseConfirmAllowedIds)
+      ? displaySettings.telegramCloseConfirmAllowedIds.map((x) => String(x).trim()).filter(Boolean)
+      : []
+  );
+  const allEmployees = getSectionById("employees")?.rows || [];
+  allEmployees.forEach((emp) => {
+    const id = String(emp[EMPLOYEE_COLUMNS.id] || "").trim();
+    if (!id || !dupIds.has(id)) return;
+    const name = normalizePersonName(emp[EMPLOYEE_COLUMNS.fullName]);
+    const entry = ensure(name);
+    if (!entry) return;
+    entry.reasons.add("выбран в настройках: Получатели копий");
+    entry.duplicateReasons.add("глобальный получатель копии");
+    if (allowCloseIds.has(id)) {
+      entry.canConfirmClose = true;
+      entry.closeConfirmReason = "отмечен Подтв. в получателях копий";
+    }
+  });
+
+  baseNames.forEach((name) => add(name, "попадает в список Telegram-отправки"));
+  rowsByName.forEach(enrich);
+  return Array.from(rowsByName.values()).map((entry) => ({
+    ...entry,
+    reasons: Array.from(entry.reasons),
+    duplicateReasons: Array.from(entry.duplicateReasons)
+  }));
+}
+
+function recordTaskMessageRecipientSnapshot(taskRow, deliveryResults = [], missingNames = []) {
+  const taskId = String(taskRow?.[TASK_COLUMNS.number] || "").trim();
+  if (!taskId) return;
+  const rows = collectTaskMessageRecipientRows(taskRow, deliveryResults);
+  const existing = new Set(rows.map((row) => row.name));
+  (Array.isArray(missingNames) ? missingNames : []).forEach((name) => {
+    const n = normalizePersonName(name);
+    if (!n || existing.has(n)) return;
+    rows.push({
+      name: n,
+      id: "",
+      department: "",
+      position: "",
+      chatId: "",
+      telegramConnected: false,
+      delivery: "not_found",
+      deliveryText: "сотрудник не найден или нет Telegram",
+      reasons: ["попадает в список Telegram-отправки"],
+      duplicateReasons: [],
+      canUseTaskActions: false,
+      canConfirmClose: false,
+      closeConfirmReason: "",
+      canRequestReassign: false
+    });
+  });
+  const store = loadTaskMessageRecipientSnapshots();
+  store[taskId] = {
+    t: Date.now(),
+    channel: "Telegram",
+    rows
+  };
+  saveTaskMessageRecipientSnapshots(store);
+  scheduleServerSync();
+}
+
 function getTaskMediaItemsForTelegram(taskRow) {
   const before = getMediaItems(taskRow[TASK_COLUMNS.mediaBefore]);
   return [...before].map((x) => String(x || "").trim()).filter(Boolean);
@@ -2991,6 +3276,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
     const msg =
       "Не удалось найти сотрудников с Telegram: проверьте ФИО в задаче и в справочнике сотрудников (подключение Telegram и Chat ID).";
     notify(msg, "error");
+    recordTaskMessageRecipientSnapshot(taskRow, [], missingNames);
     return { ok: false, reason: "no_targets", message: msg, missingNames };
   }
 
@@ -3032,6 +3318,7 @@ async function sendTaskRowTelegramNotification(taskRow, options = {}) {
 
   const okCount = results.filter((r) => r.ok).length;
   const ok = okCount > 0;
+  recordTaskMessageRecipientSnapshot(taskRow, results, missingNames);
   if (ok && taskRow) {
     markTaskAsSentImported(taskRow[TASK_COLUMNS.number], { save: false });
     taskRow[TASK_COLUMNS.readState] = composeTaskReadState(false, "—");
@@ -19615,6 +19902,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
   modal.className = "details-modal-overlay";
   modal.tabIndex = -1;
   const historyPanelHtml = renderTaskHistoryTableHtml(taskId);
+  const recipientsPanelHtml = renderTaskMessageRecipientsHtml(row);
   modal.innerHTML = `
     <div class="details-modal">
       <div class="details-modal-header">
@@ -19631,6 +19919,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
       <div class="task-card-tabs" role="tablist" aria-label="Разделы карточки">
         <button type="button" class="task-card-tab is-active" role="tab" aria-selected="true" data-task-tab="main">Карточка</button>
         <button type="button" class="task-card-tab" role="tab" aria-selected="false" data-task-tab="files">Файлы</button>
+        <button type="button" class="task-card-tab" role="tab" aria-selected="false" data-task-tab="recipients">Получатели сообщения</button>
         <button type="button" class="task-card-tab" role="tab" aria-selected="false" data-task-tab="history">История</button>
       </div>
       <div class="task-card-panel" data-task-panel="main">
@@ -19668,6 +19957,9 @@ function openTaskDetailsModal(section, row, rowIndex) {
       </div>
       <div class="task-card-panel task-card-panel--hidden" data-task-panel="history" role="tabpanel">
         ${historyPanelHtml}
+      </div>
+      <div class="task-card-panel task-card-panel--hidden" data-task-panel="recipients" role="tabpanel">
+        ${recipientsPanelHtml}
       </div>
     </div>
   `;
