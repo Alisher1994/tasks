@@ -22678,6 +22678,17 @@ function toggleFilterWithHotkey() {
   openFilterAndFocusSearch();
 }
 
+function closeOpenFiltersFromOutsideClick(event) {
+  if (filterPanelOpenBySection[activeSectionId] !== true) return;
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  if (!target) return;
+  if (target.closest(".filter-panel")) return;
+  if (target.closest("#toggleFiltersBtn")) return;
+  if (target.closest(".responsible-modal-overlay, .details-modal-overlay, .task-file-viewer-overlay, .cell-comment-overlay, .cell-context-menu")) return;
+  filterPanelOpenBySection[activeSectionId] = false;
+  renderTablePreserveScroll();
+}
+
 function toggleSidebarCollapse() {
   isSidebarCollapsed = !isSidebarCollapsed;
   document.body.classList.toggle("sidebar-collapsed", isSidebarCollapsed);
@@ -22871,6 +22882,7 @@ ensureSystemDepartments();
 normalizePhaseAndSectionCatalogs();
 restoreTrashData();
 registerHotkeys();
+document.addEventListener("click", closeOpenFiltersFromOutsideClick);
 initGlobalScrollbarActivityTracker();
 applyStandalonePwaClass();
 void registerPwaServiceWorker();

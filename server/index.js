@@ -1089,7 +1089,34 @@ function mergeTaskSyncSafeFields(currentPayload, incomingPayload) {
   return next;
 }
 
-function authMiddleware(req, res, next) {
+async function issueSingleSessionVersion(subject) {
+  const key = String(subject || "").trim();
+  if (!key) return 0;
+  const { rows } = await pool.query(
+    `INSERT INTO auth_sessions (subject, session_version, updated_at)
+     VALUES ($1, 1, NOW())
+     ON CONFLICT (subject)
+     DO UPDATE SET session_version = auth_sessions.session_version + 1, updated_at = NOW()
+     RETURNING session_version`,
+    [key]
+  );
+  return Number(rows[0]?.session_version) || 1;
+}
+
+async function isSessionVersionCurrent(subject, sessionVersion) {
+  const key = String(subject || "").trim();
+  if (!key) return false;
+  const { rows } = await pool.query(
+    "SELECT session_version FROM auth_sessions WHERE subject = $1",
+    [key]
+  );
+  if (!rows.length) return sessionVersion == null;
+  const current = Number(rows[0]?.session_version) || 0;
+  const tokenVersion = Number(sessionVersion);
+  return Number.isFinite(tokenVersion) && tokenVersion === current;
+}
+
+async function authMiddleware(req, res, next) {
   const h = req.headers.authorization || "";
   const m = h.match(/^Bearer\s+(.+)$/i);
   if (!m) {
@@ -1097,6 +1124,11 @@ function authMiddleware(req, res, next) {
   }
   try {
     const payload = jwt.verify(m[1], JWT_SECRET);
+    const subject = payload?.sub != null ? String(payload.sub) : "";
+    const hasCurrentSession = await isSessionVersionCurrent(subject, payload?.sv);
+    if (!hasCurrentSession) {
+      return res.status(401).json({ error: "Сессия завершена на другом устройстве" });
+    }
     req.user = payload;
     next();
   } catch {
@@ -1323,8 +1355,10 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       } catch (_) {
         // Если app_state временно недоступен — используем роль из users.
       }
+      const subject = String(u.id);
+      const sessionVersion = await issueSingleSessionVersion(subject);
       const token = jwt.sign(
-        { sub: String(u.id), role: effectiveRole, name: u.display_name },
+        { sub: subject, role: effectiveRole, name: u.display_name, sv: sessionVersion },
         JWT_SECRET,
         { expiresIn: "30d" }
       );
@@ -1340,8 +1374,10 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       if (expectedPass && password === expectedPass) {
         const displayName = String(emp?.[1] || "").trim() || "Пользователь";
         const role = isEmployeeAdminAccessEnabled(payload, emp) ? "admin" : "user";
+        const subject = `emp:${phone}`;
+        const sessionVersion = await issueSingleSessionVersion(subject);
         const token = jwt.sign(
-          { sub: `emp:${phone}`, role, name: displayName },
+          { sub: subject, role, name: displayName, sv: sessionVersion },
           JWT_SECRET,
           { expiresIn: "30d" }
         );
@@ -1359,7 +1395,8 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       phone === envPhone &&
       password === ADMIN_PASSWORD
     ) {
-      const token = jwt.sign({ sub: "admin", role: "admin", name: "Пользователь" }, JWT_SECRET, { expiresIn: "30d" });
+      const sessionVersion = await issueSingleSessionVersion("admin");
+      const token = jwt.sign({ sub: "admin", role: "admin", name: "Пользователь", sv: sessionVersion }, JWT_SECRET, { expiresIn: "30d" });
       return res.json({ token, displayName: "Пользователь" });
     }
   } catch (e) {
