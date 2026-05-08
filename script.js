@@ -18499,20 +18499,13 @@ function renderDocumentationSettingsPanelHtml(activeSettingsTab) {
             <div class="documentation-video-head">
               <h4>Видео для ознакомления</h4>
               <p>Запишите ролик, загрузите его в удобное место и вставьте ссылку или путь. Видео можно заменить в любой момент.</p>
-            </div>
-            <div class="documentation-video-grid">
               ${slots.map((slot, index) => `
-                <section class="documentation-video-slot" data-doc-video-slot="${index}">
+                <div class="documentation-video-slot" data-doc-video-slot="${index}">
                   <div class="documentation-video-preview" data-doc-video-preview="${index}">
                     ${renderDocumentationVideoPreviewHtml(slot.url)}
                   </div>
-                  <label class="settings-field-label" for="docVideoTitle${index}">Название</label>
-                  <input id="docVideoTitle${index}" class="documentation-video-input" type="text" data-doc-video-field="title" data-doc-video-index="${index}" value="${escapeHtmlAttr(slot.title)}" placeholder="Название видео" />
-                  <label class="settings-field-label" for="docVideoUrl${index}">Ссылка или путь к видео</label>
-                  <input id="docVideoUrl${index}" class="documentation-video-input" type="text" data-doc-video-field="url" data-doc-video-index="${index}" value="${escapeHtmlAttr(slot.url)}" placeholder="https://... или /media/video.mp4" />
-                  <label class="settings-field-label" for="docVideoNote${index}">Краткое описание</label>
-                  <textarea id="docVideoNote${index}" class="documentation-video-note" rows="2" data-doc-video-field="note" data-doc-video-index="${index}" placeholder="Что пользователь увидит в ролике">${escapeHtmlText(slot.note)}</textarea>
-                </section>
+                  <input id="docVideoUrl${index}" class="documentation-video-input" type="text" data-doc-video-field="url" data-doc-video-index="${index}" value="${escapeHtmlAttr(slot.url)}" placeholder="Ссылка или путь к видео" />
+                </div>
               `).join("")}
             </div>
           </aside>
@@ -18523,7 +18516,9 @@ function renderDocumentationSettingsPanelHtml(activeSettingsTab) {
 }
 
 function renderApiSettingsPanelHtml(activeSettingsTab) {
-  const disabledAttr = currentAuthRole === "admin" ? "" : " disabled";
+  const iframeHtml = currentAuthRole === "admin"
+    ? `<iframe class="settings-swagger-frame" src="/api/docs" title="Swagger API"></iframe>`
+    : `<div class="settings-swagger-denied">Swagger доступен только пользователю с правами администратора.</div>`;
   return `
     <div class="other-settings-section ${activeSettingsTab === "api" ? "" : "hidden"}" data-other-settings-pane="api">
       <h4 class="other-settings-section-title">API / Swagger</h4>
@@ -18533,7 +18528,6 @@ function renderApiSettingsPanelHtml(activeSettingsTab) {
           <p>Swagger открывается только для пользователя с правами администратора. Методы ниже работают в режиме чтения и требуют Bearer JWT.</p>
         </div>
         <div class="documentation-api-actions">
-          <button type="button" class="documentation-api-btn" id="openSwaggerDocsBtn"${disabledAttr}>Открыть Swagger</button>
           <code>/api/openapi.json</code>
         </div>
         <div class="documentation-api-examples">
@@ -18541,6 +18535,7 @@ function renderApiSettingsPanelHtml(activeSettingsTab) {
           <p><strong>Пример curl:</strong> <code>curl -H "Authorization: Bearer &lt;JWT&gt;" https://ваш-домен/api/export/tasks</code></p>
           <p><strong>Важно:</strong> эти методы не меняют данные в системе, а только отдают текущие задачи, справочники и настройки для внешней интеграции.</p>
         </div>
+        ${iframeHtml}
       </div>
     </div>
   `;
@@ -19144,25 +19139,6 @@ function attachOtherSettingsHandlers() {
     input.addEventListener("change", () => commitDocumentationVideoSlot(input));
     input.addEventListener("blur", () => commitDocumentationVideoSlot(input));
   });
-  document.getElementById("openSwaggerDocsBtn")?.addEventListener("click", () => {
-    const token = getAuthToken();
-    if (!token || currentAuthRole !== "admin") {
-      window.alert("Swagger доступен только администратору после входа в систему.");
-      return;
-    }
-    const win = window.open("about:blank", "_blank");
-    if (win) {
-      try {
-        win.name = JSON.stringify({ mbcSwaggerToken: token });
-        win.location.replace("/api/docs");
-      } catch (_) {
-        win.location.href = "/api/docs";
-      }
-    } else {
-      window.alert("Браузер заблокировал открытие Swagger. Разрешите всплывающее окно для сайта.");
-    }
-  });
-
   const templateInputs = Array.from(document.querySelectorAll(".task-message-template-input"));
   const commitTaskTemplate = (input) => {
     const status = String(input.dataset.status || "");
