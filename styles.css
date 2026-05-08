@@ -3171,7 +3171,7 @@ tr:nth-child(even) td {
 
 .quick-access-slice {
   fill: rgba(233, 238, 247, 0.98);
-  stroke: rgba(117, 135, 163, 0.46);
+  stroke: rgba(142, 158, 184, 0.34);
   stroke-width: 1;
   transition: fill 0.14s ease, stroke 0.14s ease, filter 0.14s ease;
 }
@@ -3179,7 +3179,7 @@ tr:nth-child(even) td {
 .quick-access-sector:hover .quick-access-slice,
 .quick-access-sector.is-selected .quick-access-slice {
   fill: rgba(220, 224, 252, 0.96);
-  stroke: rgba(92, 99, 202, 0.95);
+  stroke: rgba(110, 118, 214, 0.72);
   filter: drop-shadow(0 0 12px rgba(62, 64, 149, 0.3));
 }
 
@@ -3204,8 +3204,8 @@ tr:nth-child(even) td {
 
 .quick-access-sector-label {
   fill: #4d596d;
-  font-size: 10px;
-  font-weight: 800;
+  font-size: 9px;
+  font-weight: 500;
   letter-spacing: 0;
   text-transform: uppercase;
 }

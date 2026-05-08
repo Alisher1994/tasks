@@ -5194,7 +5194,7 @@ function openQuickAccessMenu() {
   overlay.setAttribute("aria-label", "Быстрый доступ к меню");
   overlay.dataset.quickAccessSelected = String(selectedIndex);
   const sectorStep = 360 / items.length;
-  const sectorGap = Math.min(1.4, sectorStep * 0.12);
+  const sectorGap = 0;
   overlay.innerHTML = `
     <div class="quick-access-wheel" role="menu" aria-label="Быстрый выбор раздела">
       <svg class="quick-access-slices" viewBox="0 0 500 500">
