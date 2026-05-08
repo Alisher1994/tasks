@@ -18488,27 +18488,22 @@ function renderDocumentationSettingsPanelHtml(activeSettingsTab) {
       <div class="documentation-settings-layout">
         <div class="documentation-split-layout">
           <div class="documentation-guide-list">
-            ${docSections.map((section) => `
+            ${docSections.map((section, index) => {
+              const slot = slots[index] || { url: "" };
+              return `
               <section class="documentation-guide-card">
                 <h4>${escapeHtmlText(section.title)}</h4>
                 <ul>${section.items.map((item) => `<li>${escapeHtmlText(item)}</li>`).join("")}</ul>
-              </section>
-            `).join("")}
-          </div>
-          <aside class="documentation-video-section">
-            <div class="documentation-video-head">
-              <h4>Видео для ознакомления</h4>
-              <p>Запишите ролик, загрузите его в удобное место и вставьте ссылку или путь. Видео можно заменить в любой момент.</p>
-              ${slots.map((slot, index) => `
                 <div class="documentation-video-slot" data-doc-video-slot="${index}">
                   <div class="documentation-video-preview" data-doc-video-preview="${index}">
                     ${renderDocumentationVideoPreviewHtml(slot.url)}
                   </div>
                   <input id="docVideoUrl${index}" class="documentation-video-input" type="text" data-doc-video-field="url" data-doc-video-index="${index}" value="${escapeHtmlAttr(slot.url)}" placeholder="Ссылка или путь к видео" />
                 </div>
-              `).join("")}
-            </div>
-          </aside>
+              </section>
+            `;
+            }).join("")}
+          </div>
         </div>
       </div>
     </div>
