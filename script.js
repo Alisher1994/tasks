@@ -21394,6 +21394,19 @@ function openCreateTaskModal(section) {
           <span>Комментарий (опционально)</span>
           <textarea id="taskCreateNote" class="cell-editor task-create-textarea" rows="3" placeholder="Комментарий к задаче"></textarea>
         </label>
+        <div class="employee-create-field task-create-field task-create-field--span task-create-send-options">
+          <span>Отправка уведомления</span>
+          <div class="task-create-send-options__list">
+            <label class="employee-create-field--check task-create-send-option">
+              <input id="taskCreateSendTelegram" type="checkbox" checked />
+              <span>Отправить по Telegram</span>
+            </label>
+            <label class="employee-create-field--check task-create-send-option">
+              <input id="taskCreateSendSms" type="checkbox" />
+              <span>Отправить по SMS</span>
+            </label>
+          </div>
+        </div>
       </div>
       <div class="employee-create-error hidden" id="taskCreateError"></div>
       <div class="responsible-modal-actions">
@@ -21411,6 +21424,8 @@ function openCreateTaskModal(section) {
   const dueDateInput = overlay.querySelector("#taskCreateDueDate");
   const priorityInput = overlay.querySelector("#taskCreatePriority");
   const noteInput = overlay.querySelector("#taskCreateNote");
+  const sendTelegramInput = overlay.querySelector("#taskCreateSendTelegram");
+  const sendSmsInput = overlay.querySelector("#taskCreateSendSms");
   const errorBox = overlay.querySelector("#taskCreateError");
 
   const close = () => overlay.remove();
@@ -21443,7 +21458,7 @@ function openCreateTaskModal(section) {
   attachPicker(overlay.querySelector("#taskCreateAssigneePickBtn"), assigneeInput, "Исполнитель", employeeOptions);
   attachPicker(overlay.querySelector("#taskCreateResponsiblePickBtn"), responsibleInput, "Постановщик", employeeOptions);
 
-  const save = () => {
+  const save = async () => {
     const title = String(titleInput?.value || "").trim();
     const objectName = String(objectInput?.value || "").trim();
     const assignee = normalizePersonName(assigneeInput?.value || "");
@@ -21452,6 +21467,8 @@ function openCreateTaskModal(section) {
     const priority = normalizeTaskPriorityValue(String(priorityInput?.value || "Средний")) || "Средний";
     const note = String(noteInput?.value || "").trim();
     const dueParts = parseHtmlDateValue(String(dueDateInput?.value || ""));
+    const shouldSendTelegram = Boolean(sendTelegramInput?.checked);
+    const shouldSendSms = Boolean(sendSmsInput?.checked);
 
     if (!title) {
       setError("Укажите название задачи.");
@@ -21480,6 +21497,35 @@ function openCreateTaskModal(section) {
     saveSectionsData();
     renderTablePreserveScroll();
     close();
+
+    if (shouldSendTelegram || shouldSendSms) {
+      const results = [];
+      if (shouldSendTelegram) {
+        const tgResult = await sendTaskRowTelegramNotification(row, { suppressAlerts: true });
+        results.push({
+          label: "Telegram",
+          ok: Boolean(tgResult?.ok),
+          message: String(tgResult?.message || tgResult?.reason || "")
+        });
+      }
+      if (shouldSendSms) {
+        const smsResult = await sendTaskSmsNotification(row, null, { silent: true });
+        results.push({
+          label: "SMS",
+          ok: Boolean(smsResult?.ok),
+          message: String(smsResult?.error || "")
+        });
+      }
+
+      const failed = results.filter((item) => !item.ok);
+      showStatusDialog({
+        title: failed.length ? "Задача сохранена" : "Задача сохранена и отправлена",
+        message: failed.length
+          ? `Задача сохранена, но не все уведомления отправлены:\n${failed.map((item) => `${item.label}: ${item.message || "ошибка отправки"}`).join("\n")}`
+          : `Задача сохранена. Отправлено: ${results.map((item) => item.label).join(", ")}.`,
+        type: failed.length ? "info" : "success"
+      });
+    }
   };
 
   overlay.querySelector(".task-create-save")?.addEventListener("click", save);
