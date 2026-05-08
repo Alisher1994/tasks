@@ -4901,6 +4901,8 @@ let sharedReportExpiresAt = 0;
 let otherSettingsActiveTab = "general";
 let currentAuthRole = "user";
 let isMobileTopMenuOpen = false;
+let serverMetricsTimer = null;
+let serverMetricsHistory = [];
 
 let displaySettings = {
   highlightClosed: false,
@@ -6514,6 +6516,7 @@ function detachTasksChunksObserver() {
 function renderTable() {
   detachTasksChunksObserver();
   destroyReportCharts();
+  stopServerMetricsMonitor();
 
   if (activeSectionId === "otherSettings") {
     tableContainer.innerHTML = renderOtherSettingsPanel();
@@ -18534,8 +18537,85 @@ function renderApiSettingsPanelHtml(activeSettingsTab) {
   `;
 }
 
+function formatServerMetricBytes(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  const units = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+  let size = n;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const fixed = size >= 100 || unitIndex === 0 ? 0 : 1;
+  return `${size.toFixed(fixed)} ${units[unitIndex]}`;
+}
+
+function formatServerMetricPercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `${Math.max(0, Math.min(100, n)).toFixed(0)}%`;
+}
+
+function formatServerMetricUptime(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (days > 0) return `${days} д. ${hours} ч.`;
+  if (hours > 0) return `${hours} ч. ${minutes} мин.`;
+  return `${minutes} мин.`;
+}
+
+function renderServerMetricCardHtml(id, title, value = "—", sub = "Ожидание данных") {
+  return `
+    <section class="server-metric-card" data-server-metric-card="${escapeHtmlAttr(id)}">
+      <div class="server-metric-head">
+        <h5>${escapeHtmlText(title)}</h5>
+        <strong data-server-metric-value="${escapeHtmlAttr(id)}">${escapeHtmlText(value)}</strong>
+      </div>
+      <canvas class="server-metric-chart" data-server-chart="${escapeHtmlAttr(id)}" width="360" height="96"></canvas>
+      <p data-server-metric-sub="${escapeHtmlAttr(id)}">${escapeHtmlText(sub)}</p>
+    </section>
+  `;
+}
+
+function renderServerSettingsPanelHtml(activeSettingsTab) {
+  const denied = currentAuthRole !== "admin";
+  return `
+    <div class="other-settings-section ${activeSettingsTab === "server" ? "" : "hidden"}" data-other-settings-pane="server">
+      <h4 class="other-settings-section-title">Сервер</h4>
+      <div class="server-monitor-panel">
+        ${denied ? `
+          <div class="settings-swagger-denied">Параметры сервера доступны только пользователю с правами администратора.</div>
+        ` : `
+          <div class="server-monitor-summary">
+            <div>
+              <h4>Параметры сервера</h4>
+              <p data-server-monitor-status>Загружаем метрики сервера...</p>
+            </div>
+            <div class="server-monitor-meta">
+              <span data-server-meta="platform">—</span>
+              <span data-server-meta="node">—</span>
+              <span data-server-meta="uptime">—</span>
+            </div>
+          </div>
+          <div class="server-metrics-grid">
+            ${renderServerMetricCardHtml("cpu", "CPU")}
+            ${renderServerMetricCardHtml("memory", "RAM")}
+            ${renderServerMetricCardHtml("disk", "Диск")}
+            ${renderServerMetricCardHtml("network", "Сеть")}
+            ${renderServerMetricCardHtml("process", "Процесс")}
+            ${renderServerMetricCardHtml("db", "PostgreSQL")}
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
 function renderOtherSettingsPanel() {
-  const allowedSettingsTabs = new Set(["general", "dateTime", "telegram", "sms", "googleSheets", "notifications", "taskFormat", "globalDup", "docs", "api"]);
+  const allowedSettingsTabs = new Set(["general", "dateTime", "telegram", "sms", "googleSheets", "notifications", "taskFormat", "globalDup", "docs", "api", "server"]);
   const activeSettingsTab = allowedSettingsTabs.has(otherSettingsActiveTab) ? otherSettingsActiveTab : "general";
   const getStatusClass = (status) => {
     if (status === "Новый") return "status-legend-new";
@@ -18582,6 +18662,7 @@ function renderOtherSettingsPanel() {
   const dupPositionOptsHtml = buildDupPositionFilterOptionsHtml();
   const docsPanelHtml = renderDocumentationSettingsPanelHtml(activeSettingsTab);
   const apiPanelHtml = renderApiSettingsPanelHtml(activeSettingsTab);
+  const serverPanelHtml = renderServerSettingsPanelHtml(activeSettingsTab);
   const googleSheetsWriteMode = normalizeGoogleSheetsWriteMode(displaySettings.googleSheetsWriteMode);
   const googleSheetsWriteModeOptsHtml = [
     { id: "rewrite", label: "Перезапись" },
@@ -18609,6 +18690,7 @@ function renderOtherSettingsPanel() {
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "sms" ? "active" : ""}" data-other-settings-tab="sms">SMS Gateway</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "googleSheets" ? "active" : ""}" data-other-settings-tab="googleSheets">Google Sheets</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "notifications" ? "active" : ""}" data-other-settings-tab="notifications">Настройки оповещения</button>
+          <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "server" ? "active" : ""}" data-other-settings-tab="server">Сервер</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "docs" ? "active" : ""}" data-other-settings-tab="docs">Документация</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "api" ? "active" : ""}" data-other-settings-tab="api">API / Swagger</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "taskFormat" ? "active" : ""}" data-other-settings-tab="taskFormat">Шаблон сообщений</button>
@@ -19028,6 +19110,7 @@ function renderOtherSettingsPanel() {
           </div>
         </div>
 
+        ${serverPanelHtml}
         ${docsPanelHtml}
         ${apiPanelHtml}
 
@@ -19086,6 +19169,138 @@ function renderOtherSettingsPanel() {
   `;
 }
 
+function stopServerMetricsMonitor() {
+  clearInterval(serverMetricsTimer);
+  serverMetricsTimer = null;
+}
+
+async function fetchServerMetrics() {
+  if (!isHostedRuntime() || !getAuthToken() || currentAuthRole !== "admin") return null;
+  const r = await fetch("/api/admin/server/metrics", {
+    headers: { Authorization: `Bearer ${getAuthToken()}` }
+  });
+  if (r.status === 401) {
+    handleServerAuthExpired();
+    return null;
+  }
+  if (!r.ok) throw new Error("metrics failed");
+  return r.json();
+}
+
+function setServerMetricText(id, value, sub) {
+  const valueEl = document.querySelector(`[data-server-metric-value="${id}"]`);
+  const subEl = document.querySelector(`[data-server-metric-sub="${id}"]`);
+  if (valueEl) valueEl.textContent = value;
+  if (subEl) subEl.textContent = sub;
+}
+
+function drawServerMetricChart(canvas, values, color = "#4b50a4", maxOverride = null) {
+  if (!(canvas instanceof HTMLCanvasElement)) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#f8fafd";
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = "#dce4ee";
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i += 1) {
+    const y = (height / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+  }
+  const points = values.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+  if (points.length < 2) return;
+  const max = Number.isFinite(Number(maxOverride)) && Number(maxOverride) > 0
+    ? Number(maxOverride)
+    : Math.max(1, ...points);
+  const step = width / Math.max(1, points.length - 1);
+  ctx.beginPath();
+  points.forEach((value, index) => {
+    const x = index * step;
+    const y = height - (Math.max(0, value) / max) * (height - 10) - 5;
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, "rgba(75, 80, 164, 0.18)");
+  gradient.addColorStop(1, "rgba(75, 80, 164, 0)");
+  ctx.lineTo(width, height);
+  ctx.lineTo(0, height);
+  ctx.closePath();
+  ctx.fillStyle = gradient;
+  ctx.fill();
+}
+
+function renderServerMetricsSnapshot(metrics) {
+  if (!metrics?.ok) return;
+  serverMetricsHistory.push(metrics);
+  serverMetricsHistory = serverMetricsHistory.slice(-40);
+  const status = document.querySelector("[data-server-monitor-status]");
+  if (status) status.textContent = `Обновлено: ${new Date(metrics.at || Date.now()).toLocaleTimeString("ru-RU")}`;
+  const platform = document.querySelector('[data-server-meta="platform"]');
+  const node = document.querySelector('[data-server-meta="node"]');
+  const uptime = document.querySelector('[data-server-meta="uptime"]');
+  if (platform) platform.textContent = metrics.server?.platform || "—";
+  if (node) node.textContent = `Node ${metrics.server?.nodeVersion || "—"}`;
+  if (uptime) uptime.textContent = `Uptime ${formatServerMetricUptime(metrics.server?.uptimeSec)}`;
+
+  const cpu = Number(metrics.cpu?.usagePercent) || 0;
+  const memory = Number(metrics.memory?.usedPercent) || 0;
+  const disk = Number(metrics.disk?.usedPercent) || 0;
+  const rx = Number(metrics.network?.rxPerSec) || 0;
+  const tx = Number(metrics.network?.txPerSec) || 0;
+  const processMb = Number(metrics.memory?.processRss) || 0;
+  const dbTotal = Number(metrics.process?.pool?.total) || 0;
+
+  setServerMetricText("cpu", formatServerMetricPercent(cpu), `${metrics.cpu?.cores || 0} ядер · ${metrics.cpu?.model || "CPU"}`);
+  setServerMetricText("memory", formatServerMetricPercent(memory), `${formatServerMetricBytes(metrics.memory?.used)} используется · свободно ${formatServerMetricBytes(metrics.memory?.free)}`);
+  const mediaHint = metrics.mediaDisk?.path && metrics.mediaDisk?.path !== metrics.disk?.path
+    ? ` · media свободно ${formatServerMetricBytes(metrics.mediaDisk?.available)}`
+    : "";
+  setServerMetricText("disk", formatServerMetricPercent(disk), `${formatServerMetricBytes(metrics.disk?.used)} из ${formatServerMetricBytes(metrics.disk?.total)} · доступно ${formatServerMetricBytes(metrics.disk?.available)}${mediaHint}`);
+  setServerMetricText("network", metrics.network?.supported ? `${formatServerMetricBytes(rx + tx)}/с` : "интерфейсы", metrics.network?.supported ? `вход ${formatServerMetricBytes(rx)}/с · выход ${formatServerMetricBytes(tx)}/с` : `${metrics.network?.interfaces?.length || 0} активных интерфейсов`);
+  setServerMetricText("process", formatServerMetricBytes(processMb), `heap ${formatServerMetricBytes(metrics.memory?.processHeapUsed)} · PID ${metrics.process?.pid || "—"}`);
+  setServerMetricText("db", `${dbTotal} conn`, `idle ${metrics.process?.pool?.idle || 0} · waiting ${metrics.process?.pool?.waiting || 0}`);
+
+  const series = {
+    cpu: serverMetricsHistory.map((m) => Number(m.cpu?.usagePercent) || 0),
+    memory: serverMetricsHistory.map((m) => Number(m.memory?.usedPercent) || 0),
+    disk: serverMetricsHistory.map((m) => Number(m.disk?.usedPercent) || 0),
+    network: serverMetricsHistory.map((m) => (Number(m.network?.rxPerSec) || 0) + (Number(m.network?.txPerSec) || 0)),
+    process: serverMetricsHistory.map((m) => Number(m.memory?.processRss) || 0),
+    db: serverMetricsHistory.map((m) => Number(m.process?.pool?.total) || 0)
+  };
+  Object.entries(series).forEach(([id, values]) => {
+    const fixedMax = ["cpu", "memory", "disk"].includes(id) ? 100 : null;
+    drawServerMetricChart(document.querySelector(`[data-server-chart="${id}"]`), values, "#4b50a4", fixedMax);
+  });
+}
+
+function startServerMetricsMonitor() {
+  stopServerMetricsMonitor();
+  if (activeSectionId !== "otherSettings" || otherSettingsActiveTab !== "server" || currentAuthRole !== "admin") return;
+  const load = async () => {
+    try {
+      const metrics = await fetchServerMetrics();
+      if (metrics) renderServerMetricsSnapshot(metrics);
+    } catch (_) {
+      const status = document.querySelector("[data-server-monitor-status]");
+      if (status) status.textContent = "Не удалось получить метрики сервера.";
+    }
+  };
+  load();
+  serverMetricsTimer = setInterval(() => {
+    if (!document.hidden) load();
+  }, 3000);
+}
+
 function attachOtherSettingsHandlers() {
   initTemplateTokenEditors();
   document.getElementById("otherSettingsRefreshBtn")?.addEventListener("click", () => {
@@ -19111,8 +19326,16 @@ function attachOtherSettingsHandlers() {
       if (tabId === "notifications" && typeof window._mbcRefreshReminderPreview === "function") {
         window._mbcRefreshReminderPreview();
       }
+      if (tabId === "server") {
+        startServerMetricsMonitor();
+      } else {
+        stopServerMetricsMonitor();
+      }
     });
   });
+  if (activeSectionId === "otherSettings" && otherSettingsActiveTab === "server") {
+    startServerMetricsMonitor();
+  }
 
   const commitDocumentationVideoSlot = (input) => {
     const index = Number(input.getAttribute("data-doc-video-index"));
@@ -22098,6 +22321,7 @@ function showApp(userName) {
 }
 
 function showLogin() {
+  stopServerMetricsMonitor();
   startLoginMotionCanvas();
   setLoginSubmitting(false);
   document.body.classList.add("login-mode");

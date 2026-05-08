@@ -1466,8 +1466,125 @@ body.sidebar-collapsed .sidebar-account-info {
   box-shadow: 0 0 0 2px var(--brand-focus-ring);
 }
 
+.server-monitor-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.server-monitor-summary {
+  border: 1px solid #dce4ee;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.server-monitor-summary h4 {
+  margin: 0 0 6px;
+  color: #314357;
+  font-size: 14px;
+}
+
+.server-monitor-summary p,
+.server-monitor-meta span {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.server-monitor-meta {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  text-align: right;
+  min-width: 220px;
+}
+
+.server-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.server-metric-card {
+  border: 1px solid #dce4ee;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.server-metric-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.server-metric-head h5 {
+  margin: 0;
+  color: #314357;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.server-metric-head strong {
+  color: var(--brand);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.server-metric-chart {
+  width: 100%;
+  height: 78px;
+  border: 1px solid #eef2f7;
+  border-radius: 8px;
+}
+
+.server-metric-card p {
+  margin: 0;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.settings-swagger-denied {
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafd;
+  color: #506176;
+  padding: 18px;
+  font-size: 13px;
+}
+
 @media (max-width: 1100px) {
   .documentation-split-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .server-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .server-monitor-summary {
+    display: grid;
+  }
+
+  .server-monitor-meta {
+    justify-items: start;
+    text-align: left;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .server-metrics-grid {
     grid-template-columns: 1fr;
   }
 }
