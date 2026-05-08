@@ -4739,6 +4739,161 @@ function getSectionIcon(sectionId) {
   return iconBySection[sectionId] || "layout-dashboard";
 }
 
+const QUICK_ACCESS_MENU_ITEMS = [
+  { id: "tasks", label: "Задачи", icon: "listChecks" },
+  { id: "gantt", label: "Ганта", icon: "barChart" },
+  { id: "analytics", label: "Аналитика", icon: "barChart" },
+  { id: "kpi", label: "KPI выполнения", icon: "userCheck" },
+  { id: "reference", label: "Справочник", icon: "database" },
+  { id: "users", label: "Пользователи", icon: "users" },
+  { id: "objects", label: "Объекты", icon: "building2" },
+  { id: "otherSettings", label: "Прочие настр-ки", icon: "settings" },
+  { id: "globalDup", label: "Получатели копий", icon: "users" },
+  { id: "smsHistory", label: "История смс", icon: "history" }
+];
+
+function closeQuickAccessMenu() {
+  document.querySelector(".quick-access-overlay")?.remove();
+}
+
+function isQuickAccessMenuOpen() {
+  return Boolean(document.querySelector(".quick-access-overlay"));
+}
+
+function activateQuickAccessItem(itemId) {
+  closeQuickAccessMenu();
+  const id = String(itemId || "").trim();
+  if (id === "tasks") {
+    displaySettings.tasksListBrowseMode = "flat";
+    tasksBrowseObjectKey = null;
+    resetTasksListPagingWindow();
+    saveDisplaySettings();
+    selectSection("tasks");
+    return;
+  }
+  if (id === "gantt") {
+    if (isMobileCompactViewport()) {
+      showToast("Гант доступен на широком экране.");
+      selectSection("tasks");
+      return;
+    }
+    displaySettings.tasksListBrowseMode = "graph";
+    tasksBrowseObjectKey = null;
+    saveDisplaySettings();
+    selectSection("tasks");
+    return;
+  }
+  if (id === "analytics") {
+    saveReportViewTab("system");
+    selectSection("report");
+    return;
+  }
+  if (id === "kpi") {
+    saveReportViewTab("kpi");
+    selectSection("report");
+    return;
+  }
+  if (id === "reference") {
+    selectSection(SECTION_GROUPS.reference.sections[0]);
+    return;
+  }
+  if (id === "users") {
+    selectSection("employees");
+    return;
+  }
+  if (id === "objects") {
+    selectSection("objects");
+    return;
+  }
+  if (id === "otherSettings") {
+    otherSettingsActiveTab = "general";
+    selectSection("otherSettings");
+    return;
+  }
+  if (id === "globalDup") {
+    otherSettingsActiveTab = "globalDup";
+    selectSection("otherSettings");
+    return;
+  }
+  if (id === "smsHistory") {
+    selectSection("smsHistory");
+  }
+}
+
+function openQuickAccessMenu() {
+  if (!isAppVisible()) return;
+  closeQuickAccessMenu();
+  const allowSettings = canAccessSettingsMenu();
+  const items = allowSettings
+    ? QUICK_ACCESS_MENU_ITEMS
+    : QUICK_ACCESS_MENU_ITEMS.filter((item) => ["tasks", "gantt", "analytics", "kpi"].includes(item.id));
+  const overlay = document.createElement("div");
+  overlay.className = "quick-access-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", "Быстрый доступ к меню");
+  const radius = "clamp(108px, 24vw, 190px)";
+  overlay.innerHTML = `
+    <div class="quick-access-wheel" role="menu">
+      <div class="quick-access-center" aria-hidden="true">
+        <img src="mb new logo 1.svg" alt="" />
+        <span>Меню</span>
+      </div>
+      ${items.map((item, index) => {
+        const angle = -90 + (360 / items.length) * index;
+        return `
+          <button
+            type="button"
+            class="quick-access-item ${isQuickAccessItemActive(item.id) ? "is-active" : ""}"
+            data-quick-access-id="${escapeHtmlAttr(item.id)}"
+            style="--qa-angle: ${angle}deg; --qa-angle-back: ${-angle}deg; --qa-radius: ${radius};"
+            title="${escapeHtmlAttr(item.label)}"
+            aria-label="${escapeHtmlAttr(item.label)}"
+            role="menuitem"
+          >
+            <span class="quick-access-item-icon">${iconSvg(item.icon)}</span>
+            <span class="quick-access-item-label">${escapeHtmlText(item.label)}</span>
+          </button>
+        `;
+      }).join("")}
+    </div>
+  `;
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      closeQuickAccessMenu();
+      return;
+    }
+    const button = event.target instanceof HTMLElement ? event.target.closest("[data-quick-access-id]") : null;
+    if (!(button instanceof HTMLButtonElement)) return;
+    activateQuickAccessItem(button.dataset.quickAccessId);
+  });
+  document.body.appendChild(overlay);
+  initLucideIcons();
+}
+
+function isQuickAccessItemActive(itemId) {
+  const id = String(itemId || "").trim();
+  if (id === "tasks") return activeSectionId === "tasks" && normalizeTasksBrowseModeChoice(displaySettings.tasksListBrowseMode) !== "graph";
+  if (id === "gantt") return activeSectionId === "tasks" && normalizeTasksBrowseModeChoice(displaySettings.tasksListBrowseMode) === "graph";
+  if (id === "analytics") return activeSectionId === "report" && reportViewTab === "system";
+  if (id === "kpi") return activeSectionId === "report" && reportViewTab === "kpi";
+  if (id === "reference") return SECTION_GROUPS.reference.sections.includes(activeSectionId);
+  if (id === "users") return activeSectionId === "employees";
+  if (id === "objects") return activeSectionId === "objects";
+  if (id === "otherSettings") return activeSectionId === "otherSettings" && otherSettingsActiveTab !== "globalDup";
+  if (id === "globalDup") return activeSectionId === "otherSettings" && otherSettingsActiveTab === "globalDup";
+  if (id === "smsHistory") return activeSectionId === "smsHistory";
+  return false;
+}
+
+function toggleQuickAccessMenu() {
+  if (isQuickAccessMenuOpen()) {
+    closeQuickAccessMenu();
+    return;
+  }
+  openQuickAccessMenu();
+}
+
 function selectSection(sectionId) {
   const allowSettings = canAccessSettingsMenu();
   if (!allowSettings && sectionId !== "tasks" && sectionId !== "report") {
@@ -23129,6 +23284,18 @@ function expandSidebarMenu() {
 function registerHotkeys() {
   document.addEventListener("keydown", (event) => {
     if (!isAppVisible()) return;
+    if (event.key === "Escape" && isQuickAccessMenuOpen()) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeQuickAccessMenu();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.code === "Space") {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleQuickAccessMenu();
+      return;
+    }
     if (event.key === "Insert") {
       event.preventDefault();
       event.stopPropagation();
