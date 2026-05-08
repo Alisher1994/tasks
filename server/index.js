@@ -198,6 +198,232 @@ async function loadAppPayload() {
     : {};
 }
 
+function getPayloadSection(payload, sectionId) {
+  const sections = Array.isArray(payload?.sections) ? payload.sections : [];
+  return sections.find((section) => section && String(section.id || "") === sectionId) || null;
+}
+
+function sectionRowsAsObjects(section) {
+  const columns = Array.isArray(section?.columns) ? section.columns.map((x) => String(x || "")) : [];
+  const rows = Array.isArray(section?.rows) ? section.rows : [];
+  return rows.map((row) => {
+    const out = {};
+    columns.forEach((column, index) => {
+      out[column || `col_${index}`] = Array.isArray(row) ? row[index] ?? "" : "";
+    });
+    return out;
+  });
+}
+
+function buildExportSectionPayload(payload, sectionId) {
+  const section = getPayloadSection(payload, sectionId);
+  if (!section) return null;
+  return {
+    id: String(section.id || sectionId),
+    title: String(section.title || sectionId),
+    columns: Array.isArray(section.columns) ? section.columns : [],
+    rows: Array.isArray(section.rows) ? section.rows : [],
+    items: sectionRowsAsObjects(section)
+  };
+}
+
+function buildCatalogsExportPayload(payload) {
+  const ids = ["data", "phases", "phaseSections", "phaseSubsections", "delayReasons", "roles", "departments"];
+  return Object.fromEntries(
+    ids
+      .map((id) => [id, buildExportSectionPayload(payload, id)])
+      .filter(([, value]) => Boolean(value))
+  );
+}
+
+function sanitizeDisplaySettingsForExport(settings) {
+  const out = settings && typeof settings === "object" && !Array.isArray(settings)
+    ? JSON.parse(JSON.stringify(settings))
+    : {};
+  [
+    "telegramBotToken",
+    "smsGatewayPassword",
+    "smsGatewayApiKey",
+    "googleSheetsSpreadsheetId"
+  ].forEach((key) => {
+    if (key in out) out[key] = "";
+  });
+  return out;
+}
+
+function buildOpenApiSpec(req) {
+  const baseUrl = `${req.protocol}://${req.get("host")}`;
+  const jsonResponse = {
+    type: "object",
+    properties: {
+      ok: { type: "boolean", example: true }
+    }
+  };
+  const sectionResponse = {
+    type: "object",
+    properties: {
+      ok: { type: "boolean", example: true },
+      section: {
+        type: "object",
+        properties: {
+          id: { type: "string", example: "tasks" },
+          title: { type: "string", example: "Задачи" },
+          columns: { type: "array", items: { type: "string" } },
+          rows: { type: "array", items: { type: "array", items: {} } },
+          items: { type: "array", items: { type: "object" } }
+        }
+      }
+    }
+  };
+  const makeGet = (summary, description, schema = sectionResponse) => ({
+    get: {
+      summary,
+      description,
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: "Успешный ответ",
+          content: {
+            "application/json": {
+              schema
+            }
+          }
+        },
+        401: { description: "Нет или неверный Bearer-токен" },
+        403: { description: "Недостаточно прав: нужен администратор" }
+      }
+    }
+  });
+  return {
+    openapi: "3.0.3",
+    info: {
+      title: "MBC Task Management API",
+      version: "1.0.0",
+      description: [
+        "Read-only API для безопасной передачи данных из системы.",
+        "Все методы требуют права администратора и заголовок Authorization: Bearer <JWT>.",
+        "JWT можно взять из авторизованной сессии приложения или получить через POST /api/auth/login."
+      ].join("\n")
+    },
+    servers: [{ url: baseUrl }],
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: "http",
+          scheme: "bearer",
+          bearerFormat: "JWT"
+        }
+      }
+    },
+    paths: {
+      "/api/auth/login": {
+        post: {
+          summary: "Вход и получение JWT",
+          description: "Передайте phone и password. В ответе вернётся token, который нужно вставить в Authorize как Bearer token.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["phone", "password"],
+                  properties: {
+                    phone: { type: "string", example: "+998991234567" },
+                    password: { type: "string", example: "123456" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: "JWT токен",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      token: { type: "string" },
+                      displayName: { type: "string" }
+                    }
+                  }
+                }
+              }
+            },
+            401: { description: "Неверный логин или пароль" }
+          }
+        }
+      },
+      "/api/export/tasks": makeGet("Экспорт задач", "Возвращает таблицу задач: columns, исходные rows и удобные items-объекты."),
+      "/api/export/employees": makeGet("Экспорт сотрудников", "Возвращает сотрудников, включая отдел, должность, Telegram-статус и Chat ID."),
+      "/api/export/objects": makeGet("Экспорт объектов", "Возвращает объекты, адреса, РП/ЗРП и связанные поля."),
+      "/api/export/catalogs": makeGet("Экспорт справочников", "Возвращает справочники фаз, разделов, подразделов, причин, ролей, отделов и ответственных.", {
+        ...jsonResponse,
+        properties: {
+          ok: { type: "boolean", example: true },
+          catalogs: { type: "object" }
+        }
+      }),
+      "/api/export/all": makeGet("Экспорт всех данных", "Возвращает все sections в исходном виде и основные настройки без изменения данных.", {
+        ...jsonResponse,
+        properties: {
+          ok: { type: "boolean", example: true },
+          sections: { type: "array", items: { type: "object" } },
+          displaySettings: { type: "object" }
+        }
+      })
+    }
+  };
+}
+
+function renderSwaggerDocsHtml() {
+  return `<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MBC API Docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <style>
+    body { margin: 0; background: #f4f7fb; }
+    .docs-gate { max-width: 760px; margin: 48px auto; padding: 20px; font: 14px/1.5 Inter, Arial, sans-serif; color: #26364e; background: #fff; border: 1px solid #dce4ee; border-radius: 12px; }
+    .docs-gate code { background: #eef2f7; padding: 2px 5px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <div id="docsGate" class="docs-gate">Проверяем права администратора...</div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    const token = localStorage.getItem("mbc_jwt") || "";
+    const gate = document.getElementById("docsGate");
+    async function boot() {
+      if (!token) {
+        gate.innerHTML = "<h2>Нужен вход администратора</h2><p>Откройте основное приложение, войдите администратором, затем вернитесь на <code>/api/docs</code>.</p>";
+        return;
+      }
+      const me = await fetch("/api/auth/me", { headers: { Authorization: "Bearer " + token } }).then(r => r.ok ? r.json() : null).catch(() => null);
+      if (!me || me.role !== "admin") {
+        gate.innerHTML = "<h2>Недостаточно прав</h2><p>Swagger доступен только пользователю с правами администратора.</p>";
+        return;
+      }
+      gate.remove();
+      SwaggerUIBundle({
+        url: "/api/openapi.json",
+        dom_id: "#swagger-ui",
+        persistAuthorization: true,
+        requestInterceptor: (req) => {
+          req.headers.Authorization = "Bearer " + token;
+          return req;
+        }
+      });
+    }
+    boot();
+  </script>
+</body>
+</html>`;
+}
+
 async function saveAppPayload(payload) {
   const nextPayload = payload && typeof payload === "object"
     ? JSON.parse(JSON.stringify(payload))
@@ -1481,6 +1707,71 @@ app.get("/api/auth/me", authMiddleware, (req, res) => {
   const role = req.user?.role === "admin" || req.user?.sub === "admin" ? "admin" : req.user?.role || "user";
   const id = req.user?.sub != null ? String(req.user.sub) : "";
   return res.json({ id, displayName: name, role });
+});
+
+app.get("/api/docs", (_req, res) => {
+  res.type("html").send(renderSwaggerDocsHtml());
+});
+
+app.get("/api/openapi.json", authMiddleware, requireAdmin, (req, res) => {
+  res.json(buildOpenApiSpec(req));
+});
+
+app.get("/api/export/tasks", authMiddleware, requireAdmin, async (_req, res) => {
+  try {
+    const payload = await loadAppPayload();
+    const section = buildExportSectionPayload(payload, "tasks");
+    return res.json({ ok: true, section });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Ошибка экспорта задач" });
+  }
+});
+
+app.get("/api/export/employees", authMiddleware, requireAdmin, async (_req, res) => {
+  try {
+    const payload = await loadAppPayload();
+    const section = buildExportSectionPayload(payload, "employees");
+    return res.json({ ok: true, section });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Ошибка экспорта сотрудников" });
+  }
+});
+
+app.get("/api/export/objects", authMiddleware, requireAdmin, async (_req, res) => {
+  try {
+    const payload = await loadAppPayload();
+    const section = buildExportSectionPayload(payload, "objects");
+    return res.json({ ok: true, section });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Ошибка экспорта объектов" });
+  }
+});
+
+app.get("/api/export/catalogs", authMiddleware, requireAdmin, async (_req, res) => {
+  try {
+    const payload = await loadAppPayload();
+    return res.json({ ok: true, catalogs: buildCatalogsExportPayload(payload) });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Ошибка экспорта справочников" });
+  }
+});
+
+app.get("/api/export/all", authMiddleware, requireAdmin, async (_req, res) => {
+  try {
+    const payload = await loadAppPayload();
+    return res.json({
+      ok: true,
+      sections: Array.isArray(payload?.sections) ? payload.sections : [],
+      displaySettings: sanitizeDisplaySettingsForExport(payload?.displaySettings)
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Ошибка экспорта данных" });
+  }
 });
 
 app.get("/api/data", authMiddleware, async (_req, res) => {

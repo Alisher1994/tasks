@@ -18464,6 +18464,21 @@ function renderDocumentationSettingsPanelHtml(activeSettingsTab) {
             </section>
           `).join("")}
         </div>
+        <div class="documentation-api-card">
+          <div>
+            <h4>API / Swagger для администратора</h4>
+            <p>Документация API открывается только для пользователя с правами администратора. Все методы передачи данных работают в режиме чтения и требуют Bearer JWT.</p>
+          </div>
+          <div class="documentation-api-actions">
+            <a class="documentation-api-btn" href="/api/docs" target="_blank" rel="noopener">Открыть Swagger</a>
+            <code>/api/openapi.json</code>
+          </div>
+          <div class="documentation-api-examples">
+            <p><strong>Примеры GET:</strong> <code>/api/export/tasks</code>, <code>/api/export/employees</code>, <code>/api/export/objects</code>, <code>/api/export/catalogs</code>, <code>/api/export/all</code>.</p>
+            <p><strong>Пример curl:</strong> <code>curl -H "Authorization: Bearer &lt;JWT&gt;" https://ваш-домен/api/export/tasks</code></p>
+            <p><strong>Важно:</strong> эти методы не меняют данные в системе, а только отдают текущие задачи, справочники и настройки для внешней интеграции.</p>
+          </div>
+        </div>
         <div class="documentation-video-section">
           <div class="documentation-video-head">
             <h4>Видео для ознакомления</h4>

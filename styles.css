@@ -1266,6 +1266,67 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   gap: 10px;
 }
 
+.documentation-api-card {
+  border: 1px solid #cfd9ea;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.documentation-api-card h4 {
+  margin: 0 0 6px;
+  color: #314357;
+  font-size: 14px;
+}
+
+.documentation-api-card p {
+  margin: 0;
+  color: #506176;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.documentation-api-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.documentation-api-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 8px 12px;
+}
+
+.documentation-api-btn:hover {
+  background: var(--brand-hover);
+}
+
+.documentation-api-actions code,
+.documentation-api-examples code {
+  background: #eef2f7;
+  border: 1px solid #dce4ee;
+  border-radius: 6px;
+  color: #314357;
+  font-size: 11px;
+  padding: 2px 5px;
+}
+
+.documentation-api-examples {
+  display: grid;
+  gap: 6px;
+}
+
 .documentation-video-head {
   border: 1px solid #dce4ee;
   border-radius: 10px;
