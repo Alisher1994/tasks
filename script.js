@@ -12,6 +12,7 @@ const mobileTopMenuToggle = document.getElementById("mobileTopMenuToggle");
 const mobileBottomNav = document.getElementById("mobileBottomNav");
 const logoutBtn = document.getElementById("logoutBtn");
 const currentUser = document.getElementById("currentUser");
+const sidebarAccountInfo = document.getElementById("sidebarAccountInfo");
 const loginBtn = document.getElementById("loginBtn");
 const loginSupportBtn = document.getElementById("loginSupportBtn");
 const sidebarBrandToggle = document.getElementById("sidebarBrandToggle");
@@ -2255,6 +2256,34 @@ function findEmployeeFullNameByPhone(phone) {
     }
   }
   return "";
+}
+
+function getCurrentSessionEmployeeRow() {
+  const phone = normalizeUzPhone(getSessionPhone());
+  const employeesRows = getSectionById("employees")?.rows || [];
+  if (phone) {
+    const byPhone = employeesRows.find((row) => normalizeUzPhone(String(row?.[EMPLOYEE_COLUMNS.phone] || "")) === phone);
+    if (byPhone) return byPhone;
+  }
+  const displayName = normalizePersonName(getSessionUserDisplayName());
+  if (displayName) {
+    return employeesRows.find((row) => normalizePersonName(row?.[EMPLOYEE_COLUMNS.fullName] || "") === displayName) || null;
+  }
+  return null;
+}
+
+function renderSidebarAccountInfo() {
+  if (!(sidebarAccountInfo instanceof HTMLElement)) return;
+  const row = getCurrentSessionEmployeeRow();
+  const fullName = normalizePersonName(row?.[EMPLOYEE_COLUMNS.fullName] || "") || getSessionUserDisplayName();
+  const position = String(row?.[EMPLOYEE_COLUMNS.position] || "").trim() || (currentAuthRole === "admin" ? "Администратор" : "Пользователь");
+  const department = String(row?.[EMPLOYEE_COLUMNS.department] || "").trim() || "—";
+  sidebarAccountInfo.innerHTML = `
+    <div class="sidebar-account-label">Текущий аккаунт</div>
+    <div class="sidebar-account-name" title="${escapeHtmlAttr(fullName)}">${escapeHtmlText(fullName)}</div>
+    <div class="sidebar-account-meta" title="${escapeHtmlAttr(position)}">${escapeHtmlText(position)}</div>
+    <div class="sidebar-account-meta" title="${escapeHtmlAttr(department)}">${escapeHtmlText(department)}</div>
+  `;
 }
 
 function getTaskCreatorDisplayName() {
@@ -5483,6 +5512,7 @@ function renderMobileBottomNav() {
 
 function renderSidebarMenu() {
   const allowSettings = canAccessSettingsMenu();
+  renderSidebarAccountInfo();
   if (!allowSettings && activeSectionId !== "tasks" && activeSectionId !== "report") {
     activeSectionId = "tasks";
     saveActiveSection("tasks");
@@ -18456,49 +18486,60 @@ function renderDocumentationSettingsPanelHtml(activeSettingsTab) {
     <div class="other-settings-section ${activeSettingsTab === "docs" ? "" : "hidden"}" data-other-settings-pane="docs">
       <h4 class="other-settings-section-title">Документация</h4>
       <div class="documentation-settings-layout">
-        <div class="documentation-guide-grid">
-          ${docSections.map((section) => `
-            <section class="documentation-guide-card">
-              <h4>${escapeHtmlText(section.title)}</h4>
-              <ul>${section.items.map((item) => `<li>${escapeHtmlText(item)}</li>`).join("")}</ul>
-            </section>
-          `).join("")}
-        </div>
-        <div class="documentation-api-card">
-          <div>
-            <h4>API / Swagger для администратора</h4>
-            <p>Документация API открывается только для пользователя с правами администратора. Все методы передачи данных работают в режиме чтения и требуют Bearer JWT.</p>
-          </div>
-          <div class="documentation-api-actions">
-            <a class="documentation-api-btn" href="/api/docs" target="_blank" rel="noopener">Открыть Swagger</a>
-            <code>/api/openapi.json</code>
-          </div>
-          <div class="documentation-api-examples">
-            <p><strong>Примеры GET:</strong> <code>/api/export/tasks</code>, <code>/api/export/employees</code>, <code>/api/export/objects</code>, <code>/api/export/catalogs</code>, <code>/api/export/all</code>.</p>
-            <p><strong>Пример curl:</strong> <code>curl -H "Authorization: Bearer &lt;JWT&gt;" https://ваш-домен/api/export/tasks</code></p>
-            <p><strong>Важно:</strong> эти методы не меняют данные в системе, а только отдают текущие задачи, справочники и настройки для внешней интеграции.</p>
-          </div>
-        </div>
-        <div class="documentation-video-section">
-          <div class="documentation-video-head">
-            <h4>Видео для ознакомления</h4>
-            <p>Запишите ролик, загрузите его в удобное место и вставьте ссылку или путь. Видео можно заменить в любой момент.</p>
-          </div>
-          <div class="documentation-video-grid">
-            ${slots.map((slot, index) => `
-              <section class="documentation-video-slot" data-doc-video-slot="${index}">
-                <div class="documentation-video-preview" data-doc-video-preview="${index}">
-                  ${renderDocumentationVideoPreviewHtml(slot.url)}
-                </div>
-                <label class="settings-field-label" for="docVideoTitle${index}">Название</label>
-                <input id="docVideoTitle${index}" class="documentation-video-input" type="text" data-doc-video-field="title" data-doc-video-index="${index}" value="${escapeHtmlAttr(slot.title)}" placeholder="Название видео" />
-                <label class="settings-field-label" for="docVideoUrl${index}">Ссылка или путь к видео</label>
-                <input id="docVideoUrl${index}" class="documentation-video-input" type="text" data-doc-video-field="url" data-doc-video-index="${index}" value="${escapeHtmlAttr(slot.url)}" placeholder="https://... или /media/video.mp4" />
-                <label class="settings-field-label" for="docVideoNote${index}">Краткое описание</label>
-                <textarea id="docVideoNote${index}" class="documentation-video-note" rows="2" data-doc-video-field="note" data-doc-video-index="${index}" placeholder="Что пользователь увидит в ролике">${escapeHtmlText(slot.note)}</textarea>
+        <div class="documentation-split-layout">
+          <div class="documentation-guide-list">
+            ${docSections.map((section) => `
+              <section class="documentation-guide-card">
+                <h4>${escapeHtmlText(section.title)}</h4>
+                <ul>${section.items.map((item) => `<li>${escapeHtmlText(item)}</li>`).join("")}</ul>
               </section>
             `).join("")}
           </div>
+          <aside class="documentation-video-section">
+            <div class="documentation-video-head">
+              <h4>Видео для ознакомления</h4>
+              <p>Запишите ролик, загрузите его в удобное место и вставьте ссылку или путь. Видео можно заменить в любой момент.</p>
+            </div>
+            <div class="documentation-video-grid">
+              ${slots.map((slot, index) => `
+                <section class="documentation-video-slot" data-doc-video-slot="${index}">
+                  <div class="documentation-video-preview" data-doc-video-preview="${index}">
+                    ${renderDocumentationVideoPreviewHtml(slot.url)}
+                  </div>
+                  <label class="settings-field-label" for="docVideoTitle${index}">Название</label>
+                  <input id="docVideoTitle${index}" class="documentation-video-input" type="text" data-doc-video-field="title" data-doc-video-index="${index}" value="${escapeHtmlAttr(slot.title)}" placeholder="Название видео" />
+                  <label class="settings-field-label" for="docVideoUrl${index}">Ссылка или путь к видео</label>
+                  <input id="docVideoUrl${index}" class="documentation-video-input" type="text" data-doc-video-field="url" data-doc-video-index="${index}" value="${escapeHtmlAttr(slot.url)}" placeholder="https://... или /media/video.mp4" />
+                  <label class="settings-field-label" for="docVideoNote${index}">Краткое описание</label>
+                  <textarea id="docVideoNote${index}" class="documentation-video-note" rows="2" data-doc-video-field="note" data-doc-video-index="${index}" placeholder="Что пользователь увидит в ролике">${escapeHtmlText(slot.note)}</textarea>
+                </section>
+              `).join("")}
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderApiSettingsPanelHtml(activeSettingsTab) {
+  const disabledAttr = currentAuthRole === "admin" ? "" : " disabled";
+  return `
+    <div class="other-settings-section ${activeSettingsTab === "api" ? "" : "hidden"}" data-other-settings-pane="api">
+      <h4 class="other-settings-section-title">API / Swagger</h4>
+      <div class="documentation-api-card">
+        <div>
+          <h4>Swagger для администратора</h4>
+          <p>Swagger открывается только для пользователя с правами администратора. Методы ниже работают в режиме чтения и требуют Bearer JWT.</p>
+        </div>
+        <div class="documentation-api-actions">
+          <button type="button" class="documentation-api-btn" id="openSwaggerDocsBtn"${disabledAttr}>Открыть Swagger</button>
+          <code>/api/openapi.json</code>
+        </div>
+        <div class="documentation-api-examples">
+          <p><strong>Примеры GET:</strong> <code>/api/export/tasks</code>, <code>/api/export/employees</code>, <code>/api/export/objects</code>, <code>/api/export/catalogs</code>, <code>/api/export/all</code>.</p>
+          <p><strong>Пример curl:</strong> <code>curl -H "Authorization: Bearer &lt;JWT&gt;" https://ваш-домен/api/export/tasks</code></p>
+          <p><strong>Важно:</strong> эти методы не меняют данные в системе, а только отдают текущие задачи, справочники и настройки для внешней интеграции.</p>
         </div>
       </div>
     </div>
@@ -18506,7 +18547,7 @@ function renderDocumentationSettingsPanelHtml(activeSettingsTab) {
 }
 
 function renderOtherSettingsPanel() {
-  const allowedSettingsTabs = new Set(["general", "dateTime", "telegram", "sms", "googleSheets", "notifications", "taskFormat", "globalDup", "docs"]);
+  const allowedSettingsTabs = new Set(["general", "dateTime", "telegram", "sms", "googleSheets", "notifications", "taskFormat", "globalDup", "docs", "api"]);
   const activeSettingsTab = allowedSettingsTabs.has(otherSettingsActiveTab) ? otherSettingsActiveTab : "general";
   const getStatusClass = (status) => {
     if (status === "Новый") return "status-legend-new";
@@ -18552,6 +18593,7 @@ function renderOtherSettingsPanel() {
   ).join("");
   const dupPositionOptsHtml = buildDupPositionFilterOptionsHtml();
   const docsPanelHtml = renderDocumentationSettingsPanelHtml(activeSettingsTab);
+  const apiPanelHtml = renderApiSettingsPanelHtml(activeSettingsTab);
   const googleSheetsWriteMode = normalizeGoogleSheetsWriteMode(displaySettings.googleSheetsWriteMode);
   const googleSheetsWriteModeOptsHtml = [
     { id: "rewrite", label: "Перезапись" },
@@ -18580,6 +18622,7 @@ function renderOtherSettingsPanel() {
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "googleSheets" ? "active" : ""}" data-other-settings-tab="googleSheets">Google Sheets</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "notifications" ? "active" : ""}" data-other-settings-tab="notifications">Настройки оповещения</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "docs" ? "active" : ""}" data-other-settings-tab="docs">Документация</button>
+          <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "api" ? "active" : ""}" data-other-settings-tab="api">API / Swagger</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "taskFormat" ? "active" : ""}" data-other-settings-tab="taskFormat">Шаблон сообщений</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "globalDup" ? "active" : ""}" data-other-settings-tab="globalDup">Получатели копий</button>
         </div>
@@ -18998,6 +19041,7 @@ function renderOtherSettingsPanel() {
         </div>
 
         ${docsPanelHtml}
+        ${apiPanelHtml}
 
         <div class="other-settings-section ${activeSettingsTab === "taskFormat" ? "" : "hidden"}" data-other-settings-pane="taskFormat">
           <h4 class="other-settings-section-title">Шаблон сообщений</h4>
@@ -19099,6 +19143,24 @@ function attachOtherSettingsHandlers() {
   document.querySelectorAll("[data-doc-video-field]").forEach((input) => {
     input.addEventListener("change", () => commitDocumentationVideoSlot(input));
     input.addEventListener("blur", () => commitDocumentationVideoSlot(input));
+  });
+  document.getElementById("openSwaggerDocsBtn")?.addEventListener("click", () => {
+    const token = getAuthToken();
+    if (!token || currentAuthRole !== "admin") {
+      window.alert("Swagger доступен только администратору после входа в систему.");
+      return;
+    }
+    const win = window.open("about:blank", "_blank");
+    if (win) {
+      try {
+        win.name = JSON.stringify({ mbcSwaggerToken: token });
+        win.location.replace("/api/docs");
+      } catch (_) {
+        win.location.href = "/api/docs";
+      }
+    } else {
+      window.alert("Браузер заблокировал открытие Swagger. Разрешите всплывающее окно для сайта.");
+    }
   });
 
   const templateInputs = Array.from(document.querySelectorAll(".task-message-template-input"));
@@ -22038,6 +22100,7 @@ function showApp(userName) {
   reportViewTab = loadReportViewTab();
   loginSection.classList.add("hidden");
   appSection.classList.remove("hidden");
+  renderSidebarAccountInfo();
   renderSidebarMenu();
   renderTable();
   startRemoteAutoPull();

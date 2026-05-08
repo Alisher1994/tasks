@@ -692,6 +692,10 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   display: none;
 }
 
+body.sidebar-collapsed .sidebar-account-info {
+  display: none;
+}
+
 .tabs {
   display: flex;
   flex-wrap: wrap;
@@ -713,6 +717,41 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   border-top: 1px solid #e1e8f0;
   display: grid;
   gap: 8px;
+}
+
+.sidebar-account-info {
+  display: grid;
+  gap: 3px;
+  border: 1px solid #dce4ee;
+  border-radius: 10px;
+  background: #f8fafd;
+  padding: 9px 10px;
+  min-width: 0;
+}
+
+.sidebar-account-label {
+  color: #718197;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.sidebar-account-name {
+  color: #26364e;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-account-meta {
+  color: #53657b;
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-brand {
@@ -1229,9 +1268,21 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   gap: 14px;
 }
 
+.documentation-split-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.documentation-guide-list {
+  display: grid;
+  gap: 10px;
+}
+
 .documentation-guide-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
@@ -1264,6 +1315,7 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
 .documentation-video-section {
   display: grid;
   gap: 10px;
+  align-self: start;
 }
 
 .documentation-api-card {
@@ -1299,9 +1351,11 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border: 0;
   border-radius: 8px;
   background: var(--brand);
   color: #fff;
+  cursor: pointer;
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
@@ -1310,6 +1364,11 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
 
 .documentation-api-btn:hover {
   background: var(--brand-hover);
+}
+
+.documentation-api-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .documentation-api-actions code,
@@ -1343,7 +1402,7 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
 
 .documentation-video-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
@@ -1405,6 +1464,12 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
 .documentation-video-note:focus {
   border-color: var(--brand-input-focus);
   box-shadow: 0 0 0 2px var(--brand-focus-ring);
+}
+
+@media (max-width: 1100px) {
+  .documentation-split-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .other-settings-readonly-input,

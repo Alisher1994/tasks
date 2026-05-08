@@ -395,7 +395,15 @@ function renderSwaggerDocsHtml() {
   <div id="docsGate" class="docs-gate">Проверяем права администратора...</div>
   <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
   <script>
-    const token = localStorage.getItem("mbc_jwt") || "";
+    function readTokenFromWindowName() {
+      try {
+        const parsed = JSON.parse(window.name || "{}");
+        return parsed && typeof parsed.mbcSwaggerToken === "string" ? parsed.mbcSwaggerToken : "";
+      } catch (_) {
+        return "";
+      }
+    }
+    const token = readTokenFromWindowName() || sessionStorage.getItem("mbc_jwt") || localStorage.getItem("mbc_jwt") || "";
     const gate = document.getElementById("docsGate");
     async function boot() {
       if (!token) {
