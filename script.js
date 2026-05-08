@@ -15227,11 +15227,6 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
   const saveBtn = overlay.querySelector("#cellCommentSaveBtn");
   let editingId = "";
   const close = () => overlay.remove();
-  const hideCommentMenus = () => {
-    overlay.querySelectorAll(".cell-comment-popover").forEach((menu) => {
-      if (menu instanceof HTMLElement) menu.hidden = true;
-    });
-  };
   const syncCommentSaveState = () => {
     if (!(saveBtn instanceof HTMLButtonElement)) return;
     const hasText = Boolean(String(input?.value || "").trim());
@@ -15256,17 +15251,14 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
           ${String(item.ownerKey || "").toLowerCase() === ownerKey
             ? `<span class="cell-comment-tools">
                 <button type="button" class="cell-comment-tool-btn cell-comment-tool-btn--ok" data-cell-comment-action="resolve" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="${item?.resolved ? "Вернуть в активные" : "Отметить выполненным"}">
-                  <i data-lucide="${item?.resolved ? "rotate-ccw" : "check"}" class="lucide-icon" aria-hidden="true"></i>
+                  <i data-lucide="${item?.resolved ? "rotate-ccw" : "check-circle-2"}" class="lucide-icon" aria-hidden="true"></i>
                 </button>
-                <div class="cell-comment-menu-wrap">
-                  <button type="button" class="cell-comment-tool-btn cell-comment-tool-btn--more" data-cell-comment-action="menu" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="Ещё действия">
-                    <span aria-hidden="true">⋯</span>
-                  </button>
-                  <div class="cell-comment-popover" data-cell-comment-popover="${escapeHtmlAttr(String(item.id || ""))}" hidden>
-                    <button type="button" class="cell-comment-popover-btn" data-cell-comment-action="edit" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}">Редактировать</button>
-                    <button type="button" class="cell-comment-popover-btn danger" data-cell-comment-action="delete" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}">Удалить</button>
-                  </div>
-                </div>
+                <button type="button" class="cell-comment-tool-btn" data-cell-comment-action="edit" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="Редактировать">
+                  <i data-lucide="pencil" class="lucide-icon" aria-hidden="true"></i>
+                </button>
+                <button type="button" class="cell-comment-tool-btn cell-comment-tool-btn--danger" data-cell-comment-action="delete" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="Удалить">
+                  <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
+                </button>
               </span>`
             : ""}
         </div>
@@ -15286,11 +15278,8 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
   });
 
   thread?.addEventListener("click", (event) => {
-    const clickedInsideMenu = event.target instanceof HTMLElement ? event.target.closest(".cell-comment-menu-wrap") : null;
-    if (!clickedInsideMenu) hideCommentMenus();
     const btn = event.target instanceof HTMLElement ? event.target.closest(".cell-comment-tool-btn") : null;
-    const popBtn = event.target instanceof HTMLElement ? event.target.closest(".cell-comment-popover-btn") : null;
-    const actionEl = btn || popBtn;
+    const actionEl = btn;
     if (!(actionEl instanceof HTMLButtonElement)) return;
     const action = String(actionEl.dataset.cellCommentAction || "").trim();
     const id = String(actionEl.dataset.cellCommentId || "").trim();
@@ -15300,13 +15289,6 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
     if (idx < 0) return;
     const item = list[idx];
     if (String(item?.ownerKey || "").toLowerCase() !== ownerKey) return;
-    if (action === "menu") {
-      const menu = overlay.querySelector(`[data-cell-comment-popover="${id}"]`);
-      hideCommentMenus();
-      if (menu instanceof HTMLElement) menu.hidden = false;
-      return;
-    }
-    hideCommentMenus();
     if (action === "resolve") {
       const nextResolved = !Boolean(item?.resolved);
       list[idx] = {
@@ -15341,10 +15323,6 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
       applyCellCommentDecorations(sectionId);
       renderThread();
     }
-  });
-  overlay.addEventListener("click", (event) => {
-    const target = event.target instanceof HTMLElement ? event.target : null;
-    if (!target?.closest(".cell-comment-menu-wrap")) hideCommentMenus();
   });
   saveBtn?.addEventListener("click", () => {
     const text = String(input?.value || "").trim();
