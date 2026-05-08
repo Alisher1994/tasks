@@ -21576,6 +21576,30 @@ function openCreateTaskModal(section) {
           </div>
         </label>
         <label class="employee-create-field task-create-field">
+          <span>Фаза</span>
+          <div class="task-create-picker-wrap">
+            <input id="taskCreatePhase" type="text" class="cell-editor" placeholder="Выберите фазу" autocomplete="off" />
+            <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreatePhasePickBtn" aria-label="Выбрать фазу">▼</button>
+            <div id="taskCreatePhaseDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
+          </div>
+        </label>
+        <label class="employee-create-field task-create-field">
+          <span>Раздел</span>
+          <div class="task-create-picker-wrap">
+            <input id="taskCreatePhaseSection" type="text" class="cell-editor" placeholder="Выберите раздел" autocomplete="off" />
+            <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreatePhaseSectionPickBtn" aria-label="Выбрать раздел">▼</button>
+            <div id="taskCreatePhaseSectionDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
+          </div>
+        </label>
+        <label class="employee-create-field task-create-field">
+          <span>Подраздел</span>
+          <div class="task-create-picker-wrap">
+            <input id="taskCreatePhaseSubsection" type="text" class="cell-editor" placeholder="Выберите подраздел" autocomplete="off" />
+            <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreatePhaseSubsectionPickBtn" aria-label="Выбрать подраздел">▼</button>
+            <div id="taskCreatePhaseSubsectionDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
+          </div>
+        </label>
+        <label class="employee-create-field task-create-field">
           <span>Исполнитель</span>
           <div class="task-create-picker-wrap">
             <input id="taskCreateAssignee" type="text" class="cell-editor" placeholder="Выберите исполнителя" autocomplete="off" />
@@ -21605,30 +21629,6 @@ function openCreateTaskModal(section) {
             <input id="taskCreatePriority" type="text" class="cell-editor" value="Средний" placeholder="Выберите приоритет" autocomplete="off" />
             <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreatePriorityPickBtn" aria-label="Выбрать приоритет">▼</button>
             <div id="taskCreatePriorityDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
-          </div>
-        </label>
-        <label class="employee-create-field task-create-field">
-          <span>Фаза</span>
-          <div class="task-create-picker-wrap">
-            <input id="taskCreatePhase" type="text" class="cell-editor" placeholder="Выберите фазу" autocomplete="off" />
-            <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreatePhasePickBtn" aria-label="Выбрать фазу">▼</button>
-            <div id="taskCreatePhaseDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
-          </div>
-        </label>
-        <label class="employee-create-field task-create-field">
-          <span>Раздел</span>
-          <div class="task-create-picker-wrap">
-            <input id="taskCreatePhaseSection" type="text" class="cell-editor" placeholder="Выберите раздел" autocomplete="off" />
-            <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreatePhaseSectionPickBtn" aria-label="Выбрать раздел">▼</button>
-            <div id="taskCreatePhaseSectionDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
-          </div>
-        </label>
-        <label class="employee-create-field task-create-field">
-          <span>Подраздел</span>
-          <div class="task-create-picker-wrap">
-            <input id="taskCreatePhaseSubsection" type="text" class="cell-editor" placeholder="Выберите подраздел" autocomplete="off" />
-            <button type="button" class="employee-create-picker-btn task-create-picker-btn" id="taskCreatePhaseSubsectionPickBtn" aria-label="Выбрать подраздел">▼</button>
-            <div id="taskCreatePhaseSubsectionDropdown" class="employee-create-dropdown task-create-dropdown hidden"></div>
           </div>
         </label>
         <label class="employee-create-field task-create-field task-create-field--span">
@@ -21687,9 +21687,99 @@ function openCreateTaskModal(section) {
     });
   };
 
-  const attachCombobox = (inputEl, buttonEl, dropdownEl, options) => {
+  const getTaskCreatePhaseOptions = () => {
+    const fromResponsibleCatalog = getUniqueValues(getSectionById("data")?.rows || [], 1);
+    return fromResponsibleCatalog.length ? fromResponsibleCatalog : phaseOptions;
+  };
+  const getTaskCreateSectionOptions = () => {
+    const values = getPhaseSections(String(phaseInput?.value || "").trim());
+    return values.length ? values : phaseSectionOptions;
+  };
+  const getTaskCreateSubsectionOptions = () => {
+    const values = getPhaseSubsections(
+      String(phaseInput?.value || "").trim(),
+      String(phaseSectionInput?.value || "").trim()
+    );
+    return values.length ? values : phaseSubsectionOptions;
+  };
+  const getTaskCreateAssigneeOptions = () => {
+    const phase = String(phaseInput?.value || "").trim();
+    const phaseSection = String(phaseSectionInput?.value || "").trim();
+    const phaseSubsection = String(phaseSubsectionInput?.value || "").trim();
+    const exact = getResponsibleByHierarchy(phase, phaseSection, phaseSubsection)
+      .map((item) => normalizePersonName(item))
+      .filter(Boolean);
+    if (exact.length) return exact;
+    const rows = getSectionById("data")?.rows || [];
+    const related = [];
+    rows.forEach((row) => {
+      const phaseMatch = !phase || String(row[1] || "").trim() === phase;
+      const sectionMatch = !phaseSection || String(row[2] || "").trim() === phaseSection;
+      const subsectionMatch = !phaseSubsection || String(row[3] || "").trim() === phaseSubsection;
+      if (!phaseMatch || !sectionMatch || !subsectionMatch) return;
+      parseTaskAssigneeNames(row[4]).forEach((name) => related.push(name));
+    });
+    const uniqueRelated = Array.from(new Set(related.map((name) => normalizePersonName(name)).filter(Boolean)));
+    return uniqueRelated.length ? uniqueRelated : employeeOptions;
+  };
+  const clearIfNotInOptions = (inputEl, options) => {
+    if (!(inputEl instanceof HTMLInputElement)) return;
+    const value = String(inputEl.value || "").trim();
+    if (!value) return;
+    const has = (options || []).some((item) => String(item || "").trim().toLowerCase() === value.toLowerCase());
+    if (!has) inputEl.value = "";
+  };
+  const refreshTaskCreateHierarchy = (changedField = "") => {
+    if (changedField === "phase") {
+      clearIfNotInOptions(phaseSectionInput, getTaskCreateSectionOptions());
+      clearIfNotInOptions(phaseSubsectionInput, getTaskCreateSubsectionOptions());
+      clearIfNotInOptions(assigneeInput, getTaskCreateAssigneeOptions());
+    } else if (changedField === "section") {
+      clearIfNotInOptions(phaseSubsectionInput, getTaskCreateSubsectionOptions());
+      clearIfNotInOptions(assigneeInput, getTaskCreateAssigneeOptions());
+    } else if (changedField === "subsection") {
+      clearIfNotInOptions(assigneeInput, getTaskCreateAssigneeOptions());
+    }
+  };
+  const clearTaskCreateHierarchyBelow = (field = "") => {
+    const clearInput = (inputEl) => {
+      if (!(inputEl instanceof HTMLInputElement)) return;
+      inputEl.value = "";
+      inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    if (field === "phase") {
+      clearInput(phaseSectionInput);
+      clearInput(phaseSubsectionInput);
+      clearInput(assigneeInput);
+      return;
+    }
+    if (field === "section") {
+      clearInput(phaseSubsectionInput);
+      clearInput(assigneeInput);
+      return;
+    }
+    if (field === "subsection") {
+      clearInput(assigneeInput);
+    }
+  };
+
+  const attachCombobox = (inputEl, buttonEl, dropdownEl, optionsSource, hooks = {}) => {
     if (!(inputEl instanceof HTMLInputElement) || !(dropdownEl instanceof HTMLElement)) return;
-    const getValues = () => Array.from(new Set((options || []).map((item) => String(item || "").trim()).filter(Boolean)));
+    const getRawOptions = () => typeof optionsSource === "function" ? optionsSource() : optionsSource;
+    const getValues = () => Array.from(new Set((getRawOptions() || []).map((item) => String(item || "").trim()).filter(Boolean)));
+    const wrap = inputEl.closest(".task-create-picker-wrap");
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.className = "task-create-clear-btn hidden";
+    clearBtn.setAttribute("aria-label", "Очистить поле");
+    clearBtn.title = "Очистить";
+    clearBtn.textContent = "×";
+    if (wrap instanceof HTMLElement) {
+      wrap.insertBefore(clearBtn, buttonEl instanceof HTMLElement ? buttonEl : dropdownEl);
+    }
+    const updateClearButton = () => {
+      clearBtn.classList.toggle("hidden", !String(inputEl.value || "").trim());
+    };
     const render = (open = true) => {
       const values = getValues();
       const q = String(inputEl.value || "").trim().toLowerCase();
@@ -21709,10 +21799,19 @@ function openCreateTaskModal(section) {
     const pick = (value) => {
       inputEl.value = String(value || "").trim();
       dropdownEl.classList.add("hidden");
+      updateClearButton();
+      hooks.onPick?.(inputEl.value);
       inputEl.focus();
     };
-    inputEl.addEventListener("focus", () => render(true));
-    inputEl.addEventListener("input", () => render(true));
+    inputEl.addEventListener("focus", () => {
+      updateClearButton();
+      render(true);
+    });
+    inputEl.addEventListener("input", () => {
+      updateClearButton();
+      hooks.onInput?.(inputEl.value);
+      render(true);
+    });
     inputEl.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         dropdownEl.classList.add("hidden");
@@ -21736,6 +21835,16 @@ function openCreateTaskModal(section) {
         }
       });
     }
+    clearBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      inputEl.value = "";
+      updateClearButton();
+      dropdownEl.classList.add("hidden");
+      hooks.onClear?.();
+      hooks.onInput?.("");
+      inputEl.focus();
+    });
     dropdownEl.addEventListener("mousedown", (event) => {
       event.preventDefault();
     });
@@ -21744,15 +21853,28 @@ function openCreateTaskModal(section) {
       if (!(btn instanceof HTMLButtonElement)) return;
       pick(btn.getAttribute("data-combobox-value") || "");
     });
+    updateClearButton();
   };
 
   attachCombobox(objectInput, overlay.querySelector("#taskCreateObjectPickBtn"), overlay.querySelector("#taskCreateObjectDropdown"), objectOptions);
-  attachCombobox(assigneeInput, overlay.querySelector("#taskCreateAssigneePickBtn"), overlay.querySelector("#taskCreateAssigneeDropdown"), employeeOptions);
+  attachCombobox(assigneeInput, overlay.querySelector("#taskCreateAssigneePickBtn"), overlay.querySelector("#taskCreateAssigneeDropdown"), getTaskCreateAssigneeOptions);
   attachCombobox(responsibleInput, overlay.querySelector("#taskCreateResponsiblePickBtn"), overlay.querySelector("#taskCreateResponsibleDropdown"), employeeOptions);
   attachCombobox(priorityInput, overlay.querySelector("#taskCreatePriorityPickBtn"), overlay.querySelector("#taskCreatePriorityDropdown"), PRIORITY_OPTIONS);
-  attachCombobox(phaseInput, overlay.querySelector("#taskCreatePhasePickBtn"), overlay.querySelector("#taskCreatePhaseDropdown"), phaseOptions);
-  attachCombobox(phaseSectionInput, overlay.querySelector("#taskCreatePhaseSectionPickBtn"), overlay.querySelector("#taskCreatePhaseSectionDropdown"), phaseSectionOptions);
-  attachCombobox(phaseSubsectionInput, overlay.querySelector("#taskCreatePhaseSubsectionPickBtn"), overlay.querySelector("#taskCreatePhaseSubsectionDropdown"), phaseSubsectionOptions);
+  attachCombobox(phaseInput, overlay.querySelector("#taskCreatePhasePickBtn"), overlay.querySelector("#taskCreatePhaseDropdown"), getTaskCreatePhaseOptions, {
+    onPick: () => refreshTaskCreateHierarchy("phase"),
+    onClear: () => clearTaskCreateHierarchyBelow("phase"),
+    onInput: () => refreshTaskCreateHierarchy("phase")
+  });
+  attachCombobox(phaseSectionInput, overlay.querySelector("#taskCreatePhaseSectionPickBtn"), overlay.querySelector("#taskCreatePhaseSectionDropdown"), getTaskCreateSectionOptions, {
+    onPick: () => refreshTaskCreateHierarchy("section"),
+    onClear: () => clearTaskCreateHierarchyBelow("section"),
+    onInput: () => refreshTaskCreateHierarchy("section")
+  });
+  attachCombobox(phaseSubsectionInput, overlay.querySelector("#taskCreatePhaseSubsectionPickBtn"), overlay.querySelector("#taskCreatePhaseSubsectionDropdown"), getTaskCreateSubsectionOptions, {
+    onPick: () => refreshTaskCreateHierarchy("subsection"),
+    onClear: () => clearTaskCreateHierarchyBelow("subsection"),
+    onInput: () => refreshTaskCreateHierarchy("subsection")
+  });
 
   const save = async () => {
     const title = String(titleInput?.value || "").trim();
