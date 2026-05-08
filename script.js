@@ -1188,7 +1188,12 @@ function finishTurboLoader() {
   }, 170);
 }
 
+function shouldUseTurboLoader(sectionId = activeSectionId) {
+  return String(sectionId || "") !== "tasks";
+}
+
 function pulseTurboLoader() {
+  if (!shouldUseTurboLoader()) return;
   startTurboLoader();
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
@@ -4739,7 +4744,8 @@ function selectSection(sectionId) {
   if (!allowSettings && sectionId !== "tasks" && sectionId !== "report") {
     sectionId = "tasks";
   }
-  startTurboLoader();
+  const useTurboLoader = shouldUseTurboLoader(sectionId);
+  if (useTurboLoader) startTurboLoader();
   if (sectionId === "report" && activeSectionId !== "report") {
     reportWeekRowsVisible = REPORT_WEEK_ROWS_STEP;
   }
@@ -4754,11 +4760,13 @@ function selectSection(sectionId) {
   if (sectionId === "smsHistory") {
     void refreshSmsHistorySection({ silent: true, forceRender: true });
   }
-  requestAnimationFrame(() => {
+  if (useTurboLoader) {
     requestAnimationFrame(() => {
-      finishTurboLoader();
+      requestAnimationFrame(() => {
+        finishTurboLoader();
+      });
     });
-  });
+  }
 }
 
 function renderMobileTopMenu({ allowSettings, isReferenceActive, isUsersActive, sectionById }) {
@@ -4944,7 +4952,10 @@ function renderSidebarMenu() {
   tasksButton.type = "button";
   tasksButton.innerHTML = withIcon("listChecks", isSidebarCollapsed ? "" : "Задачи");
   tasksButton.title = "Задачи";
-  tasksButton.addEventListener("click", () => selectSection("tasks"));
+  tasksButton.addEventListener("click", () => {
+    expandSidebarMenu();
+    selectSection("tasks");
+  });
   tabsRoot.appendChild(tasksButton);
 
   const reportButton = document.createElement("button");
@@ -4952,7 +4963,10 @@ function renderSidebarMenu() {
   reportButton.type = "button";
   reportButton.innerHTML = withIcon("barChart", isSidebarCollapsed ? "" : "Аналитика");
   reportButton.title = "Аналитика";
-  reportButton.addEventListener("click", () => selectSection("report"));
+  reportButton.addEventListener("click", () => {
+    expandSidebarMenu();
+    selectSection("report");
+  });
   tabsRoot.appendChild(reportButton);
 
   if (allowSettings) {
@@ -4964,6 +4978,12 @@ function renderSidebarMenu() {
       : `<span class="icon-label">${iconSvg("panelLeft")}<span>Настройки</span></span><span class="menu-caret">${isSettingsOpen ? "▾" : "▸"}</span>`;
     settingsButton.title = "Настройки";
     settingsButton.addEventListener("click", () => {
+      if (expandSidebarMenu()) {
+        isSettingsOpen = true;
+        renderSidebarMenu();
+        initLucideIcons();
+        return;
+      }
       isSettingsOpen = !isSettingsOpen;
       renderSidebarMenu();
     });
@@ -18977,15 +18997,18 @@ function restoreTableUiState(state) {
 }
 
 function renderTablePreserveScroll() {
-  startTurboLoader();
+  const useTurboLoader = shouldUseTurboLoader();
+  if (useTurboLoader) startTurboLoader();
   const uiState = captureTableUiState();
   renderTable();
   restoreTableUiState(uiState);
-  requestAnimationFrame(() => {
+  if (useTurboLoader) {
     requestAnimationFrame(() => {
-      finishTurboLoader();
+      requestAnimationFrame(() => {
+        finishTurboLoader();
+      });
     });
-  });
+  }
 }
 
 function markFocusedRow(cell) {
@@ -22548,6 +22571,17 @@ function toggleSidebarCollapse() {
   }
   renderSidebarMenu();
   initLucideIcons();
+}
+
+function expandSidebarMenu() {
+  if (!isSidebarCollapsed) return false;
+  isSidebarCollapsed = false;
+  document.body.classList.remove("sidebar-collapsed");
+  if (sidebarBrandToggle) {
+    sidebarBrandToggle.title = "Свернуть меню";
+    sidebarBrandToggle.setAttribute("aria-expanded", "true");
+  }
+  return true;
 }
 
 function registerHotkeys() {
