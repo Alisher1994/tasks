@@ -2533,14 +2533,12 @@ tbody td.first-visible-col {
 .table-card--employees th:nth-child(6),
 .table-card--employees td:nth-child(6) { width: 120px; }
 .table-card--employees th:nth-child(7),
-.table-card--employees td:nth-child(7) { width: 100px; }
+.table-card--employees td:nth-child(7) { width: 130px; }
 .table-card--employees th:nth-child(8),
 .table-card--employees td:nth-child(8) { width: 90px; }
 .table-card--employees th:nth-child(9),
-.table-card--employees td:nth-child(9) { width: 90px; }
-.table-card--employees th:nth-child(10),
-.table-card--employees td:nth-child(10) { width: 170px; }
-.table-card--employees table { min-width: 1300px; }
+.table-card--employees td:nth-child(9) { width: 170px; }
+.table-card--employees table { min-width: 1180px; }
 
 /* Должности и Отдел: убираем чрезмерную ширину одной колонки */
 .table-card--roles th:nth-child(3),
@@ -4108,6 +4106,7 @@ body.app-booting .app-boot-loader {
   height: 8px;
   border-radius: 50%;
   display: inline-block;
+  flex: 0 0 auto;
 }
 
 .telegram-state-connected {
@@ -4124,6 +4123,16 @@ body.app-booting .app-boot-loader {
 
 .telegram-state-disconnected::before {
   background: #c43f3f;
+}
+
+.employee-telegram-chat {
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.employee-telegram-chat span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .employee-chat-id-value {

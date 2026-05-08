@@ -13122,7 +13122,10 @@ function getVisibleColumnIndexes(section) {
   ensureColumnDisplayState(section);
   const visibility = visibleColumnsBySection[section.id];
   const order = columnOrderBySection[section.id];
-  return order.filter((index) => visibility[index] !== false);
+  return order.filter((index) => {
+    if (section.id === "employees" && Number(index) === EMPLOYEE_COLUMNS.chatId) return false;
+    return visibility[index] !== false;
+  });
 }
 
 function ensureColumnDisplayState(section) {
@@ -13149,6 +13152,8 @@ function ensureColumnDisplayState(section) {
     if (section.id === "tasks") {
       defaults[TASK_COLUMNS.mediaBefore] = false;
       defaults[TASK_COLUMNS.mediaAfter] = false;
+    } else if (section.id === "employees") {
+      defaults[EMPLOYEE_COLUMNS.chatId] = false;
     }
     visibleColumnsBySection[section.id] = defaults;
   }
@@ -13161,6 +13166,9 @@ function ensureColumnDisplayState(section) {
   fixedIndexes.forEach((idx) => {
     if (Number.isInteger(idx) && idx >= 0 && idx < size) visibility[idx] = true;
   });
+  if (section.id === "employees" && EMPLOYEE_COLUMNS.chatId < size) {
+    visibility[EMPLOYEE_COLUMNS.chatId] = false;
+  }
 
   if (!Array.isArray(columnOrderBySection[section.id])) {
     columnOrderBySection[section.id] = buildDefaultColumnOrder();
@@ -13946,8 +13954,11 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
   }
   if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.telegram) {
     const normalized = String(value || "").trim();
-    const stateClass = normalized === "Подключен" ? "telegram-state-connected" : "telegram-state-disconnected";
-    return `<span class="telegram-state ${stateClass}">${normalized || "Не подключен"}</span>`;
+    const chatId = String(row?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
+    const connected = normalized === "Подключен" && chatId;
+    const stateClass = connected ? "telegram-state-connected" : "telegram-state-disconnected";
+    const shown = connected ? chatId : "-";
+    return `<span class="telegram-state employee-telegram-chat ${stateClass}"><span>${escapeHtmlText(shown)}</span></span>`;
   }
   if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.chatId) {
     const chatId = String(value || "").trim();
@@ -20726,6 +20737,7 @@ function openTableSettingsModal(section) {
   const renderList = () => {
     if (!listEl) return;
     listEl.innerHTML = draftOrder
+      .filter((colIndex) => !(section.id === "employees" && Number(colIndex) === EMPLOYEE_COLUMNS.chatId))
       .map((colIndex, position) => {
         const title = String(section.columns[colIndex] || `Колонка ${colIndex + 1}`);
         const checked = draftVisibility[colIndex] !== false;
