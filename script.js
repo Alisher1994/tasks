@@ -4695,6 +4695,7 @@ function iconSvg(name) {
     listChecks: `<svg ${attrs}><path d="M9 6h11"/><path d="M9 12h11"/><path d="M9 18h11"/><path d="m3 6 1 1 2-2"/><path d="m3 12 1 1 2-2"/><path d="m3 18 1 1 2-2"/></svg>`,
     users: `<svg ${attrs}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
     userCheck: `<svg ${attrs}><path d="m16 11 2 2 4-4"/><path d="M8 7a4 4 0 1 1 8 0 4 4 0 0 1-8 0"/><path d="M6 21v-2a6 6 0 0 1 9-5"/></svg>`,
+    "check-circle-2": `<svg ${attrs}><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>`,
     database: `<svg ${attrs}><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 11v6c0 1.7 4 3 9 3s9-1.3 9-3v-6"/></svg>`,
     "rotate-ccw": `<svg ${attrs}><path d="M3 2v6h6"/><path d="M3 8a9 9 0 1 0 2.6-4.6L3 6"/></svg>`,
     history: `<svg ${attrs}><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/><path d="M12 7v5l3 2"/></svg>`,
@@ -15406,13 +15407,13 @@ function openCellCommentModal(sectionId, rowIndex, colIndex) {
           ${String(item.ownerKey || "").toLowerCase() === ownerKey
             ? `<span class="cell-comment-tools">
                 <button type="button" class="cell-comment-tool-btn cell-comment-tool-btn--ok" data-cell-comment-action="resolve" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="${item?.resolved ? "Вернуть в активные" : "Отметить выполненным"}">
-                  <i data-lucide="${item?.resolved ? "rotate-ccw" : "check-circle-2"}" class="lucide-icon" aria-hidden="true"></i>
+                  ${iconSvg(item?.resolved ? "rotate-ccw" : "check-circle-2")}
                 </button>
                 <button type="button" class="cell-comment-tool-btn" data-cell-comment-action="edit" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="Редактировать">
-                  <i data-lucide="pencil" class="lucide-icon" aria-hidden="true"></i>
+                  ${iconSvg("pencil")}
                 </button>
                 <button type="button" class="cell-comment-tool-btn cell-comment-tool-btn--danger" data-cell-comment-action="delete" data-cell-comment-id="${escapeHtmlAttr(String(item.id || ""))}" title="Удалить">
-                  <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
+                  ${iconSvg("trash-2")}
                 </button>
               </span>`
             : ""}
