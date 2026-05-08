@@ -5140,6 +5140,10 @@ function describeQuickAccessSector(startAngle, endAngle, outerRadius = 246, inne
   ].join(" ");
 }
 
+function quickAccessIconSvg(iconName) {
+  return iconSvg(iconName).replace("<svg ", '<svg width="24" height="24" ');
+}
+
 function getQuickAccessSelectedIndex(overlay, items) {
   const raw = Number(overlay?.dataset.quickAccessSelected || 0);
   if (!Number.isFinite(raw) || raw < 0) return 0;
@@ -5218,8 +5222,8 @@ function openQuickAccessMenu() {
             >
               <path class="quick-access-slice" d="${describeQuickAccessSector(start, end)}"></path>
               <g class="quick-access-sector-content" transform="translate(${label.x.toFixed(2)} ${label.y.toFixed(2)})">
-                <g class="quick-access-sector-icon" transform="translate(-11 -25) scale(0.92)">
-                  ${iconSvg(item.icon)}
+                <g class="quick-access-sector-icon" transform="translate(-12 -25)">
+                  ${quickAccessIconSvg(item.icon)}
                 </g>
                 <text class="quick-access-sector-label" text-anchor="middle">
                   ${labelLines.map((line, lineIndex) => `<tspan x="0" dy="${lineIndex === 0 ? firstDy : 13}">${escapeHtmlText(line)}</tspan>`).join("")}
