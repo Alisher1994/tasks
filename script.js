@@ -82,6 +82,12 @@ const REPORT_CUSTOM_CHART_TYPES = [
   { id: "line", label: "Line" },
   { id: "pie", label: "Pie" }
 ];
+const DEFAULT_DOCUMENTATION_VIDEO_SLOTS = [
+  { title: "Обзор системы", url: "", note: "Короткое видео: вход, меню, основные разделы." },
+  { title: "Работа с задачами", url: "", note: "Создание задачи, статусы, Telegram, история и получатели." },
+  { title: "Справочники", url: "", note: "Фазы, разделы, сотрудники, объекты и получатели копий." },
+  { title: "Навигация и отчёты", url: "", note: "Быстрый доступ, Гант, аналитика и KPI." }
+];
 const REPORT_CUSTOM_DATA_MODES = [
   { id: "total", label: "Общее" },
   { id: "by_status", label: "По статусу" }
@@ -4962,7 +4968,8 @@ let displaySettings = {
   /** Кастомная аналитика: число колонок сетки (3..6) */
   reportCustomGridColumns: 3,
   /** Кастомная аналитика: сохранённые диаграммы (хранятся в payload/displaySettings, а не в browser cache) */
-  reportCustomCharts: []
+  reportCustomCharts: [],
+  documentationVideoSlots: JSON.parse(JSON.stringify(DEFAULT_DOCUMENTATION_VIDEO_SLOTS))
 };
 let taskMultiState = {};
 let taskCloseMeta = {};
@@ -18359,8 +18366,132 @@ function attachHeaderActionHandlers(section, filteredEntries) {
   }
 }
 
+function normalizeDocumentationVideoSlots(value) {
+  const source = Array.isArray(value) ? value : [];
+  const merged = DEFAULT_DOCUMENTATION_VIDEO_SLOTS.map((slot, index) => ({
+    ...slot,
+    ...(source[index] && typeof source[index] === "object" ? source[index] : {})
+  }));
+  source.slice(DEFAULT_DOCUMENTATION_VIDEO_SLOTS.length, 8).forEach((slot) => {
+    if (slot && typeof slot === "object") merged.push(slot);
+  });
+  return merged.slice(0, 8).map((slot, index) => ({
+    title: String(slot.title || DEFAULT_DOCUMENTATION_VIDEO_SLOTS[index]?.title || `Видео ${index + 1}`).trim().slice(0, 80),
+    url: String(slot.url || "").trim().slice(0, 1000),
+    note: String(slot.note || "").trim().slice(0, 240)
+  }));
+}
+
+function getDocumentationVideoSlots() {
+  displaySettings.documentationVideoSlots = normalizeDocumentationVideoSlots(displaySettings.documentationVideoSlots);
+  return displaySettings.documentationVideoSlots;
+}
+
+function normalizeDocumentationVideoUrl(raw) {
+  const url = String(raw || "").trim();
+  if (!url) return "";
+  if (/^(https?:)?\/\//i.test(url) || url.startsWith("/") || url.startsWith("./") || url.startsWith("../")) return url;
+  return "";
+}
+
+function getDocumentationVideoEmbedUrl(url) {
+  const value = normalizeDocumentationVideoUrl(url);
+  if (!value) return "";
+  const yt = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([A-Za-z0-9_-]{6,})/.exec(value);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
+  const vimeo = /vimeo\.com\/(?:video\/)?(\d+)/.exec(value);
+  if (vimeo) return `https://player.vimeo.com/video/${vimeo[1]}`;
+  return value;
+}
+
+function renderDocumentationVideoPreviewHtml(url) {
+  const safeUrl = normalizeDocumentationVideoUrl(url);
+  if (!safeUrl) {
+    return `<div class="documentation-video-empty">Вставьте ссылку на видео: YouTube, Vimeo, mp4, webm или путь к файлу.</div>`;
+  }
+  const embedUrl = getDocumentationVideoEmbedUrl(safeUrl);
+  if (/\.(mp4|webm|ogg)(?:[?#].*)?$/i.test(safeUrl) || safeUrl.startsWith("/") || safeUrl.startsWith("./") || safeUrl.startsWith("../")) {
+    return `<video class="documentation-video-player" controls preload="metadata" src="${escapeHtmlAttr(safeUrl)}"></video>`;
+  }
+  return `<iframe class="documentation-video-frame" src="${escapeHtmlAttr(embedUrl)}" title="Видео документации" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
+}
+
+function renderDocumentationSettingsPanelHtml(activeSettingsTab) {
+  const slots = getDocumentationVideoSlots();
+  const docSections = [
+    {
+      title: "Задачи",
+      items: [
+        "Создавайте задачи через кнопку добавления или импорт. Обязательные смысловые поля: объект, задача, постановщик, ответственный, срок и статус.",
+        "Статусы ведут жизненный цикл: новая задача, работа в процессе, запрос решения, закрытие. История карточки фиксирует изменения и Telegram-события.",
+        "В карточке задачи смотрите файлы, историю, получателей сообщения, права на подтверждение закрытия и заявки на переназначение."
+      ]
+    },
+    {
+      title: "Справочники",
+      items: [
+        "Справочники задают базовые списки: ответственные, фазы, разделы, подразделы, причины отставаний, сотрудники, должности, отделы и объекты.",
+        "Сотрудники должны иметь корректные ФИО, отдел, должность, Telegram и Chat ID, если им нужно получать сообщения.",
+        "Объекты связывают задачи с РП/ЗРП и используются для отчётов, фильтров и системных копий РП/ЗРП."
+      ]
+    },
+    {
+      title: "Система и уведомления",
+      items: [
+        "Telegram-бот отправляет задачи, напоминания, запросы статусов и фиксирует прочтение. Получатели копий настраиваются отдельно.",
+        "Руководители отделов могут подтверждать закрытие, если включена соответствующая настройка и у сотрудника есть Telegram.",
+        "SMS Gateway используется для приглашений и дополнительных SMS-сообщений, Google Sheets — для выгрузки и синхронизации задач."
+      ]
+    },
+    {
+      title: "Навигация",
+      items: [
+        "Левое меню открывает задачи, аналитику, справочники, пользователей, объекты и прочие настройки.",
+        "Ctrl + Space открывает круговое меню быстрого доступа; стрелки выбирают пункт, Enter или Space открывает выбранный раздел.",
+        "В задачах доступны режимы: сводная таблица, просмотр по объектам и диаграмма Ганта."
+      ]
+    }
+  ];
+  return `
+    <div class="other-settings-section ${activeSettingsTab === "docs" ? "" : "hidden"}" data-other-settings-pane="docs">
+      <h4 class="other-settings-section-title">Документация</h4>
+      <div class="documentation-settings-layout">
+        <div class="documentation-guide-grid">
+          ${docSections.map((section) => `
+            <section class="documentation-guide-card">
+              <h4>${escapeHtmlText(section.title)}</h4>
+              <ul>${section.items.map((item) => `<li>${escapeHtmlText(item)}</li>`).join("")}</ul>
+            </section>
+          `).join("")}
+        </div>
+        <div class="documentation-video-section">
+          <div class="documentation-video-head">
+            <h4>Видео для ознакомления</h4>
+            <p>Запишите ролик, загрузите его в удобное место и вставьте ссылку или путь. Видео можно заменить в любой момент.</p>
+          </div>
+          <div class="documentation-video-grid">
+            ${slots.map((slot, index) => `
+              <section class="documentation-video-slot" data-doc-video-slot="${index}">
+                <div class="documentation-video-preview" data-doc-video-preview="${index}">
+                  ${renderDocumentationVideoPreviewHtml(slot.url)}
+                </div>
+                <label class="settings-field-label" for="docVideoTitle${index}">Название</label>
+                <input id="docVideoTitle${index}" class="documentation-video-input" type="text" data-doc-video-field="title" data-doc-video-index="${index}" value="${escapeHtmlAttr(slot.title)}" placeholder="Название видео" />
+                <label class="settings-field-label" for="docVideoUrl${index}">Ссылка или путь к видео</label>
+                <input id="docVideoUrl${index}" class="documentation-video-input" type="text" data-doc-video-field="url" data-doc-video-index="${index}" value="${escapeHtmlAttr(slot.url)}" placeholder="https://... или /media/video.mp4" />
+                <label class="settings-field-label" for="docVideoNote${index}">Краткое описание</label>
+                <textarea id="docVideoNote${index}" class="documentation-video-note" rows="2" data-doc-video-field="note" data-doc-video-index="${index}" placeholder="Что пользователь увидит в ролике">${escapeHtmlText(slot.note)}</textarea>
+              </section>
+            `).join("")}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderOtherSettingsPanel() {
-  const allowedSettingsTabs = new Set(["general", "dateTime", "telegram", "sms", "googleSheets", "notifications", "taskFormat", "globalDup"]);
+  const allowedSettingsTabs = new Set(["general", "dateTime", "telegram", "sms", "googleSheets", "notifications", "taskFormat", "globalDup", "docs"]);
   const activeSettingsTab = allowedSettingsTabs.has(otherSettingsActiveTab) ? otherSettingsActiveTab : "general";
   const getStatusClass = (status) => {
     if (status === "Новый") return "status-legend-new";
@@ -18405,6 +18536,7 @@ function renderOtherSettingsPanel() {
     (o) => `<option value="${o.id}" ${o.id === tf ? "selected" : ""}>${escapeHtmlText(o.label)}</option>`
   ).join("");
   const dupPositionOptsHtml = buildDupPositionFilterOptionsHtml();
+  const docsPanelHtml = renderDocumentationSettingsPanelHtml(activeSettingsTab);
   const googleSheetsWriteMode = normalizeGoogleSheetsWriteMode(displaySettings.googleSheetsWriteMode);
   const googleSheetsWriteModeOptsHtml = [
     { id: "rewrite", label: "Перезапись" },
@@ -18432,6 +18564,7 @@ function renderOtherSettingsPanel() {
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "sms" ? "active" : ""}" data-other-settings-tab="sms">SMS Gateway</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "googleSheets" ? "active" : ""}" data-other-settings-tab="googleSheets">Google Sheets</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "notifications" ? "active" : ""}" data-other-settings-tab="notifications">Настройки оповещения</button>
+          <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "docs" ? "active" : ""}" data-other-settings-tab="docs">Документация</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "taskFormat" ? "active" : ""}" data-other-settings-tab="taskFormat">Шаблон сообщений</button>
           <button type="button" class="other-settings-tab-btn ${activeSettingsTab === "globalDup" ? "active" : ""}" data-other-settings-tab="globalDup">Получатели копий</button>
         </div>
@@ -18849,6 +18982,8 @@ function renderOtherSettingsPanel() {
           </div>
         </div>
 
+        ${docsPanelHtml}
+
         <div class="other-settings-section ${activeSettingsTab === "taskFormat" ? "" : "hidden"}" data-other-settings-pane="taskFormat">
           <h4 class="other-settings-section-title">Шаблон сообщений</h4>
           <div class="settings-two-column settings-two-column--with-emulator">
@@ -18930,6 +19065,25 @@ function attachOtherSettingsHandlers() {
         window._mbcRefreshReminderPreview();
       }
     });
+  });
+
+  const commitDocumentationVideoSlot = (input) => {
+    const index = Number(input.getAttribute("data-doc-video-index"));
+    const field = String(input.getAttribute("data-doc-video-field") || "");
+    if (!Number.isFinite(index) || !["title", "url", "note"].includes(field)) return;
+    const slots = getDocumentationVideoSlots();
+    if (!slots[index]) return;
+    slots[index][field] = String(input.value || "").trim();
+    displaySettings.documentationVideoSlots = normalizeDocumentationVideoSlots(slots);
+    saveDisplaySettings();
+    if (field === "url") {
+      const preview = document.querySelector(`[data-doc-video-preview="${index}"]`);
+      if (preview) preview.innerHTML = renderDocumentationVideoPreviewHtml(slots[index].url);
+    }
+  };
+  document.querySelectorAll("[data-doc-video-field]").forEach((input) => {
+    input.addEventListener("change", () => commitDocumentationVideoSlot(input));
+    input.addEventListener("blur", () => commitDocumentationVideoSlot(input));
   });
 
   const templateInputs = Array.from(document.querySelectorAll(".task-message-template-input"));
@@ -19699,6 +19853,7 @@ function restoreDisplaySettings() {
     displaySettings.tasksGanttGridWidth = normalizeTasksGanttGridWidth(displaySettings.tasksGanttGridWidth, 0);
     displaySettings.reportCustomGridColumns = normalizeReportCustomGridColumns(displaySettings.reportCustomGridColumns);
     displaySettings.reportCustomCharts = normalizeReportCustomChartsList(displaySettings.reportCustomCharts);
+    displaySettings.documentationVideoSlots = normalizeDocumentationVideoSlots(displaySettings.documentationVideoSlots);
     ensureTasksGanttColumnsDisplaySettings();
     let tps = Number(displaySettings.tasksListPageSize);
     if (!Number.isFinite(tps)) tps = 50;

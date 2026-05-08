@@ -1224,6 +1224,128 @@ body.sidebar-collapsed .sidebar-logout-btn .icon-label span {
   margin-bottom: 8px;
 }
 
+.documentation-settings-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.documentation-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.documentation-guide-card {
+  border: 1px solid #dce4ee;
+  border-radius: 10px;
+  background: #f8fafd;
+  padding: 12px;
+}
+
+.documentation-guide-card h4,
+.documentation-video-head h4 {
+  margin: 0 0 8px;
+  color: #314357;
+  font-size: 14px;
+}
+
+.documentation-guide-card ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #46576c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.documentation-guide-card li + li {
+  margin-top: 6px;
+}
+
+.documentation-video-section {
+  display: grid;
+  gap: 10px;
+}
+
+.documentation-video-head {
+  border: 1px solid #dce4ee;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.documentation-video-head p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.documentation-video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.documentation-video-slot {
+  border: 1px solid #dce4ee;
+  border-radius: 10px;
+  background: #f8fafd;
+  padding: 10px;
+  display: grid;
+  gap: 7px;
+}
+
+.documentation-video-preview {
+  border: 1px dashed #c7d3e4;
+  border-radius: 8px;
+  background: #eef3f9;
+  min-height: 160px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.documentation-video-empty {
+  padding: 14px;
+  text-align: center;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.documentation-video-frame,
+.documentation-video-player {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  background: #0f172a;
+  display: block;
+}
+
+.documentation-video-input,
+.documentation-video-note {
+  width: 100%;
+  border: 1px solid #d2dce9;
+  border-radius: 8px;
+  background: #fff;
+  color: #26364e;
+  font-size: 12px;
+  padding: 8px 9px;
+  outline: none;
+}
+
+.documentation-video-note {
+  resize: vertical;
+  min-height: 58px;
+}
+
+.documentation-video-input:focus,
+.documentation-video-note:focus {
+  border-color: var(--brand-input-focus);
+  box-shadow: 0 0 0 2px var(--brand-focus-ring);
+}
+
 .other-settings-readonly-input,
 .telegram-admin-chat-input {
   width: 100%;
