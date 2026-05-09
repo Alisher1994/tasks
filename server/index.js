@@ -612,20 +612,7 @@ function renderSwaggerDocsHtml() {
       letter-spacing: 0;
     }
     .swagger-ui .info .title::before {
-      content: "API";
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 40px;
-      height: 40px;
-      margin-right: 3px;
-      border-radius: 8px;
-      background: linear-gradient(135deg, var(--mbc-blue), #222a78);
-      color: #fff;
-      font-size: 13px;
-      font-weight: 800;
-      letter-spacing: 0;
-      box-shadow: inset 0 -3px 0 rgba(209, 174, 108, 0.32);
+      content: none;
     }
     .swagger-ui .info .title small {
       top: 0;
@@ -649,9 +636,7 @@ function renderSwaggerDocsHtml() {
     }
     .swagger-ui .info .base-url,
     .swagger-ui .info .link {
-      color: var(--mbc-blue);
-      font-weight: 700;
-      text-decoration: none;
+      display: none;
     }
     .swagger-ui .info .description {
       max-width: 980px;
@@ -711,6 +696,25 @@ function renderSwaggerDocsHtml() {
       animation: none;
       transform: none;
       filter: none;
+    }
+    .swagger-ui .copy-to-clipboard {
+      opacity: 1;
+      visibility: visible;
+    }
+    .swagger-ui .copy-to-clipboard button {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      background: transparent;
+      border: 0;
+      box-shadow: none;
+    }
+    .swagger-ui .copy-to-clipboard button:hover,
+    .swagger-ui .copy-to-clipboard button:focus,
+    .swagger-ui .copy-to-clipboard button:active {
+      background: transparent;
+      border: 0;
+      box-shadow: none;
     }
     .swagger-ui .opblock button:hover svg,
     .swagger-ui .opblock-summary button:hover svg,
