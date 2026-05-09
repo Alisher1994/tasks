@@ -427,6 +427,7 @@ function buildOpenApiSpec(req) {
   };
   const makeGet = (summary, description, schema = sectionResponse) => ({
     get: {
+      tags: ["Методы API"],
       summary,
       description,
       security: [{ bearerAuth: [] }],
@@ -456,6 +457,12 @@ function buildOpenApiSpec(req) {
       ].join("\n")
     },
     servers: [{ url: baseUrl }],
+    tags: [
+      {
+        name: "Методы API",
+        description: "Доступные методы API"
+      }
+    ],
     components: {
       securitySchemes: {
         bearerAuth: {
@@ -468,6 +475,7 @@ function buildOpenApiSpec(req) {
     paths: {
       "/api/auth/login": {
         post: {
+          tags: ["Методы API"],
           summary: "Вход и получение JWT",
           description: "Передайте phone и password. В ответе вернётся token, который нужно вставить в Authorize как Bearer token.",
           requestBody: {
@@ -584,7 +592,7 @@ function renderSwaggerDocsHtml() {
     .swagger-ui .info {
       position: relative;
       display: grid;
-      grid-template-columns: 178px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) 178px;
       gap: 24px;
       max-width: 1380px;
       min-height: 150px;
@@ -595,11 +603,14 @@ function renderSwaggerDocsHtml() {
     .swagger-ui .info::before {
       content: "";
       display: block;
+      grid-column: 2;
+      grid-row: 1 / span 3;
       width: 172px;
       height: 64px;
-      background: url("/horizontal-v1.svg") left center / contain no-repeat;
+      justify-self: end;
+      background: url("/horizontal-v1.svg") right center / contain no-repeat;
     }
-    .swagger-ui .info > * { grid-column: 2; }
+    .swagger-ui .info > * { grid-column: 1; }
     .swagger-ui .info .title {
       display: flex;
       flex-wrap: wrap;
@@ -744,6 +755,9 @@ function renderSwaggerDocsHtml() {
         padding: 22px 18px 26px;
       }
       .swagger-ui .info::before {
+        grid-column: 1;
+        grid-row: auto;
+        justify-self: start;
         width: min(172px, 100%);
         height: 64px;
       }
