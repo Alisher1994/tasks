@@ -158,6 +158,7 @@ function resolveEmployeeAdminAccessColumnIndex(payload) {
     "админдоступ",
     "админ",
     "доступадмина",
+    "доступкнастройкам",
     "рольдоступа",
     "accessadmin",
     "adminaccess"
@@ -173,6 +174,13 @@ function isEmployeeAdminAccessEnabled(payload, employeeRow) {
   const idx = resolveEmployeeAdminAccessColumnIndex(payload);
   const raw = String(employeeRow[idx] || "").trim().toLowerCase();
   return ["да", "true", "1", "yes", "on", "admin", "админ"].includes(raw);
+}
+
+function resolveEffectiveRoleFromPayload(payload, user, fallbackRole = "user") {
+  const normalizedFallbackRole = String(fallbackRole || "").trim().toLowerCase() === "admin" ? "admin" : "user";
+  if (normalizedFallbackRole === "admin") return "admin";
+  const employee = findEmployeeForAuthUserInPayload(payload, user);
+  return isEmployeeAdminAccessEnabled(payload, employee) ? "admin" : normalizedFallbackRole;
 }
 
 function touchEmployeeLastLoginInPayload(payload, employeeRow, at = new Date()) {
@@ -1819,18 +1827,21 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       if (!ok) {
         return res.status(401).json({ error: "Неверный логин или пароль" });
       }
-      let effectiveRole = u.role;
+      const subject = String(u.id);
+      const authUser = {
+        sub: subject,
+        role: u.role,
+        name: u.display_name,
+        phone: u.phone || phone
+      };
+      let effectiveRole = String(u.role || "").trim().toLowerCase() === "admin" ? "admin" : "user";
       try {
         const { rows: stateRows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
         const payload = stateRows[0]?.payload;
-        const byPhone = findEmployeeByPhoneInPayload(payload, normalizePhone(u.phone || phone));
-        if (isEmployeeAdminAccessEnabled(payload, byPhone)) {
-          effectiveRole = "admin";
-        }
+        effectiveRole = resolveEffectiveRoleFromPayload(payload, authUser, effectiveRole);
       } catch (_) {
         // Если app_state временно недоступен — используем роль из users.
       }
-      const subject = String(u.id);
       const sessionVersion = await issueSingleSessionVersion(subject);
       const token = jwt.sign(
         { sub: subject, role: effectiveRole, name: u.display_name, phone: u.phone || phone, sv: sessionVersion },
