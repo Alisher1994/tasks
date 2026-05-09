@@ -550,9 +550,170 @@ function renderSwaggerDocsHtml() {
   <title>MBC API Docs</title>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
   <style>
-    body { margin: 0; background: #f4f7fb; }
+    :root {
+      --mbc-blue: #3e4095;
+      --mbc-gold: #d1ae6c;
+      --mbc-ink: #17213a;
+      --mbc-muted: #60708b;
+      --mbc-line: #dce4ee;
+      --mbc-soft: #f4f7fb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, #eef3f9 0, #f8fafc 360px);
+      color: var(--mbc-ink);
+    }
+    body::before {
+      content: "";
+      display: block;
+      height: 6px;
+      background: linear-gradient(90deg, var(--mbc-blue) 0 72%, var(--mbc-gold) 72% 100%);
+    }
     .docs-gate { max-width: 760px; margin: 48px auto; padding: 20px; font: 14px/1.5 Inter, Arial, sans-serif; color: #26364e; background: #fff; border: 1px solid #dce4ee; border-radius: 12px; }
     .docs-gate code { background: #eef2f7; padding: 2px 5px; border-radius: 5px; }
+    .swagger-ui { font-family: Inter, Arial, sans-serif; color: var(--mbc-ink); }
+    .swagger-ui .information-container {
+      max-width: none;
+      margin: 0;
+      padding: 0;
+      background:
+        radial-gradient(circle at 88% 16%, rgba(209, 174, 108, 0.16), transparent 28%),
+        linear-gradient(135deg, #ffffff 0%, #eef3fb 100%);
+      border-bottom: 1px solid var(--mbc-line);
+    }
+    .swagger-ui .info {
+      position: relative;
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 28px;
+      max-width: 1380px;
+      min-height: 190px;
+      margin: 0 auto;
+      padding: 34px 32px 36px;
+      align-items: center;
+    }
+    .swagger-ui .info::before {
+      content: "";
+      display: block;
+      width: 210px;
+      height: 88px;
+      background: #fff url("/horizontal-v1.svg") center / contain no-repeat;
+      border: 1px solid rgba(62, 64, 149, 0.14);
+      border-radius: 8px;
+      box-shadow: 0 18px 42px rgba(31, 43, 77, 0.12);
+    }
+    .swagger-ui .info > * { grid-column: 2; }
+    .swagger-ui .info .title {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      align-items: center;
+      margin: 0 0 8px;
+      color: var(--mbc-ink);
+      font-size: 34px;
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+    .swagger-ui .info .title::before {
+      content: "API";
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      margin-right: 3px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--mbc-blue), #222a78);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0;
+      box-shadow: inset 0 -3px 0 rgba(209, 174, 108, 0.32);
+    }
+    .swagger-ui .info .title small {
+      top: 0;
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 3px 8px;
+      border-radius: 7px;
+      background: #7b8798;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .swagger-ui .info .title small.version-stamp {
+      background: var(--mbc-blue);
+    }
+    .swagger-ui .info .title small pre {
+      color: inherit;
+      font-family: inherit;
+      font-weight: inherit;
+    }
+    .swagger-ui .info .base-url,
+    .swagger-ui .info .link {
+      color: var(--mbc-blue);
+      font-weight: 700;
+      text-decoration: none;
+    }
+    .swagger-ui .info .description {
+      max-width: 980px;
+      margin-top: 16px;
+      padding-left: 18px;
+      border-left: 4px solid var(--mbc-gold);
+      color: #26364e;
+    }
+    .swagger-ui .info .description p {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.45;
+    }
+    .swagger-ui .scheme-container {
+      max-width: none;
+      margin: 0 0 26px;
+      padding: 24px 32px;
+      background: rgba(255, 255, 255, 0.86);
+      border-bottom: 1px solid var(--mbc-line);
+      box-shadow: none;
+    }
+    .swagger-ui .scheme-container .schemes {
+      max-width: 1380px;
+      margin: 0 auto;
+      align-items: end;
+    }
+    .swagger-ui .btn.authorize {
+      min-width: 150px;
+      border-color: var(--mbc-blue);
+      color: var(--mbc-blue);
+      border-radius: 7px;
+      box-shadow: 0 10px 22px rgba(62, 64, 149, 0.12);
+    }
+    .swagger-ui .btn.authorize svg { fill: var(--mbc-blue); }
+    .swagger-ui select {
+      border-color: #b8c3d4;
+      border-radius: 6px;
+      color: var(--mbc-ink);
+    }
+    .swagger-ui .wrapper {
+      max-width: 1380px;
+      padding: 0 32px;
+    }
+    @media (max-width: 760px) {
+      .swagger-ui .info {
+        grid-template-columns: 1fr;
+        gap: 18px;
+        padding: 26px 18px 30px;
+      }
+      .swagger-ui .info::before {
+        width: min(240px, 100%);
+        height: 76px;
+      }
+      .swagger-ui .info > * { grid-column: 1; }
+      .swagger-ui .info .title { font-size: 28px; }
+      .swagger-ui .scheme-container { padding: 18px; }
+      .swagger-ui .wrapper { padding: 0 18px; }
+    }
   </style>
 </head>
 <body>
