@@ -686,6 +686,44 @@ function renderSwaggerDocsHtml() {
       box-shadow: 0 10px 22px rgba(62, 64, 149, 0.12);
     }
     .swagger-ui .btn.authorize svg { fill: var(--mbc-blue); }
+    .swagger-ui .opblock svg,
+    .swagger-ui .opblock-summary svg,
+    .swagger-ui .opblock-control-arrow,
+    .swagger-ui .copy-to-clipboard button svg,
+    .swagger-ui .authorization__btn svg,
+    .swagger-ui .expand-operation svg,
+    .swagger-ui .models-control svg {
+      color: var(--mbc-blue);
+      fill: var(--mbc-blue);
+      stroke: var(--mbc-blue);
+      transition: none;
+      animation: none;
+      transform: none;
+      filter: none;
+    }
+    .swagger-ui .opblock button,
+    .swagger-ui .opblock-summary button,
+    .swagger-ui .copy-to-clipboard button,
+    .swagger-ui .authorization__btn,
+    .swagger-ui .expand-operation,
+    .swagger-ui .models-control {
+      transition: none;
+      animation: none;
+      transform: none;
+      filter: none;
+    }
+    .swagger-ui .opblock button:hover svg,
+    .swagger-ui .opblock-summary button:hover svg,
+    .swagger-ui .copy-to-clipboard button:hover svg,
+    .swagger-ui .authorization__btn:hover svg,
+    .swagger-ui .expand-operation:hover svg,
+    .swagger-ui .models-control:hover svg {
+      color: var(--mbc-blue);
+      fill: var(--mbc-blue);
+      stroke: var(--mbc-blue);
+      transform: none;
+      filter: none;
+    }
     .swagger-ui select {
       border-color: #b8c3d4;
       border-radius: 6px;
