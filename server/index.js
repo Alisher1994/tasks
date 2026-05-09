@@ -560,6 +560,7 @@ function renderSwaggerDocsHtml() {
   <div id="docsGate" class="docs-gate">Проверяем права администратора...</div>
   <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
   <script>
+    const AUTH_TOKEN_KEY = "mbc_jwt";
     function readTokenFromWindowName() {
       try {
         const parsed = JSON.parse(window.name || "{}");
@@ -568,7 +569,41 @@ function renderSwaggerDocsHtml() {
         return "";
       }
     }
-    const token = readTokenFromWindowName() || sessionStorage.getItem("mbc_jwt") || localStorage.getItem("mbc_jwt") || "";
+    function writeTokenToWindowName(token) {
+      try {
+        const parsed = JSON.parse(window.name || "{}");
+        parsed.mbcSwaggerToken = token || "";
+        window.name = JSON.stringify(parsed);
+      } catch (_) {
+        window.name = JSON.stringify({ mbcSwaggerToken: token || "" });
+      }
+    }
+    function readStoredToken() {
+      return readTokenFromWindowName() || sessionStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(AUTH_TOKEN_KEY) || "";
+    }
+    function saveStoredToken(token) {
+      if (!token) return;
+      writeTokenToWindowName(token);
+      try { sessionStorage.setItem(AUTH_TOKEN_KEY, token); } catch (_) {}
+    }
+    function isAuthLoginRequest(url) {
+      try {
+        return new URL(url, window.location.origin).pathname === "/api/auth/login";
+      } catch (_) {
+        return String(url || "").includes("/api/auth/login");
+      }
+    }
+    function saveTokenFromLoginResponse(res) {
+      try {
+        const url = res?.url || "";
+        if (!isAuthLoginRequest(url) || Number(res?.status) !== 200) return res;
+        const raw = typeof res?.text === "string" ? res.text : "";
+        const body = raw ? JSON.parse(raw) : res?.body;
+        if (body && typeof body.token === "string") saveStoredToken(body.token);
+      } catch (_) {}
+      return res;
+    }
+    const token = readStoredToken();
     const gate = document.getElementById("docsGate");
     async function boot() {
       if (!token) {
@@ -586,9 +621,13 @@ function renderSwaggerDocsHtml() {
         dom_id: "#swagger-ui",
         persistAuthorization: true,
         requestInterceptor: (req) => {
-          req.headers.Authorization = "Bearer " + token;
+          if (!isAuthLoginRequest(req.url)) {
+            const freshToken = readStoredToken();
+            if (freshToken) req.headers.Authorization = "Bearer " + freshToken;
+          }
           return req;
-        }
+        },
+        responseInterceptor: saveTokenFromLoginResponse
       });
     }
     boot();
