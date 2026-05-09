@@ -578,30 +578,26 @@ function renderSwaggerDocsHtml() {
       margin: 0;
       padding: 0;
       background:
-        radial-gradient(circle at 88% 16%, rgba(209, 174, 108, 0.16), transparent 28%),
-        linear-gradient(135deg, #ffffff 0%, #eef3fb 100%);
+        linear-gradient(135deg, #ffffff 0%, #f4f7fb 100%);
       border-bottom: 1px solid var(--mbc-line);
     }
     .swagger-ui .info {
       position: relative;
       display: grid;
-      grid-template-columns: 220px minmax(0, 1fr);
-      gap: 28px;
+      grid-template-columns: 178px minmax(0, 1fr);
+      gap: 24px;
       max-width: 1380px;
-      min-height: 190px;
+      min-height: 150px;
       margin: 0 auto;
-      padding: 34px 32px 36px;
+      padding: 24px 32px 26px;
       align-items: center;
     }
     .swagger-ui .info::before {
       content: "";
       display: block;
-      width: 210px;
-      height: 88px;
-      background: #fff url("/horizontal-v1.svg") center / contain no-repeat;
-      border: 1px solid rgba(62, 64, 149, 0.14);
-      border-radius: 8px;
-      box-shadow: 0 18px 42px rgba(31, 43, 77, 0.12);
+      width: 172px;
+      height: 64px;
+      background: url("/horizontal-v1.svg") left center / contain no-repeat;
     }
     .swagger-ui .info > * { grid-column: 2; }
     .swagger-ui .info .title {
@@ -609,9 +605,9 @@ function renderSwaggerDocsHtml() {
       flex-wrap: wrap;
       gap: 9px;
       align-items: center;
-      margin: 0 0 8px;
+      margin: 0 0 6px;
       color: var(--mbc-ink);
-      font-size: 34px;
+      font-size: 32px;
       line-height: 1.12;
       letter-spacing: 0;
     }
@@ -620,8 +616,8 @@ function renderSwaggerDocsHtml() {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 44px;
-      height: 44px;
+      width: 40px;
+      height: 40px;
       margin-right: 3px;
       border-radius: 8px;
       background: linear-gradient(135deg, var(--mbc-blue), #222a78);
@@ -659,9 +655,9 @@ function renderSwaggerDocsHtml() {
     }
     .swagger-ui .info .description {
       max-width: 980px;
-      margin-top: 16px;
-      padding-left: 18px;
-      border-left: 4px solid var(--mbc-gold);
+      margin-top: 12px;
+      padding-left: 16px;
+      border-left: 3px solid var(--mbc-gold);
       color: #26364e;
     }
     .swagger-ui .info .description p {
@@ -703,11 +699,11 @@ function renderSwaggerDocsHtml() {
       .swagger-ui .info {
         grid-template-columns: 1fr;
         gap: 18px;
-        padding: 26px 18px 30px;
+        padding: 22px 18px 26px;
       }
       .swagger-ui .info::before {
-        width: min(240px, 100%);
-        height: 76px;
+        width: min(172px, 100%);
+        height: 64px;
       }
       .swagger-ui .info > * { grid-column: 1; }
       .swagger-ui .info .title { font-size: 28px; }
