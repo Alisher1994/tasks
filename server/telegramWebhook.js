@@ -1496,11 +1496,26 @@ async function savePayload(pool, payload) {
     normalizeTasksSectionByColumns(nextPayload);
     mergeTaskRowsWithCurrent(currentPayload, nextPayload);
   }
-  await pool.query(
-    `INSERT INTO app_state (id, payload, updated_at) VALUES (1, $1::jsonb, NOW())
-     ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+  // Бампим revision: web-клиент с устаревшим baseRev получит 409 на PUT /api/data
+  // и пройдёт через 3-way merge, который сохранит наши изменения (например файл,
+  // прикреплённый в боте) вместо того чтобы их затереть.
+  const { rows: savedRows } = await pool.query(
+    `INSERT INTO app_state (id, payload, updated_at, revision) VALUES (1, $1::jsonb, NOW(), 1)
+     ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW(), revision = app_state.revision + 1
+     RETURNING revision`,
     [JSON.stringify(nextPayload)]
   );
+  const newRev = Number(savedRows[0]?.revision) || 0;
+  // Broadcast по WebSocket, чтобы веб-клиенты сразу подтянули свежий снимок
+  // (включая taskAttachments из bot-загрузки) до того как успеют запушить
+  // свой устаревший слепок.
+  try {
+    if (typeof globalThis.__broadcastStateChanged === "function") {
+      globalThis.__broadcastStateChanged(newRev, { source: "bot" });
+    }
+  } catch (_) {
+    /* noop */
+  }
 }
 
 /** Приоритет: переменная окружения, иначе токен из настроек приложения (БД). */

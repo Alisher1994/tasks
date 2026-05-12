@@ -3428,6 +3428,10 @@ async function main() {
       }
     }
   });
+  // Exposing broadcast so server/telegramWebhook.js#savePayload может позвать его
+  // без циклического импорта: бот пишет в БД → бампит revision → broadcast →
+  // web-клиенты пуллят свежий снимок до того как успеют запушить старый.
+  globalThis.__broadcastStateChanged = broadcastStateChanged;
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Сервер слушает порт ${PORT} (${NODE_ENV}) — WebSocket на /ws/state`);
   });
