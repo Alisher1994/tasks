@@ -1520,12 +1520,13 @@ function ensureRealtimeConfigured() {
       // не дёргаем pull, иначе можно затереть то что он редактирует/сохраняет.
       // pull сделает следующий тик auto-pull, когда состояние стабилизируется.
       if (hasUnsyncedLocalChanges || serverPushInFlight) return;
-      // Не перерисовываем Аналитику ("report") в реальном времени — графики
-      // re-mount-ятся, скролл прыгает наверх, пользователь не может читать дашборд.
-      // Данные в памяти обновляются всё равно — при клике "Обновить" или смене
-      // раздела актуальное состояние сразу отрендерится.
-      const isAnalytics = activeSectionId === "report";
-      const safeToRerender = !isUserEditingNow() && !hasInlineTableEditorActive() && !isAnalytics;
+      // Перерисовываем только активный раздел задач — для всех остальных
+      // разделов (Аналитика, Прочие настройки, Пользователи, Справочник, Объекты)
+      // мы тихо обновляем данные в памяти, без visible re-render: формы/чекбоксы
+      // не теряют scroll-позицию, не моргают, фокус не сбрасывается. Свежий
+      // стейт отрисуется при следующем переключении раздела или клике "Обновить".
+      const isTasksView = activeSectionId === "tasks";
+      const safeToRerender = isTasksView && !isUserEditingNow() && !hasInlineTableEditorActive();
       pullRemoteAppState({ rerender: safeToRerender }).catch(() => {});
     }
   });
@@ -19403,11 +19404,17 @@ function restoreDisplaySettings() {
 
 function captureTableUiState() {
   const tableWrap = getActiveTableScrollElement();
+  // Для разделов без .table-wrap (Прочие настройки, Пользователи, Справочник, Аналитика)
+  // скролл живёт на #tableContainer — захватываем и его, чтобы re-render не сбрасывал
+  // позицию страницы наверх.
+  const container = document.getElementById("tableContainer");
   const active = document.activeElement;
   const isRestorableControl = active instanceof HTMLInputElement || active instanceof HTMLSelectElement || active instanceof HTMLTextAreaElement;
   return {
     scrollTop: tableWrap ? tableWrap.scrollTop : 0,
     scrollLeft: tableWrap ? tableWrap.scrollLeft : 0,
+    containerScrollTop: container ? container.scrollTop : 0,
+    containerScrollLeft: container ? container.scrollLeft : 0,
     focus: isRestorableControl
       ? {
         id: String(active.id || "").trim(),
@@ -19446,6 +19453,17 @@ function restoreTableUiState(state) {
   if (nextWrap) {
     nextWrap.scrollTop = Number(state?.scrollTop || 0);
     nextWrap.scrollLeft = Number(state?.scrollLeft || 0);
+  }
+  // Восстанавливаем скролл #tableContainer для разделов без внутреннего .table-wrap
+  // (Прочие настройки, Пользователи, Справочник): после innerHTML = ... контейнер
+  // сбрасывается в 0, и страница "перекидывает" наверх — это и есть тот скачок,
+  // который пользователь видит при auto-refresh.
+  const container = document.getElementById("tableContainer");
+  if (container) {
+    const ct = Number(state?.containerScrollTop || 0);
+    const cl = Number(state?.containerScrollLeft || 0);
+    if (ct) container.scrollTop = ct;
+    if (cl) container.scrollLeft = cl;
   }
   syncSplitTableScrollPositions();
   syncSplitTableHeights();
