@@ -1454,6 +1454,20 @@ function mergeTaskRowsWithCurrent(currentPayload, nextPayload) {
     return merged;
   });
 
+  // Защита от race: если веб-клиент удалил задачу пока бот её обрабатывал
+  // (подтверждение закрытия, комментарий, реассайн и т.п.) — добавляем
+  // строку обратно из next. Иначе любая операция бота "вспоминает" задачу,
+  // которая уже исчезла из БД, и тихо теряется при save. Так пропала задача
+  // 169 после массового удаления + одновременного закрытия в боте.
+  const currentIds = new Set(
+    currentTasks.rows.map((r) => String(r?.[TASK_COLUMNS.number] || "").trim()).filter(Boolean)
+  );
+  for (const nextRow of nextTasks.rows) {
+    const id = String(nextRow?.[TASK_COLUMNS.number] || "").trim();
+    if (!id || currentIds.has(id)) continue;
+    mergedRows.push(Array.isArray(nextRow) ? [...nextRow] : nextRow);
+  }
+
   nextTasks.rows = mergedRows;
 }
 
