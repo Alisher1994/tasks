@@ -294,15 +294,19 @@ function mainKeyboard(taskNumber, row, appTimeZone = "UTC") {
   if (status === "Закрыт") return [];
   const actualTaskNumber = String(row?.[TASK_COLUMNS.number] || taskNumber || "").trim() || String(taskNumber || "").trim();
   const n = encodeTaskNum(actualTaskNumber);
+  const overdue = isDelayReasonAllowedNow(row, appTimeZone);
   const keyboard = [
     [
       { text: "⌛️ Сменить статус", callback_data: cb(n, "sm") },
       { text: "🗣 Комментарий", callback_data: cb(n, "cm") }
-    ],
-    [{ text: "🔁 Переназначить задачу", callback_data: cb(n, "ra") }]
+    ]
   ];
-  if (isDelayReasonAllowedNow(row, appTimeZone)) {
+  if (overdue) {
+    // Просроченная задача: переназначение скрыто, ветка реассайна идёт через
+    // «Причина отставания → Внутренний фактор → выбор отдела/сотрудника».
     keyboard.push([{ text: "🚧 Причина отставания", callback_data: cb(n, "dr") }]);
+  } else {
+    keyboard.push([{ text: "🔁 Переназначить задачу", callback_data: cb(n, "ra") }]);
   }
   return keyboard;
 }
@@ -2125,16 +2129,76 @@ async function handleCallback(q, pool, token) {
       await answerOk("Причина отставания доступна только после просрочки планового срока");
       return;
     }
-    const options = getDelayReasonOptions(payload);
-    const keyboard = options.map((reason, i) => [{ text: reason, callback_data: cb(taskId, `drs|${i}`) }]);
-    keyboard.push([{ text: "✍️ Другое", callback_data: cb(taskId, "dro") }]);
-    keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "bk") }]);
+    // Шаг 1: выбор фактора. Дальше уже выбор причины (drf → drs) или
+    // подтверждение принятия на себя (drf|self).
+    const keyboard = [
+      [{ text: "🌐 Внешний фактор", callback_data: cb(taskId, "drf|ext") }],
+      [{ text: "🏢 Внутренний фактор (внутри компании)", callback_data: cb(taskId, "drf|int") }],
+      [{ text: "✋ Принять на себя", callback_data: cb(taskId, "drf|self") }],
+      [{ text: "⬅️ Назад", callback_data: cb(taskId, "bk") }]
+    ];
     setLastTaskContext(payload, chatId, taskId, messageId);
     await savePayload(pool, payload);
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nВыберите причину отставания:`,
+      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nКакой фактор привёл к отставанию?\n• Внешний фактор — обстоятельства вне компании, сохраняем причину.\n• Внутренний фактор — внутри компании, далее предложим делегировать задачу другому сотруднику.\n• Принять на себя — переназначение не выполняется, ответственность остаётся.`,
+      reply_markup: { inline_keyboard: keyboard }
+    });
+    await answerOk();
+    return;
+  }
+
+  if (parsed.action === "drf") {
+    if (!canChatUseTaskActions(payload, viewerRow, chatId)) {
+      await answerOk("Действие доступно только исполнителю");
+      return;
+    }
+    if (!isDelayReasonAllowedNow(viewerRow, appTz)) {
+      await answerOk("Причина отставания доступна только после просрочки планового срока");
+      return;
+    }
+    const factor = String(parsed.rest?.[0] || "").trim().toLowerCase();
+    if (factor === "self") {
+      // Принять на себя — никакого переназначения, просто фиксируем в истории.
+      appendTaskHistory(payload, taskId, empName, "Telegram: причина отставания — принял ответственность на себя (без переназначения)");
+      setLastTaskContext(payload, chatId, taskId, messageId);
+      await savePayload(pool, payload);
+      const refreshed = buildTaskRowForChat(payload, row, chatId, taskId);
+      await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${taskCaptionWithPlan(refreshed, payload)}\n\nВы приняли ответственность за отставание. Переназначение не выполнено.`,
+        reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, refreshed, chatId, appTz) }
+      });
+      await answerOk();
+      return;
+    }
+    if (factor !== "ext" && factor !== "int") {
+      await answerOk("Некорректный выбор");
+      return;
+    }
+    // Запоминаем фактор в сессии, чтобы в drs|i ветвление пошло корректно.
+    if (!payload.telegramSessions) payload.telegramSessions = {};
+    payload.telegramSessions[String(chatId)] = {
+      expect: "delayReasonPick",
+      factor,
+      taskId,
+      promptMessageId: Number(messageId) || null
+    };
+    const options = getDelayReasonOptions(payload);
+    const keyboard = options.map((reason, i) => [{ text: reason, callback_data: cb(taskId, `drs|${i}`) }]);
+    if (factor === "ext") {
+      // Для внешнего фактора разрешаем ввести свой вариант.
+      keyboard.push([{ text: "✍️ Другое", callback_data: cb(taskId, "dro") }]);
+    }
+    keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "dr") }]);
+    setLastTaskContext(payload, chatId, taskId, messageId);
+    await savePayload(pool, payload);
+    await tg(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nВыберите причину отставания${factor === "int" ? " (для делегирования)" : ""}:`,
       reply_markup: { inline_keyboard: keyboard }
     });
     await answerOk();
@@ -2364,10 +2428,49 @@ async function handleCallback(q, pool, token) {
       await answerOk("Неверный выбор");
       return;
     }
+    const sess = payload.telegramSessions?.[String(chatId)];
+    const factor = String(sess?.factor || "").trim().toLowerCase();
     const prevReason = String(row[TASK_COLUMNS.delayReason] || "").trim();
     const nextReason = String(options[idx] || "").trim();
     row[TASK_COLUMNS.delayReason] = nextReason;
-    appendTaskHistory(payload, taskId, empName, `Telegram: причина отставания «${prevReason || "—"}» → «${nextReason}»`);
+
+    if (factor === "int") {
+      // Внутренний фактор: причина сохранена, переходим к делегированию.
+      // Создаём reassign-сессию: будет dept → employee → confirm.
+      if (!payload.telegramSessions) payload.telegramSessions = {};
+      payload.telegramSessions[String(chatId)] = {
+        expect: "reassignDepartment",
+        taskId,
+        reasonType: "delegation",
+        reasonText: nextReason,
+        promptMessageId: Number(messageId) || null,
+        fromOverdueFactor: "int"
+      };
+      appendTaskHistory(
+        payload,
+        taskId,
+        empName,
+        `Telegram: причина отставания «${prevReason || "—"}» → «${nextReason}» (внутренний фактор, начато делегирование)`
+      );
+      setLastTaskContext(payload, chatId, taskId, messageId);
+      const departments = buildDepartmentOptions(payload);
+      const keyboard = departments.map((name, i) => [{ text: name, callback_data: cb(taskId, `rad|${i}`) }]);
+      keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "dr") }]);
+      await savePayload(pool, payload);
+      await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId, taskId), payload)}\n\nПричина сохранена. Шаг 1/2: выберите отдел для делегирования.`,
+        reply_markup: { inline_keyboard: keyboard.slice(0, 80) }
+      });
+      await broadcastTaskCardUpdate(payload, token, row, "Причина отставания обновлена.", String(chatId));
+      await answerOk();
+      return;
+    }
+
+    // Внешний фактор (или legacy без сессии): сохраняем причину и закрываем шаг.
+    clearSession(payload, String(chatId));
+    appendTaskHistory(payload, taskId, empName, `Telegram: причина отставания «${prevReason || "—"}» → «${nextReason}»${factor === "ext" ? " (внешний фактор)" : ""}`);
     setLastTaskContext(payload, chatId, taskId, messageId);
     await savePayload(pool, payload);
     await tg(token, "editMessageText", {
