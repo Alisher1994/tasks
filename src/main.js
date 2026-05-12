@@ -119,6 +119,7 @@ import {
 import { openLoginSupportModal } from "./ui/login-support-modal.js";
 import { startLoginMotionCanvas, stopLoginMotionCanvas } from "./ui/login-motion-canvas.js";
 import { cloneSnapshot, mergePayloadOnConflict } from "./sync/snapshot-merge.js";
+import { configureRealtime, startRealtimeSync, stopRealtimeSync } from "./sync/realtime.js";
 import { getSessionUserDisplayName, saveSessionPhone, getSessionPhone } from "./auth/session-storage.js";
 
 const loginForm = document.getElementById("loginForm");
@@ -1454,10 +1455,30 @@ function hasActiveTaskUiOverlay() {
   );
 }
 
+let realtimeConfigured = false;
+function ensureRealtimeConfigured() {
+  if (realtimeConfigured) return;
+  realtimeConfigured = true;
+  configureRealtime({
+    getToken: () => getAuthToken(),
+    getCurrentRev: () => serverDataRevision,
+    onStateChanged: () => {
+      // Сервер сообщил, что появилась новая ревизия.
+      // Подтягиваем без рендера, если есть активный overlay (форма/модалка),
+      // и с рендером в обычном случае. Сам pull игнорируется при оверлее —
+      // как только пользователь его закроет, следующий тик auto-pull сработает.
+      if (hasUnsyncedLocalChanges || serverPushInFlight) return;
+      pullRemoteAppState({ rerender: activeSectionId === "tasks" && !isTasksGraphModeActive() }).catch(() => {});
+    }
+  });
+}
+
 function startRemoteAutoPull() {
   clearInterval(remotePullTimer);
   remotePullTimer = null;
   if (!isHostedRuntime() || !getAuthToken()) return;
+  ensureRealtimeConfigured();
+  startRealtimeSync();
   remotePullTimer = setInterval(() => {
     if (document.hidden) return;
     if (hasActiveTaskUiOverlay()) return;
@@ -1483,6 +1504,7 @@ function startRemoteAutoPull() {
 function stopRemoteAutoPull() {
   clearInterval(remotePullTimer);
   remotePullTimer = null;
+  stopRealtimeSync();
 }
 
 function findEmployeeFullNameByPhone(phone) {

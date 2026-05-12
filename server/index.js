@@ -13,10 +13,12 @@ import bcrypt from "bcryptjs";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { randomBytes } from "crypto";
+import { createServer as createHttpServer } from "http";
 import { configureTelegramWebhook, handleTelegramWebhook } from "./telegramWebhook.js";
 import { runGoogleSheetsSync, startGoogleSheetsAutoSync } from "./googleSheetsSync.js";
 import { runMigrations } from "./migrate.js";
 import { validateAppPayload } from "./validatePayload.js";
+import { attachRealtimeHub, broadcastStateChanged, getRealtimeConnectionCount } from "./realtimeHub.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, "..");
@@ -400,6 +402,9 @@ async function buildServerMetricsPayload() {
         idle: pool.idleCount,
         waiting: pool.waitingCount
       }
+    },
+    realtime: {
+      connections: getRealtimeConnectionCount()
     }
   };
 }
@@ -878,7 +883,11 @@ async function saveAppPayload(payload) {
      RETURNING revision`,
     [JSON.stringify(nextPayload)]
   );
-  return Number(rows[0]?.revision) || 0;
+  const newRev = Number(rows[0]?.revision) || 0;
+  // Real-time: уведомляем всех подключённых клиентов о новой ревизии,
+  // чтобы они подтянули свежие данные без ожидания auto-pull.
+  try { broadcastStateChanged(newRev, { source: "server" }); } catch {}
+  return newRev;
 }
 
 function buildBotApiUrl(token, method) {
@@ -3141,6 +3150,8 @@ app.put("/api/data", authMiddleware, async (req, res) => {
       });
     }
     const savedRev = Number(savedRows[0]?.revision) || 0;
+    const broadcasterId = req.user?.sub != null ? String(req.user.sub) : "";
+    try { broadcastStateChanged(savedRev, { source: "put", by: broadcasterId }); } catch {}
     return res.json({ ok: true, rev: savedRev });
   } catch (e) {
     console.error(e);
@@ -3318,8 +3329,22 @@ async function main() {
   await ensureMediaStorageDir();
   console.log(`Папка медиа: ${MEDIA_STORAGE_PATH}`);
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Сервер слушает порт ${PORT} (${NODE_ENV})`);
+  const httpServer = createHttpServer(app);
+  attachRealtimeHub({
+    httpServer,
+    jwtSecret: JWT_SECRET,
+    isSessionVersionCurrent,
+    getCurrentRevision: async () => {
+      try {
+        const { rows } = await pool.query("SELECT revision FROM app_state WHERE id = 1");
+        return Number(rows[0]?.revision) || 0;
+      } catch {
+        return 0;
+      }
+    }
+  });
+  httpServer.listen(PORT, "0.0.0.0", () => {
+    console.log(`Сервер слушает порт ${PORT} (${NODE_ENV}) — WebSocket на /ws/state`);
   });
 }
 
