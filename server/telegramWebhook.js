@@ -917,12 +917,28 @@ function myTasksListKeyboard(rows, payload, chatId) {
   return { inline_keyboard: inline.slice(0, 70) };
 }
 
+// Маркер карточки задачи: buildFullTaskMessage всегда начинается с этой строки.
+// Если text/caption начинается с маркера — отправляем с parse_mode HTML, чтобы
+// mention-ссылки (<a href="tg://user?id=...">) превратились в кликабельные ники.
+const TG_TASK_MSG_HTML_MARKER = "📝 Задача №";
+
 async function tg(token, method, body) {
+  let outBody = body;
+  if (outBody && typeof outBody === "object" && !outBody.parse_mode) {
+    const candidate = typeof outBody.text === "string"
+      ? outBody.text
+      : typeof outBody.caption === "string"
+        ? outBody.caption
+        : "";
+    if (candidate.startsWith(TG_TASK_MSG_HTML_MARKER)) {
+      outBody = { ...outBody, parse_mode: "HTML" };
+    }
+  }
   const url = `https://api.telegram.org/bot${token}/${method}`;
   const r = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
+    body: JSON.stringify(outBody)
   });
   return r.json();
 }
@@ -1051,37 +1067,92 @@ function isAssignedEmployeeReader(payload, row, chatId) {
   return assignedChat === clickChat;
 }
 
-function buildFullTaskMessage(row) {
+/**
+ * Экранирует строку для Telegram parse_mode=HTML.
+ * Telegram HTML — упрощённый, достаточно &, < и >.
+ */
+function escapeTgHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Превращает одно ФИО в HTML-mention <a href="tg://user?id=CHAT_ID">Name</a>,
+ * если для этого сотрудника известны chat_id и поле "Telegram" = "Подключен".
+ * Иначе — просто экранированный текст.
+ *
+ * Telegram-клиенты (iOS/Android/Desktop/Web) корректно показывают такие mention'ы
+ * как «синий ник» и при клике открывают чат с пользователем.
+ */
+function buildEmployeeMentionHtml(name, payload) {
+  const fio = String(name || "").trim();
+  if (!fio) return "";
+  const safe = escapeTgHtml(fio);
+  if (!payload) return safe;
+  const employees = getEmployeesSection(payload);
+  const empRows = Array.isArray(employees?.rows) ? employees.rows : [];
+  const want = fio.toLowerCase();
+  const er = empRows.find((r) => String(r?.[EMPLOYEE_COLUMNS.fullName] || "").trim().toLowerCase() === want);
+  if (!er) return safe;
+  const chatId = String(er[EMPLOYEE_COLUMNS.chatId] || "").trim();
+  const connected = String(er[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен";
+  if (!chatId || !connected) return safe;
+  // Числовой chat_id — escape только цифры, но всё равно прогоняем для безопасности.
+  return `<a href="tg://user?id=${escapeTgHtml(chatId)}">${safe}</a>`;
+}
+
+/**
+ * Multi-name поле через запятую — каждое имя независимо превращаем в mention.
+ */
+function buildEmployeeMentionsListHtml(rawValue, payload) {
+  const raw = String(rawValue ?? "").trim();
+  if (!raw) return "—";
+  const names = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!names.length) return "—";
+  return names.map((n) => buildEmployeeMentionHtml(n, payload)).join(", ");
+}
+
+/**
+ * Текст карточки задачи в HTML с mention-ссылками на ФИО.
+ * Параметр payload опциональный — если не задан, ФИО рендерится обычным
+ * (HTML-экранированным) текстом без ссылок (для тестов / fallback).
+ *
+ * ВАЖНО: вывод этой функции отправляется с parse_mode: "HTML" в Telegram API.
+ */
+function buildFullTaskMessage(row, payload = null) {
+  const E = escapeTgHtml;
   const lines = [];
   const st = String(row[TASK_COLUMNS.status] || "").trim();
-  const statusLine = st ? `${STATUS_EMOJI[st] || "⚪"} ${st}` : "—";
-  lines.push(`📝 Задача №${String(row[TASK_COLUMNS.number] || "").trim() || "—"}`);
-  lines.push(`📄 Описание: ${String(row[TASK_COLUMNS.task] || "").trim() || "—"}`);
-  lines.push(`🏢 Объект: ${String(row[TASK_COLUMNS.object] || "").trim() || "—"}`);
+  const statusLine = st ? `${STATUS_EMOJI[st] || "⚪"} ${E(st)}` : "—";
+  lines.push(`📝 Задача №${E(String(row[TASK_COLUMNS.number] || "").trim() || "—")}`);
+  lines.push(`📄 Описание: ${E(String(row[TASK_COLUMNS.task] || "").trim() || "—")}`);
+  lines.push(`🏢 Объект: ${E(String(row[TASK_COLUMNS.object] || "").trim() || "—")}`);
   lines.push(`📌 Статус: ${statusLine}`);
-  lines.push(`⚡ Приоритет: ${String(row[TASK_COLUMNS.priority] || "").trim() || "—"}`);
-  lines.push(`📅 Дата: ${String(row[TASK_COLUMNS.addedDate] || "").trim() || "—"}`);
-  lines.push(`🏗 Фаза: ${String(row[TASK_COLUMNS.phase] || "").trim() || "—"}`);
-  lines.push(`📂 Раздел: ${String(row[TASK_COLUMNS.phaseSection] || "").trim() || "—"}`);
-  lines.push(`🗂 Подраздел: ${String(row[TASK_COLUMNS.phaseSubsection] || "").trim() || "—"}`);
-  lines.push(`👤 Ответственный: ${String(row[TASK_COLUMNS.assignedResponsible] || "").trim() || "—"}`);
-  lines.push(`👤 Постановщик задачи: ${String(row[TASK_COLUMNS.responsible] || "").trim() || "—"}`);
-  lines.push(`⏳ Срок: ${String(row[TASK_COLUMNS.dueDate] || "").trim() || "—"}`);
+  lines.push(`⚡ Приоритет: ${E(String(row[TASK_COLUMNS.priority] || "").trim() || "—")}`);
+  lines.push(`📅 Дата: ${E(String(row[TASK_COLUMNS.addedDate] || "").trim() || "—")}`);
+  lines.push(`🏗 Фаза: ${E(String(row[TASK_COLUMNS.phase] || "").trim() || "—")}`);
+  lines.push(`📂 Раздел: ${E(String(row[TASK_COLUMNS.phaseSection] || "").trim() || "—")}`);
+  lines.push(`🗂 Подраздел: ${E(String(row[TASK_COLUMNS.phaseSubsection] || "").trim() || "—")}`);
+  lines.push(`👤 Ответственный: ${buildEmployeeMentionsListHtml(row[TASK_COLUMNS.assignedResponsible], payload)}`);
+  lines.push(`👤 Постановщик задачи: ${buildEmployeeMentionsListHtml(row[TASK_COLUMNS.responsible], payload)}`);
+  lines.push(`⏳ Срок: ${E(String(row[TASK_COLUMNS.dueDate] || "").trim() || "—")}`);
   const delayReason = String(row[TASK_COLUMNS.delayReason] || "").trim();
-  if (delayReason) lines.push(`🚧 Причина отставания: ${delayReason}`);
+  if (delayReason) lines.push(`🚧 Причина отставания: ${E(delayReason)}`);
   const reassignReason = String(row[TASK_COLUMNS.reassignReason] || "").trim();
-  if (reassignReason) lines.push(`🔁 Причина переназначения: ${reassignReason}`);
+  if (reassignReason) lines.push(`🔁 Причина переназначения: ${E(reassignReason)}`);
   const note = String(row[TASK_COLUMNS.note] || "").trim();
-  if (note) lines.push(`💬 Комментарий: ${note}`);
+  if (note) lines.push(`💬 Комментарий: ${E(note)}`);
   return lines.join("\n");
 }
 
-function taskCaptionWithPlan(row) {
-  const base = buildFullTaskMessage(row);
+function taskCaptionWithPlan(row, payload = null) {
+  const base = buildFullTaskMessage(row, payload);
   const plan = String(row[TASK_COLUMNS.plan] || "").trim();
   if (!plan) return base;
   const compactPlan = plan.length > 800 ? `${plan.slice(0, 797)}...` : plan;
-  return `${base}\n🧩 Комментарии сотрудника (Результат):\n${compactPlan.replace(/\r\n?/g, "\n")}`;
+  return `${base}\n🧩 Комментарии сотрудника (Результат):\n${escapeTgHtml(compactPlan.replace(/\r\n?/g, "\n"))}`;
 }
 
 function ensureLastTaskStore(payload) {
@@ -1200,7 +1271,7 @@ async function broadcastTaskCardUpdate(payload, token, row, reasonText, excludeC
     const scopedRow = buildTaskRowForChat(payload, row, cid);
     const body = {
       chat_id: cid,
-      text: `${taskCaptionWithPlan(scopedRow)}\n\n${String(reasonText || "").trim() || "Обновление по задаче."}`
+      text: `${taskCaptionWithPlan(scopedRow, payload)}\n\n${String(reasonText || "").trim() || "Обновление по задаче."}`
     };
     if (actionChats.has(String(cid || "").trim())) {
       body.reply_markup = { inline_keyboard: mainKeyboard(taskId, scopedRow, appTz) };
@@ -1777,7 +1848,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${buildFullTaskMessage(refreshedViewerRow)}\n\nВыберите действие по задаче:`,
+      text: `${buildFullTaskMessage(refreshedViewerRow, payload)}\n\nВыберите действие по задаче:`,
       reply_markup: { inline_keyboard: inlineKeyboard }
     });
     await answerOk("Задача отмечена как прочитанная");
@@ -1803,7 +1874,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(viewerRow)}\n\nВыберите новый статус:`,
+      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nВыберите новый статус:`,
       reply_markup: { inline_keyboard: keyboard }
     });
     await answerOk();
@@ -1872,7 +1943,7 @@ async function handleCallback(q, pool, token) {
       await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: messageId,
-        text: `${taskCaptionWithPlan(viewerRow)}\n\nЗапрос на закрытие отправлен администратору. Ожидайте подтверждения.`,
+        text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nЗапрос на закрытие отправлен администратору. Ожидайте подтверждения.`,
         reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, viewerRow, chatId, appTz) }
       });
       await notifyCloseConfirmRecipients(pool, token, payload, taskId, row, empName);
@@ -1891,7 +1962,7 @@ async function handleCallback(q, pool, token) {
       await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: messageId,
-        text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId, taskId))}\n\nСтатус обновлён.`,
+        text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId, taskId), payload)}\n\nСтатус обновлён.`,
         reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, buildTaskRowForChat(payload, row, chatId, taskId), chatId, appTz) }
       });
       await answerOk();
@@ -1935,7 +2006,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId, taskId))}\n\nСтатус обновлён.`,
+      text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId, taskId), payload)}\n\nСтатус обновлён.`,
       reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, buildTaskRowForChat(payload, row, chatId, taskId), chatId, appTz) }
     });
     await answerOk();
@@ -1954,7 +2025,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(viewerRow)}\n\nНапишите комментарий одним сообщением ниже (или /отмена).`,
+      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nНапишите комментарий одним сообщением ниже (или /отмена).`,
       reply_markup: { inline_keyboard: backOnlyKeyboard(taskId) }
     });
     await answerOk();
@@ -1979,7 +2050,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(viewerRow)}\n\nВыберите причину отставания:`,
+      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nВыберите причину отставания:`,
       reply_markup: { inline_keyboard: keyboard }
     });
     await answerOk();
@@ -2001,7 +2072,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(viewerRow)}\n\nВыберите тип причины для переназначения:`,
+      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nВыберите тип причины для переназначения:`,
       reply_markup: { inline_keyboard: keyboard }
     });
     await answerOk();
@@ -2021,7 +2092,7 @@ async function handleCallback(q, pool, token) {
       await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: messageId,
-        text: `${taskCaptionWithPlan(viewerRow)}\n\nВыберите причину:`,
+        text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nВыберите причину:`,
         reply_markup: { inline_keyboard: keyboard.slice(0, 60) }
       });
       await answerOk();
@@ -2038,7 +2109,7 @@ async function handleCallback(q, pool, token) {
       await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: messageId,
-        text: `${taskCaptionWithPlan(viewerRow)}\n\nВведите причину переназначения одним сообщением (или /отмена).`,
+        text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nВведите причину переназначения одним сообщением (или /отмена).`,
         reply_markup: { inline_keyboard: backOnlyKeyboard(taskId) }
       });
       await answerOk();
@@ -2074,7 +2145,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(viewerRow)}\n\nШаг 1/2: выберите отдел`,
+      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nШаг 1/2: выберите отдел`,
       reply_markup: { inline_keyboard: keyboard.slice(0, 80) }
     });
     await answerOk();
@@ -2108,7 +2179,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(viewerRow)}\n\nШаг 2/2: выберите сотрудника отдела «${departmentName}»`,
+      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nШаг 2/2: выберите сотрудника отдела «${escapeTgHtml(departmentName)}»`,
       reply_markup: { inline_keyboard: keyboard.slice(0, 80) }
     });
     await answerOk();
@@ -2172,11 +2243,11 @@ async function handleCallback(q, pool, token) {
 
     const reasonLabel = reqStore[requestId].reasonType === "objective" ? "Объективная" : "Субъективная";
     const requestText =
-      `${buildFullTaskMessage(row)}\n\nЗапрос на переназначение\n` +
-      `Задача: ${reassignCode}\n` +
-      `Причина (${reasonLabel}): ${reqStore[requestId].reasonText || "—"}\n` +
-      `С кого: ${fromAssignee || "—"}\n` +
-      `На кого: ${target.fullName || "—"}`;
+      `${buildFullTaskMessage(row, payload)}\n\nЗапрос на переназначение\n` +
+      `Задача: ${escapeTgHtml(reassignCode)}\n` +
+      `Причина (${escapeTgHtml(reasonLabel)}): ${escapeTgHtml(reqStore[requestId].reasonText || "—")}\n` +
+      `С кого: ${buildEmployeeMentionHtml(fromAssignee, payload) || "—"}\n` +
+      `На кого: ${buildEmployeeMentionHtml(target.fullName, payload) || "—"}`;
     const reqKb = {
       inline_keyboard: [[
         { text: "Подтвердить", callback_data: cb(taskId, `ar|${requestId}|y`) },
@@ -2190,7 +2261,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId, taskId))}\n\nЗапрос ${reassignCode} отправлен на подтверждение.`,
+      text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId, taskId), payload)}\n\nЗапрос ${reassignCode} отправлен на подтверждение.`,
       reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, buildTaskRowForChat(payload, row, chatId, taskId), chatId, appTz) }
     });
     await answerOk("Запрос отправлен");
@@ -2221,7 +2292,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId, taskId))}\n\nПричина отставания сохранена.`,
+      text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId, taskId), payload)}\n\nПричина отставания сохранена.`,
       reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, buildTaskRowForChat(payload, row, chatId, taskId), chatId, appTz) }
     });
     await broadcastTaskCardUpdate(payload, token, row, "Причина отставания обновлена.", String(chatId));
@@ -2245,7 +2316,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(viewerRow)}\n\nНапишите причину отставания одним сообщением (или /отмена).`,
+      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nНапишите причину отставания одним сообщением (или /отмена).`,
       reply_markup: { inline_keyboard: backOnlyKeyboard(taskId) }
     });
     await answerOk();
@@ -2283,7 +2354,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(refreshedViewerRow)}\n\nВыберите действие по задаче:`,
+      text: `${taskCaptionWithPlan(refreshedViewerRow, payload)}\n\nВыберите действие по задаче:`,
       reply_markup: { inline_keyboard: inlineKeyboard }
     });
     await answerOk();
@@ -2346,15 +2417,15 @@ async function handleCallback(q, pool, token) {
         setSingleTaskClosedAt(payload, row, confirmedAt);
       }
       const confirmInfo = requesterAssignee && assignees.length > 1
-        ? `Закрытие подтверждено: ${requesterAssignee} (${empName || "—"}), ${confirmedAt}`
-        : `Закрытие подтверждено: ${empName || "—"}, ${confirmedAt}`;
+        ? `Закрытие подтверждено: ${escapeTgHtml(requesterAssignee)} (${escapeTgHtml(empName || "—")}), ${escapeTgHtml(confirmedAt)}`
+        : `Закрытие подтверждено: ${escapeTgHtml(empName || "—")}, ${escapeTgHtml(confirmedAt)}`;
       delete payload.telegramCloseRequests[taskId];
       appendTaskHistory(payload, closeBaseTaskId || taskId, empName, `Telegram: закрытие задачи подтверждено (${closeCode || taskId}, ${confirmedAt})`);
       await savePayload(pool, payload);
 
       const sourceMid = Number(req.sourceMessageId) || 0;
       const requesterRow = buildTaskRowForChat(payload, row, req.chatId, closeCode || taskId);
-      const requesterText = `${buildFullTaskMessage(requesterRow)}\n\n✅ ${confirmInfo}`;
+      const requesterText = `${buildFullTaskMessage(requesterRow, payload)}\n\n✅ ${confirmInfo}`;
       if (sourceMid) {
         await tg(token, "editMessageText", {
           chat_id: req.chatId,
@@ -2486,7 +2557,7 @@ async function handleCallback(q, pool, token) {
         const targetRow = buildTaskRowForReassign(rqRow, reassignEntry, rqTaskId);
         await tg(token, "sendMessage", {
           chat_id: targetChat,
-          text: `${buildFullTaskMessage(targetRow)}\n\nВам назначена задача (${reassignCode}).`,
+          text: `${buildFullTaskMessage(targetRow, payload)}\n\nВам назначена задача (${reassignCode}).`,
           reply_markup: readKeyboard
         });
         reassignEntry.sentAt = nowIso;
@@ -2496,12 +2567,12 @@ async function handleCallback(q, pool, token) {
       const sourceMid = Number(reqEntry.sourceMessageId) || 0;
       const reasonLabel = String(reqEntry.reasonType || "").trim() === "objective" ? "Объективная" : "Субъективная";
       const requesterText =
-        `${buildFullTaskMessage(buildTaskRowForChat(payload, rqRow, requesterChat))}\n\n` +
-        `Вы переназначили задачу (${reassignCode}).\n` +
-        `Причина (${reasonLabel}): ${String(reqEntry.reasonText || "—").trim() || "—"}\n` +
-        `Передано: ${toName || "—"}\n` +
-        `Подтвердил: ${actor}\n` +
-        `Дата/время: ${nowText}`;
+        `${buildFullTaskMessage(buildTaskRowForChat(payload, rqRow, requesterChat), payload)}\n\n` +
+        `Вы переназначили задачу (${escapeTgHtml(reassignCode)}).\n` +
+        `Причина (${escapeTgHtml(reasonLabel)}): ${escapeTgHtml(String(reqEntry.reasonText || "—").trim() || "—")}\n` +
+        `Передано: ${buildEmployeeMentionHtml(toName, payload) || "—"}\n` +
+        `Подтвердил: ${escapeTgHtml(actor)}\n` +
+        `Дата/время: ${escapeTgHtml(nowText)}`;
       if (requesterChat) {
         if (sourceMid) {
           await tg(token, "editMessageText", {
@@ -2605,7 +2676,7 @@ async function notifyCloseConfirmRecipients(pool, token, payload, taskId, row, r
   const targetChatIds = Array.isArray(closeReq.allowedConfirmChatIds)
     ? closeReq.allowedConfirmChatIds.map((x) => String(x).trim()).filter(Boolean)
     : [];
-  const text = `${buildFullTaskMessage(row)}\n\nЗапрос на закрытие задачи №${taskId}\nОт: ${requesterName}\n\nПодтвердите или отклоните закрытие.`;
+  const text = `${buildFullTaskMessage(row, payload)}\n\nЗапрос на закрытие задачи №${escapeTgHtml(taskId)}\nОт: ${escapeTgHtml(requesterName)}\n\nПодтвердите или отклоните закрытие.`;
   const kb = {
     inline_keyboard: [
       [
@@ -2668,7 +2739,7 @@ async function handleMessage(msg, pool, token) {
         const edited = await tg(token, "editMessageText", {
           chat_id: chatId,
           message_id: promptMessageId,
-          text: `${taskCaptionWithPlan(scopedRow)}\n\nДействие отменено.`,
+          text: `${taskCaptionWithPlan(scopedRow, payload)}\n\nДействие отменено.`,
           reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, scopedRow, chatId, appTz) }
         });
         if (edited?.ok) return;
@@ -2676,7 +2747,7 @@ async function handleMessage(msg, pool, token) {
       if (row) {
         await tg(token, "sendMessage", {
           chat_id: chatId,
-          text: `${taskCaptionWithPlan(scopedRow)}\n\nДействие отменено.`,
+          text: `${taskCaptionWithPlan(scopedRow, payload)}\n\nДействие отменено.`,
           reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, scopedRow, chatId, appTz) }
         });
         return;
@@ -2836,20 +2907,20 @@ async function handleMessage(msg, pool, token) {
       const edited = await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: promptMessageId,
-        text: `${taskCaptionWithPlan(getChatRow())}\n\nКомментарий сохранён.`,
+        text: `${taskCaptionWithPlan(getChatRow(), payload)}\n\nКомментарий сохранён.`,
         reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
       });
       if (!edited?.ok) {
         await tg(token, "sendMessage", {
           chat_id: chatId,
-          text: `${taskCaptionWithPlan(getChatRow())}\n\nКомментарий сохранён.`,
+          text: `${taskCaptionWithPlan(getChatRow(), payload)}\n\nКомментарий сохранён.`,
           reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
         });
       }
     } else {
       await tg(token, "sendMessage", {
         chat_id: chatId,
-        text: `${taskCaptionWithPlan(getChatRow())}\n\nКомментарий сохранён.`,
+        text: `${taskCaptionWithPlan(getChatRow(), payload)}\n\nКомментарий сохранён.`,
         reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
       });
     }
@@ -2870,14 +2941,14 @@ async function handleMessage(msg, pool, token) {
       const edited = await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: promptMessageId,
-        text: `${taskCaptionWithPlan(getChatRow())}\n\nПричина отставания станет доступна после просрочки планового срока.`,
+        text: `${taskCaptionWithPlan(getChatRow(), payload)}\n\nПричина отставания станет доступна после просрочки планового срока.`,
         reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
       });
       if (edited?.ok) return;
     }
     await tg(token, "sendMessage", {
       chat_id: chatId,
-      text: `${taskCaptionWithPlan(getChatRow())}\n\nПричина отставания станет доступна после просрочки планового срока.`,
+      text: `${taskCaptionWithPlan(getChatRow(), payload)}\n\nПричина отставания станет доступна после просрочки планового срока.`,
       reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
     });
     return;
@@ -2895,20 +2966,20 @@ async function handleMessage(msg, pool, token) {
       const edited = await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: promptMessageId,
-        text: `${taskCaptionWithPlan(getChatRow())}\n\nПричина отставания сохранена.`,
+        text: `${taskCaptionWithPlan(getChatRow(), payload)}\n\nПричина отставания сохранена.`,
         reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
       });
       if (!edited?.ok) {
         await tg(token, "sendMessage", {
           chat_id: chatId,
-          text: `${taskCaptionWithPlan(getChatRow())}\n\nПричина отставания сохранена.`,
+          text: `${taskCaptionWithPlan(getChatRow(), payload)}\n\nПричина отставания сохранена.`,
           reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
         });
       }
     } else {
       await tg(token, "sendMessage", {
         chat_id: chatId,
-        text: `${taskCaptionWithPlan(getChatRow())}\n\nПричина отставания сохранена.`,
+        text: `${taskCaptionWithPlan(getChatRow(), payload)}\n\nПричина отставания сохранена.`,
         reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, getChatRow(), chatId, appTz) }
       });
     }
@@ -2939,13 +3010,13 @@ async function handleMessage(msg, pool, token) {
       await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: promptMessageId,
-        text: `${taskCaptionWithPlan(getChatRow())}\n\nШаг 1/2: выберите отдел`,
+        text: `${taskCaptionWithPlan(getChatRow(), payload)}\n\nШаг 1/2: выберите отдел`,
         reply_markup: { inline_keyboard: keyboard.slice(0, 80) }
       });
     } else {
       await tg(token, "sendMessage", {
         chat_id: chatId,
-        text: `${taskCaptionWithPlan(getChatRow())}\n\nШаг 1/2: выберите отдел`,
+        text: `${taskCaptionWithPlan(getChatRow(), payload)}\n\nШаг 1/2: выберите отдел`,
         reply_markup: { inline_keyboard: keyboard.slice(0, 80) }
       });
     }

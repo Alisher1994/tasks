@@ -10422,24 +10422,3 @@ html {
   background: transparent !important;
 }
 
-/* Ссылка-имя сотрудника: tg://user?id=… открывает Telegram-чат с ним.
-   Стилизуем под обычное имя с лёгким акцентом, чтобы не пестрело "синий-подчёркивание". */
-.employee-name-tg-link {
-  color: inherit;
-  text-decoration: none;
-  cursor: pointer;
-  border-bottom: 1px dashed transparent;
-  transition: color 120ms ease, border-color 120ms ease;
-}
-
-.employee-name-tg-link:hover,
-.employee-name-tg-link:focus-visible {
-  color: var(--brand);
-  border-bottom-color: var(--brand);
-  outline: none;
-}
-
-.employee-name-tg-link:active {
-  color: var(--brand-hover);
-}
-
