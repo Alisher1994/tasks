@@ -2018,7 +2018,7 @@ async function handleCallback(q, pool, token) {
 
     if (isClose) {
       // Перед созданием запроса на закрытие — даём шанс прикрепить файл-обоснование.
-      // Сохраняем контекст в сессии и просим прислать документ/фото или /пропустить.
+      // Сохраняем контекст в сессии и просим прислать документ/фото или нажать "Пропустить".
       if (!payload.telegramSessions) payload.telegramSessions = {};
       payload.telegramSessions[String(chatId)] = {
         expect: "closeTaskFile",
@@ -2029,11 +2029,15 @@ async function handleCallback(q, pool, token) {
       };
       setLastTaskContext(payload, chatId, taskId, messageId);
       await savePayload(pool, payload);
+      const closeFileKeyboard = [
+        [{ text: "⬅️ Назад", callback_data: cb(taskId, "bk") }],
+        [{ text: "⏭ Пропустить", callback_data: cb(taskId, "csk") }]
+      ];
       await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: messageId,
-        text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nПрикрепите файл-обоснование закрытия (документ или фото) одним сообщением, или отправьте /пропустить, если документа нет.`,
-        reply_markup: { inline_keyboard: backOnlyKeyboard(taskId) }
+        text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nПрикрепите файл-обоснование закрытия (документ или фото) одним сообщением, или нажмите «Пропустить», если документа нет.`,
+        reply_markup: { inline_keyboard: closeFileKeyboard }
       });
       await answerOk();
       return;
@@ -2096,6 +2100,35 @@ async function handleCallback(q, pool, token) {
       message_id: messageId,
       text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId, taskId), payload)}\n\nСтатус обновлён.`,
       reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, buildTaskRowForChat(payload, row, chatId, taskId), chatId, appTz) }
+    });
+    await answerOk();
+    return;
+  }
+
+  // Кнопка "Пропустить" на шаге прикрепления файла-обоснования при закрытии задачи.
+  // Эквивалент текстовой команды /пропустить — создаём запрос на закрытие без файла.
+  if (parsed.action === "csk") {
+    const sess = payload.telegramSessions?.[String(chatId)];
+    if (!sess || sess.expect !== "closeTaskFile" || String(sess.taskId || "").trim() !== taskId) {
+      await answerOk("Сессия истекла, начните заново");
+      return;
+    }
+    if (!canChatUseTaskActions(payload, viewerRow, chatId)) {
+      await answerOk("Действие доступно только исполнителю");
+      return;
+    }
+    const viewerAssigneeName = getTaskAssigneeNameByChat(payload, viewerRow, chatId);
+    const baseTaskIdForClose = String(sess.baseTaskId || taskId || "").trim();
+    const assigneeNameForClose = String(sess.assigneeName || viewerAssigneeName || "").trim();
+    const promptMessageIdForClose = Number(sess.promptMessageId) || Number(messageId) || null;
+    clearSession(payload, String(chatId));
+    await savePayload(pool, payload);
+    await submitTaskCloseRequest({
+      pool, token, payload, chatId, taskId, row, viewerRow, empName,
+      baseTaskId: baseTaskIdForClose,
+      assigneeName: assigneeNameForClose,
+      messageId: promptMessageIdForClose,
+      appTz
     });
     await answerOk();
     return;
