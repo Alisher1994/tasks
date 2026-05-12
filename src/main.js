@@ -13369,8 +13369,8 @@ function renderTasksSplitLayout(section, options) {
         `);
         const reassignMainCells = mainVisibleColumnIndexes.map((colIndex) => {
           let val = cloned[colIndex];
-          if (colIndex === TASK_COLUMNS.task) val = `Переназначение: ${from} → ${to}`;
-          else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `${escapeHtmlText(from)}`;
+          if (colIndex === TASK_COLUMNS.task) val = `Переназначение: ${renderEmployeeNamesAsTgLinks(from)} → ${renderEmployeeNamesAsTgLinks(to)}`;
+          else if (colIndex === TASK_COLUMNS.assignedResponsible) val = renderEmployeeNamesAsTgLinks(from);
           else if (colIndex === TASK_COLUMNS.status) val = `<span class="status-badge status-${slugify(label)}">${escapeHtmlText(label)}</span>`;
           else if (colIndex === TASK_COLUMNS.reassignReason) val = `${escapeHtmlText(reason)}`;
           else if (colIndex === TASK_COLUMNS.createdAt) {
@@ -13763,8 +13763,8 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
       const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
       let val = cloned[colIndex];
       if (colIndex === TASK_COLUMNS.number) val = `↪ ${subId}`;
-      else if (colIndex === TASK_COLUMNS.task) val = `Переназначение: ${from} → ${to}`;
-      else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `${escapeHtmlText(from)}`;
+      else if (colIndex === TASK_COLUMNS.task) val = `Переназначение: ${renderEmployeeNamesAsTgLinks(from)} → ${renderEmployeeNamesAsTgLinks(to)}`;
+      else if (colIndex === TASK_COLUMNS.assignedResponsible) val = renderEmployeeNamesAsTgLinks(from);
       else if (colIndex === TASK_COLUMNS.status) val = `<span class="status-badge status-${slugify(label)}">${escapeHtmlText(label)}</span>`;
       else if (colIndex === TASK_COLUMNS.reassignReason) val = `${escapeHtmlText(reason)}`;
       else if (colIndex === TASK_COLUMNS.createdAt) {
@@ -13790,6 +13790,42 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
     `;
   }).join("");
   return rowsHtml;
+}
+
+/**
+ * Превращает ФИО в Telegram-гиперссылку, если для этого сотрудника известен chat_id
+ * и поле "Telegram" = "Подключен". Иначе — обычный HTML-экранированный текст.
+ *
+ * Формат: tg://user?id=CHAT_ID — стандартный deeplink, который открывает чат с
+ * пользователем по его числовому id. Работает в нативных клиентах Telegram (iOS,
+ * Android, Desktop). В Web-Telegram может не работать — это ограничение протокола,
+ * не нашей логики.
+ *
+ * Принимает либо одно имя, либо список через запятую (как в multi-assignee полях).
+ */
+function renderEmployeeNamesAsTgLinks(rawValue) {
+  const raw = String(rawValue ?? "").trim();
+  if (!raw) return "";
+  const names = parseTaskAssigneeNames(raw);
+  if (!names.length) return escapeHtmlText(raw);
+  const employeesRows = getSectionById("employees")?.rows || [];
+  const empByName = new Map();
+  employeesRows.forEach((er) => {
+    const fn = normalizePersonName(er?.[EMPLOYEE_COLUMNS.fullName]);
+    if (fn) empByName.set(fn, er);
+  });
+  return names
+    .map((name) => {
+      const er = empByName.get(name);
+      const chatId = String(er?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
+      const tgConnected = String(er?.[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен";
+      const safeName = escapeHtmlText(name);
+      if (chatId && tgConnected) {
+        return `<a href="tg://user?id=${escapeHtmlAttr(chatId)}" class="employee-name-tg-link" title="Открыть чат в Telegram с ${escapeHtmlAttr(name)}">${safeName}</a>`;
+      }
+      return safeName;
+    })
+    .join(", ");
 }
 
 function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1) {
@@ -13883,8 +13919,20 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
     const status = String(getTaskDisplayStatus(row) || "").trim().toLowerCase();
     const fio = String(value || "").trim();
     if (status === "передано" && fio) {
-      return `<s>${escapeHtmlText(fio)}</s>`;
+      // У "Передано" — зачёркиваем имя, но всё равно ссылку оставляем кликабельной
+      return `<s>${renderEmployeeNamesAsTgLinks(fio)}</s>`;
     }
+    if (fio) return renderEmployeeNamesAsTgLinks(fio);
+  }
+  // Постановщик задачи (TASK_COLUMNS.responsible = 9) — отдельная колонка.
+  if (colIndex === TASK_COLUMNS.responsible) {
+    const fio = String(value || "").trim();
+    if (fio) return renderEmployeeNamesAsTgLinks(fio);
+  }
+  // ФИО сотрудника в справочнике "Сотрудники" — кликабельно открывает чат.
+  if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.fullName) {
+    const fio = String(value || "").trim();
+    if (fio) return renderEmployeeNamesAsTgLinks(fio);
   }
 
   if (colIndex === TASK_COLUMNS.addedDate || colIndex === TASK_COLUMNS.closedDate) {
