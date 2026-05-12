@@ -4,6 +4,10 @@
  * Токен: TELEGRAM_BOT_TOKEN в окружении или displaySettings.telegramBotToken в JSON приложения (после синхронизации).
  */
 
+import { promises as fsp } from "fs";
+import path from "path";
+import { randomBytes } from "crypto";
+
 const STATUS_DECISION_OLD = "Треб. реш. рук.";
 const STATUS_DECISION = "Требует решение руководителя";
 const EMPLOYEE_STATUS_OPTIONS = ["В процессе", "Закрыт"];
@@ -980,6 +984,92 @@ async function addTelegramPhotoToTaskMediaAfter(row, token, fileId) {
   return { fileName, filePath, storedValue };
 }
 
+function getMediaStoragePath() {
+  const fromEnv = String(process.env.MEDIA_STORAGE_PATH || "").trim();
+  if (fromEnv) return fromEnv;
+  return path.join(process.cwd(), "media");
+}
+
+const TG_FILE_EXT_TO_MIME = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
+  pdf: "application/pdf",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  txt: "text/plain",
+  csv: "text/csv",
+  zip: "application/zip",
+  rar: "application/x-rar-compressed",
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  mp3: "audio/mpeg",
+  ogg: "audio/ogg",
+  wav: "audio/wav"
+};
+
+/**
+ * Скачивает файл из Telegram по file_id, сохраняет в локальное медиа-хранилище
+ * (то же что использует /api/media/upload) и возвращает структуру для записи в
+ * payload.taskAttachments[taskId].
+ *
+ * Возвращает null при ошибке — в этом случае закрытие задачи всё равно можно
+ * довести до конца, просто без файла.
+ */
+async function downloadTelegramFileAsAttachment(token, fileId, suggestedName = "", suggestedMime = "") {
+  try {
+    const fr = await tg(token, "getFile", { file_id: fileId });
+    if (!fr?.ok || !fr?.result) return null;
+    const filePath = String(fr.result.file_path || "").trim();
+    if (!filePath) return null;
+
+    const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const buf = Buffer.from(await resp.arrayBuffer());
+
+    const rawExt = String(filePath.split(".").pop() || "").toLowerCase();
+    const ext = /^[a-z0-9]{1,8}$/.test(rawExt) ? rawExt : "bin";
+    const fileName = `${Date.now()}-${randomBytes(6).toString("hex")}.${ext}`;
+    const dir = getMediaStoragePath();
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(path.join(dir, fileName), buf);
+
+    const baseName = suggestedName.trim() || filePath.split("/").pop() || fileName;
+    const mime = suggestedMime.trim() || TG_FILE_EXT_TO_MIME[ext] || "application/octet-stream";
+    return {
+      stored: `/media/${encodeURIComponent(fileName)}`,
+      name: baseName,
+      type: mime,
+      size: buf.length
+    };
+  } catch (e) {
+    console.error("[tg-attachment] download failed:", e);
+    return null;
+  }
+}
+
+function appendTaskAttachmentEntry(payload, taskId, entry) {
+  if (!entry || !entry.stored) return false;
+  if (!payload.taskAttachments || typeof payload.taskAttachments !== "object" || Array.isArray(payload.taskAttachments)) {
+    payload.taskAttachments = {};
+  }
+  const id = String(taskId || "").trim();
+  if (!id) return false;
+  if (!Array.isArray(payload.taskAttachments[id])) payload.taskAttachments[id] = [];
+  payload.taskAttachments[id].push({
+    id: `f_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    stored: entry.stored,
+    name: entry.name || "",
+    type: entry.type || "",
+    size: Number(entry.size) || 0,
+    addedAt: new Date().toISOString()
+  });
+  return true;
+}
+
 function shortTaskCaption(row) {
   const num = String(row[TASK_COLUMNS.number] ?? "").trim();
   const title = String(row[TASK_COLUMNS.task] ?? "").trim();
@@ -1897,56 +1987,24 @@ async function handleCallback(q, pool, token) {
     const activeReassign = getActiveReassignForTask(payload, taskId);
 
     if (isClose) {
-      if (!payload.telegramCloseRequests) payload.telegramCloseRequests = {};
-      const requestAllowed = new Set();
-      getDepartmentHeadChatIdsForTask(payload, row).forEach((cid) => requestAllowed.add(cid));
-      getAlwaysConfirmChatIds(payload).forEach((cid) => requestAllowed.add(cid));
-      const ds = payload.displaySettings || {};
-      const allow = new Set(
-        Array.isArray(ds.telegramCloseConfirmAllowedIds)
-          ? ds.telegramCloseConfirmAllowedIds.map((x) => String(x).trim()).filter(Boolean)
-          : []
-      );
-      const dup = new Set(
-        Array.isArray(ds.telegramGlobalDuplicateRecipientIds)
-          ? ds.telegramGlobalDuplicateRecipientIds.map((x) => String(x).trim()).filter(Boolean)
-          : []
-      );
-      const employees = getEmployeesSection(payload);
-      const rows = employees?.rows || [];
-      for (const r of rows) {
-        const id = String(r[EMPLOYEE_COLUMNS.id] ?? "").trim();
-        if (!id || !allow.has(id) || !dup.has(id)) continue;
-        if (String(r[EMPLOYEE_COLUMNS.telegram] || "").trim() !== "Подключен") continue;
-        const cid = String(r[EMPLOYEE_COLUMNS.chatId] || "").trim();
-        if (cid) requestAllowed.add(cid);
-      }
-      payload.telegramCloseRequests[taskId] = {
-        chatId: String(chatId),
-        employeeName: empName,
-        requesterAssigneeName: assigneeName || "",
-        baseTaskId,
-        reassignCode: taskId.includes("/") ? taskId : "",
-        at: Date.now(),
-        sourceMessageId: Number(messageId) || null,
-        allowedConfirmChatIds: Array.from(requestAllowed)
-      };
-      appendTaskHistory(
-        payload,
+      // Перед созданием запроса на закрытие — даём шанс прикрепить файл-обоснование.
+      // Сохраняем контекст в сессии и просим прислать документ/фото или /пропустить.
+      if (!payload.telegramSessions) payload.telegramSessions = {};
+      payload.telegramSessions[String(chatId)] = {
+        expect: "closeTaskFile",
         taskId,
-        empName,
-        `Telegram: запрошено закрытие задачи (ожидает подтверждения${requestAllowed.size ? `, согласующих: ${requestAllowed.size}` : ""})`
-      );
+        baseTaskId,
+        assigneeName: assigneeName || "",
+        promptMessageId: Number(messageId) || null
+      };
       setLastTaskContext(payload, chatId, taskId, messageId);
       await savePayload(pool, payload);
-
       await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: messageId,
-        text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nЗапрос на закрытие отправлен администратору. Ожидайте подтверждения.`,
-        reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, viewerRow, chatId, appTz) }
+        text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nПрикрепите файл-обоснование закрытия (документ или фото) одним сообщением, или отправьте /пропустить, если документа нет.`,
+        reply_markup: { inline_keyboard: backOnlyKeyboard(taskId) }
       });
-      await notifyCloseConfirmRecipients(pool, token, payload, taskId, row, empName);
       await answerOk();
       return;
     }
@@ -2671,6 +2729,71 @@ function canConfirmCloseInPayload(payload, chatId) {
   return allow.has(empId) && dup.has(empId);
 }
 
+/**
+ * Создаёт запрос на закрытие задачи (telegramCloseRequests[taskId]), редактирует
+ * исходное сообщение «Запрос отправлен …» и уведомляет согласующих. Используется
+ * после шага «прикрепить файл / пропустить» при закрытии задачи через бот.
+ */
+async function submitTaskCloseRequest({ pool, token, payload, chatId, taskId, row, viewerRow, empName, baseTaskId, assigneeName, messageId, appTz }) {
+  if (!payload.telegramCloseRequests) payload.telegramCloseRequests = {};
+  const requestAllowed = new Set();
+  getDepartmentHeadChatIdsForTask(payload, row).forEach((cid) => requestAllowed.add(cid));
+  getAlwaysConfirmChatIds(payload).forEach((cid) => requestAllowed.add(cid));
+  const ds = payload.displaySettings || {};
+  const allow = new Set(
+    Array.isArray(ds.telegramCloseConfirmAllowedIds)
+      ? ds.telegramCloseConfirmAllowedIds.map((x) => String(x).trim()).filter(Boolean)
+      : []
+  );
+  const dup = new Set(
+    Array.isArray(ds.telegramGlobalDuplicateRecipientIds)
+      ? ds.telegramGlobalDuplicateRecipientIds.map((x) => String(x).trim()).filter(Boolean)
+      : []
+  );
+  const employees = getEmployeesSection(payload);
+  const rows = employees?.rows || [];
+  for (const r of rows) {
+    const id = String(r[EMPLOYEE_COLUMNS.id] ?? "").trim();
+    if (!id || !allow.has(id) || !dup.has(id)) continue;
+    if (String(r[EMPLOYEE_COLUMNS.telegram] || "").trim() !== "Подключен") continue;
+    const cid = String(r[EMPLOYEE_COLUMNS.chatId] || "").trim();
+    if (cid) requestAllowed.add(cid);
+  }
+  payload.telegramCloseRequests[taskId] = {
+    chatId: String(chatId),
+    employeeName: empName,
+    requesterAssigneeName: assigneeName || "",
+    baseTaskId,
+    reassignCode: taskId.includes("/") ? taskId : "",
+    at: Date.now(),
+    sourceMessageId: Number(messageId) || null,
+    allowedConfirmChatIds: Array.from(requestAllowed)
+  };
+  appendTaskHistory(
+    payload,
+    taskId,
+    empName,
+    `Telegram: запрошено закрытие задачи (ожидает подтверждения${requestAllowed.size ? `, согласующих: ${requestAllowed.size}` : ""})`
+  );
+  setLastTaskContext(payload, chatId, taskId, messageId);
+  await savePayload(pool, payload);
+  if (messageId) {
+    await tg(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nЗапрос на закрытие отправлен администратору. Ожидайте подтверждения.`,
+      reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, viewerRow, chatId, appTz) }
+    });
+  } else {
+    await tg(token, "sendMessage", {
+      chat_id: chatId,
+      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nЗапрос на закрытие отправлен администратору. Ожидайте подтверждения.`,
+      reply_markup: { inline_keyboard: mainKeyboardForChat(payload, taskId, viewerRow, chatId, appTz) }
+    });
+  }
+  await notifyCloseConfirmRecipients(pool, token, payload, taskId, row, empName);
+}
+
 async function notifyCloseConfirmRecipients(pool, token, payload, taskId, row, requesterName) {
   const closeReq = payload?.telegramCloseRequests?.[String(taskId)] || {};
   const targetChatIds = Array.isArray(closeReq.allowedConfirmChatIds)
@@ -2857,6 +2980,71 @@ async function handleMessage(msg, pool, token) {
   const promptMessageId = Number(sess.promptMessageId) || null;
   const appTz = resolveAppTimeZone(payload);
   const getChatRow = () => buildTaskRowForChat(payload, row, chatId, taskId);
+
+  // Шаг прикрепления файла-обоснования при закрытии задачи через бот.
+  if (sess.expect === "closeTaskFile") {
+    const viewerRow = getChatRow();
+    const viewerAssigneeName = getTaskAssigneeNameByChat(payload, viewerRow, chatId);
+    const baseTaskId = String(sess.baseTaskId || taskId || "").trim();
+    const assigneeName = String(sess.assigneeName || viewerAssigneeName || "").trim();
+
+    const lowerText = String(text || "").toLowerCase();
+    const wantSkip = lowerText === "/пропустить" || lowerText === "/skip" || lowerText === "пропустить" || lowerText === "skip";
+
+    const docFileId = msg.document?.file_id ? String(msg.document.file_id) : "";
+    const docName = msg.document?.file_name ? String(msg.document.file_name) : "";
+    const docMime = msg.document?.mime_type ? String(msg.document.mime_type) : "";
+    let photoFileId = "";
+    if (Array.isArray(msg.photo) && msg.photo.length > 0) {
+      photoFileId = String(msg.photo[msg.photo.length - 1]?.file_id || "");
+    }
+
+    if (wantSkip) {
+      clearSession(payload, chatKey);
+      await savePayload(pool, payload);
+      await safeDeleteMessage(token, chatId, messageId);
+      await submitTaskCloseRequest({
+        pool, token, payload, chatId, taskId, row, viewerRow, empName,
+        baseTaskId, assigneeName, messageId: promptMessageId, appTz
+      });
+      return;
+    }
+
+    if (docFileId || photoFileId) {
+      const attachment = docFileId
+        ? await downloadTelegramFileAsAttachment(token, docFileId, docName, docMime)
+        : await downloadTelegramFileAsAttachment(token, photoFileId, "", "image/jpeg");
+      if (!attachment) {
+        await tg(token, "sendMessage", {
+          chat_id: chatId,
+          text: "Не удалось сохранить файл. Попробуйте ещё раз или отправьте /пропустить."
+        });
+        return;
+      }
+      appendTaskAttachmentEntry(payload, taskId, attachment);
+      appendTaskHistory(
+        payload,
+        taskId,
+        empName,
+        `Telegram: прикреплён файл-обоснование закрытия — ${attachment.name || attachment.stored}`
+      );
+      clearSession(payload, chatKey);
+      await savePayload(pool, payload);
+      await safeDeleteMessage(token, chatId, messageId);
+      await submitTaskCloseRequest({
+        pool, token, payload, chatId, taskId, row, viewerRow, empName,
+        baseTaskId, assigneeName, messageId: promptMessageId, appTz
+      });
+      return;
+    }
+
+    // Ни /пропустить, ни файл — переспрашиваем.
+    await tg(token, "sendMessage", {
+      chat_id: chatId,
+      text: "Пожалуйста, отправьте файл (документ или фото) одним сообщением или /пропустить, если документа нет."
+    });
+    return;
+  }
 
   if (sess.expect === "comment" && text) {
     const activeForChat = getActiveReassignForChat(payload, row, chatId, taskId);
