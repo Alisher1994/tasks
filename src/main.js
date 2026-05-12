@@ -19747,7 +19747,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
       </div>
       <div class="task-card-tabs" role="tablist" aria-label="Разделы карточки">
         <button type="button" class="task-card-tab is-active" role="tab" aria-selected="true" data-task-tab="main">Карточка</button>
-        <button type="button" class="task-card-tab" role="tab" aria-selected="false" data-task-tab="files">Файлы</button>
+        <button type="button" class="task-card-tab" role="tab" aria-selected="false" data-task-tab="files" data-task-files-tab-btn>Файлы${attachmentsDraft.length > 0 ? ` <span class="task-card-tab-badge">${attachmentsDraft.length}</span>` : ""}</button>
         <button type="button" class="task-card-tab" role="tab" aria-selected="false" data-task-tab="recipients">Получатели сообщения</button>
         <button type="button" class="task-card-tab" role="tab" aria-selected="false" data-task-tab="history">История</button>
       </div>
@@ -19894,6 +19894,23 @@ function openTaskDetailsModal(section, row, rowIndex) {
   };
 
   const renderTaskFilesList = () => {
+    // Бэйдж со счётчиком файлов на самой вкладке "Файлы".
+    const tabBtn = modal.querySelector('[data-task-files-tab-btn]');
+    if (tabBtn) {
+      const existingBadge = tabBtn.querySelector('.task-card-tab-badge');
+      if (attachmentsDraft.length > 0) {
+        if (existingBadge) {
+          existingBadge.textContent = String(attachmentsDraft.length);
+        } else {
+          const badge = document.createElement("span");
+          badge.className = "task-card-tab-badge";
+          badge.textContent = String(attachmentsDraft.length);
+          tabBtn.appendChild(badge);
+        }
+      } else if (existingBadge) {
+        existingBadge.remove();
+      }
+    }
     const listEl = modal.querySelector('[data-task-files-list]');
     if (!listEl) return;
     if (!attachmentsDraft.length) {

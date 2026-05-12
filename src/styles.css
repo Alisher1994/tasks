@@ -10422,3 +10422,21 @@ html {
   background: transparent !important;
 }
 
+/* Бэйдж со счётчиком на вкладке "Файлы" — показывает количество прикреплённых файлов. */
+.task-card-tab .task-card-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  vertical-align: middle;
+}
+

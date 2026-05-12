@@ -2018,25 +2018,28 @@ async function handleCallback(q, pool, token) {
 
     if (isClose) {
       // Перед созданием запроса на закрытие — даём шанс прикрепить файл-обоснование.
-      // Сохраняем контекст в сессии и просим прислать документ/фото или нажать "Пропустить".
+      // Сохраняем контекст в сессии и просим прислать документ/фото/видео и т.п.
+      // Поддерживаем несколько файлов: после каждого — обновляем prompt и ждём ещё.
       if (!payload.telegramSessions) payload.telegramSessions = {};
       payload.telegramSessions[String(chatId)] = {
         expect: "closeTaskFile",
         taskId,
         baseTaskId,
         assigneeName: assigneeName || "",
-        promptMessageId: Number(messageId) || null
+        promptMessageId: Number(messageId) || null,
+        attachedNames: []
       };
       setLastTaskContext(payload, chatId, taskId, messageId);
       await savePayload(pool, payload);
-      const closeFileKeyboard = [
-        [{ text: "⬅️ Назад", callback_data: cb(taskId, "bk") }],
-        [{ text: "⏭ Пропустить", callback_data: cb(taskId, "csk") }]
-      ];
+      // Кнопки одним рядом: Назад слева, Пропустить справа.
+      const closeFileKeyboard = [[
+        { text: "⬅️ Назад", callback_data: cb(taskId, "bk") },
+        { text: "⏭ Пропустить", callback_data: cb(taskId, "csk") }
+      ]];
       await tg(token, "editMessageText", {
         chat_id: chatId,
         message_id: messageId,
-        text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nПрикрепите файл-обоснование закрытия (документ или фото) одним сообщением, или нажмите «Пропустить», если документа нет.`,
+        text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nПрикрепите файлы-обоснования закрытия (документ, фото, видео и т.п.).\nМожно отправить несколько файлов подряд — каждое сообщение добавит файл в список.\nЛимит Telegram-бота: до 20 МБ на файл.\n\nКогда закончите — нажмите «Готово». Если документа нет — нажмите «Пропустить».`,
         reply_markup: { inline_keyboard: closeFileKeyboard }
       });
       await answerOk();
@@ -2105,9 +2108,11 @@ async function handleCallback(q, pool, token) {
     return;
   }
 
-  // Кнопка "Пропустить" на шаге прикрепления файла-обоснования при закрытии задачи.
-  // Эквивалент текстовой команды /пропустить — создаём запрос на закрытие без файла.
-  if (parsed.action === "csk") {
+  // Кнопка "Пропустить" / "Готово" на шаге прикрепления файла-обоснования
+  // при закрытии задачи. Логика одинаковая — финализируем close-request.
+  // Разница только в показанной надписи (Пропустить = 0 файлов, Готово = N файлов),
+  // обработчик любой из них доводит до submitTaskCloseRequest.
+  if (parsed.action === "csk" || parsed.action === "cdn") {
     const sess = payload.telegramSessions?.[String(chatId)];
     if (!sess || sess.expect !== "closeTaskFile" || String(sess.taskId || "").trim() !== taskId) {
       await answerOk("Сессия истекла, начните заново");
@@ -3152,46 +3157,110 @@ async function handleMessage(msg, pool, token) {
 
     const lowerText = String(text || "").toLowerCase();
     const wantSkip = lowerText === "/пропустить" || lowerText === "/skip" || lowerText === "пропустить" || lowerText === "skip";
+    const wantDone = lowerText === "/готово" || lowerText === "готово" || lowerText === "/done" || lowerText === "done";
 
     // Принимаем любой медиа-тип: документ, фото, видео, video_note, аудио,
-    // голосовое, анимация (GIF). Берём первый непустой file_id.
+    // голосовое, анимация (GIF). Берём первый непустой file_id + размер.
     let pickedFileId = "";
     let pickedName = "";
     let pickedMime = "";
+    let pickedSize = 0;
     if (msg.document?.file_id) {
       pickedFileId = String(msg.document.file_id);
       pickedName = String(msg.document.file_name || "");
       pickedMime = String(msg.document.mime_type || "");
+      pickedSize = Number(msg.document.file_size) || 0;
     } else if (msg.video?.file_id) {
       pickedFileId = String(msg.video.file_id);
       pickedName = String(msg.video.file_name || "video.mp4");
       pickedMime = String(msg.video.mime_type || "video/mp4");
+      pickedSize = Number(msg.video.file_size) || 0;
     } else if (msg.animation?.file_id) {
       pickedFileId = String(msg.animation.file_id);
       pickedName = String(msg.animation.file_name || "animation.mp4");
       pickedMime = String(msg.animation.mime_type || "video/mp4");
+      pickedSize = Number(msg.animation.file_size) || 0;
     } else if (msg.video_note?.file_id) {
       pickedFileId = String(msg.video_note.file_id);
       pickedName = "video_note.mp4";
       pickedMime = "video/mp4";
+      pickedSize = Number(msg.video_note.file_size) || 0;
     } else if (Array.isArray(msg.photo) && msg.photo.length > 0) {
-      pickedFileId = String(msg.photo[msg.photo.length - 1]?.file_id || "");
+      const largest = msg.photo[msg.photo.length - 1];
+      pickedFileId = String(largest?.file_id || "");
       pickedName = "";
       pickedMime = "image/jpeg";
+      pickedSize = Number(largest?.file_size) || 0;
     } else if (msg.audio?.file_id) {
       pickedFileId = String(msg.audio.file_id);
       pickedName = String(msg.audio.file_name || "audio.mp3");
       pickedMime = String(msg.audio.mime_type || "audio/mpeg");
+      pickedSize = Number(msg.audio.file_size) || 0;
     } else if (msg.voice?.file_id) {
       pickedFileId = String(msg.voice.file_id);
       pickedName = "voice.ogg";
       pickedMime = String(msg.voice.mime_type || "audio/ogg");
+      pickedSize = Number(msg.voice.file_size) || 0;
     }
 
-    if (wantSkip) {
+    const attachedNames = Array.isArray(sess.attachedNames) ? sess.attachedNames.slice() : [];
+
+    // Рендер блока «прикреплено»+клавиатура. Зависит от того, что уже привязано.
+    const renderPromptText = (extraNote = "") => {
+      let body = `${taskCaptionWithPlan(viewerRow, payload)}\n\nПрикрепите файлы-обоснования закрытия.`;
+      if (attachedNames.length > 0) {
+        body += `\n\n📎 Прикреплено: ${attachedNames.length}`;
+        body += `\n${attachedNames.map((n, i) => `${i + 1}. ${escapeTgHtml(n)}`).join("\n")}`;
+        body += `\n\nМожете отправить ещё файл или нажмите «Готово».`;
+      } else {
+        body += `\nМожно отправить несколько файлов подряд. Лимит Telegram-бота — до 20 МБ на файл.\n\nКогда закончите — нажмите «Готово». Если документа нет — нажмите «Пропустить».`;
+      }
+      if (extraNote) body += `\n\n${extraNote}`;
+      return body;
+    };
+    const renderKeyboard = () => {
+      // Если уже прикреплён хотя бы один файл — Пропустить заменяется на Готово.
+      const rightBtn = attachedNames.length > 0
+        ? { text: "✅ Готово", callback_data: cb(taskId, "cdn") }
+        : { text: "⏭ Пропустить", callback_data: cb(taskId, "csk") };
+      return [[
+        { text: "⬅️ Назад", callback_data: cb(taskId, "bk") },
+        rightBtn
+      ]];
+    };
+    const editOrSendPrompt = async (extraNote = "") => {
+      const promptText = renderPromptText(extraNote);
+      const keyboard = renderKeyboard();
+      const target = promptMessageId;
+      if (target) {
+        const edited = await tg(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: target,
+          text: promptText,
+          reply_markup: { inline_keyboard: keyboard }
+        });
+        if (edited?.ok) return;
+      }
+      await tg(token, "sendMessage", {
+        chat_id: chatId,
+        text: promptText,
+        reply_markup: { inline_keyboard: keyboard }
+      });
+    };
+
+    if (wantSkip && attachedNames.length === 0) {
       clearSession(payload, chatKey);
       await savePayload(pool, payload);
-      // Не удаляем команду /пропустить — её всё равно нет в чате как медиа.
+      await submitTaskCloseRequest({
+        pool, token, payload, chatId, taskId, row, viewerRow, empName,
+        baseTaskId, assigneeName, messageId: promptMessageId, appTz
+      });
+      return;
+    }
+
+    if (wantDone || (wantSkip && attachedNames.length > 0)) {
+      clearSession(payload, chatKey);
+      await savePayload(pool, payload);
       await submitTaskCloseRequest({
         pool, token, payload, chatId, taskId, row, viewerRow, empName,
         baseTaskId, assigneeName, messageId: promptMessageId, appTz
@@ -3200,37 +3269,44 @@ async function handleMessage(msg, pool, token) {
     }
 
     if (pickedFileId) {
+      // Telegram Bot API позволяет скачивать через getFile только файлы до 20 МБ.
+      // Файлы больше — отклоняем явно, иначе getFile вернёт ошибку «file is too big».
+      const MAX_TG_BOT_DOWNLOAD = 20 * 1024 * 1024;
+      if (pickedSize > MAX_TG_BOT_DOWNLOAD) {
+        const mb = Math.round((pickedSize / 1024 / 1024) * 10) / 10;
+        await tg(token, "sendMessage", {
+          chat_id: chatId,
+          text: `Файл ~${mb} МБ — это больше лимита Telegram-бота (20 МБ). Telegram не разрешает ботам скачивать файлы крупнее. Отправьте файл поменьше или загрузите его через веб-интерфейс задачи.`
+        });
+        return;
+      }
       const attachment = await downloadTelegramFileAsAttachment(token, pickedFileId, pickedName, pickedMime);
       if (!attachment) {
         await tg(token, "sendMessage", {
           chat_id: chatId,
-          text: "Не удалось сохранить файл. Попробуйте ещё раз или нажмите «Пропустить»."
+          text: "Не удалось сохранить файл. Попробуйте ещё раз или нажмите «Готово»/«Пропустить»."
         });
         return;
       }
       appendTaskAttachmentEntry(payload, taskId, attachment);
+      attachedNames.push(attachment.name || "(без имени)");
+      sess.attachedNames = attachedNames;
+      if (!payload.telegramSessions) payload.telegramSessions = {};
+      payload.telegramSessions[chatKey] = sess;
       appendTaskHistory(
         payload,
         taskId,
         empName,
         `Telegram: прикреплён файл-обоснование закрытия — ${attachment.name || attachment.stored}`
       );
-      clearSession(payload, chatKey);
       await savePayload(pool, payload);
-      // НЕ удаляем сообщение пользователя с файлом — пусть видит подтверждение,
-      // что он действительно отправил то что отправил.
-      await submitTaskCloseRequest({
-        pool, token, payload, chatId, taskId, row, viewerRow, empName,
-        baseTaskId, assigneeName, messageId: promptMessageId, appTz
-      });
+      // НЕ удаляем сообщение пользователя — пусть остаётся как подтверждение.
+      await editOrSendPrompt();
       return;
     }
 
-    // Ни «Пропустить», ни медиа — переспрашиваем и перечисляем что бот понимает.
-    await tg(token, "sendMessage", {
-      chat_id: chatId,
-      text: "Пожалуйста, отправьте файл (документ, фото, видео, GIF, аудио или голосовое) одним сообщением, либо нажмите «Пропустить» в карточке задачи выше."
-    });
+    // Ни команда, ни медиа — переспрашиваем и перечисляем что принимаем.
+    await editOrSendPrompt("⚠️ Пожалуйста, отправьте файл одним сообщением (документ любого формата, фото, видео, GIF, аудио или голосовое), либо нажмите кнопку.");
     return;
   }
 
