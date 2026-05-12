@@ -233,9 +233,10 @@ const TASK_COLUMNS = {
   delayReason: 20,
   createdBy: 21,
   createdAt: 22,
-  reassignReason: 23
+  reassignReason: 23,
+  reassignType: 24
 };
-const TASK_ROW_LENGTH = TASK_COLUMNS.reassignReason + 1;
+const TASK_ROW_LENGTH = TASK_COLUMNS.reassignType + 1;
 const TASK_DEFAULT_COLUMN_ORDER = [
   TASK_COLUMNS.number,
   TASK_COLUMNS.object,
@@ -260,8 +261,17 @@ const TASK_DEFAULT_COLUMN_ORDER = [
   TASK_COLUMNS.lastSentAt,
   TASK_COLUMNS.createdBy,
   TASK_COLUMNS.createdAt,
-  TASK_COLUMNS.reassignReason
+  TASK_COLUMNS.reassignReason,
+  TASK_COLUMNS.reassignType
 ];
+
+/** Маппинг сырого reasonType (mistake/delegation, либо legacy objective/subjective) → человекочитаемая метка. */
+function getReassignTypeLabel(reasonType) {
+  const t = String(reasonType || "").trim().toLowerCase();
+  if (t === "mistake" || t === "objective") return "Ошибочная задача";
+  if (t === "delegation" || t === "subjective") return "Делегирование задачи";
+  return "";
+}
 const OBJECT_COLUMNS = {
   id: 0,
   name: 1,
@@ -3843,7 +3853,8 @@ let sections = [
       "Причина отставания",
       "Кем добавлена задача",
       "Время занесения в систему",
-      "Причина переназначения"
+      "Причина переназначения",
+      "Тип переназначения"
     ],
     rows: [
       [
@@ -19524,7 +19535,7 @@ async function requestTaskReassignment({ taskId, toEmployeeName, reasonText, rea
         taskId: String(taskId || "").trim(),
         toEmployeeName: String(toEmployeeName || "").trim(),
         reasonText: String(reasonText || "").trim(),
-        reasonType: String(reasonType || "subjective").trim().toLowerCase(),
+        reasonType: String(reasonType || "delegation").trim().toLowerCase(),
         departmentName: String(departmentName || "").trim()
       })
     });
@@ -19563,15 +19574,11 @@ function openReassignRequestModal({ taskId, currentAssignees = [], afterCreate }
       <h3>Запрос на переназначение задачи #${escapeHtmlText(taskId)}</h3>
       <form data-reassign-form>
         <div class="reassign-form-row">
-          <label>Тип причины</label>
+          <label>Тип переназначения</label>
           <div class="reassign-radio-group">
-            <label><input type="radio" name="reasonType" value="objective" /> Объективная</label>
-            <label><input type="radio" name="reasonType" value="subjective" checked /> Субъективная</label>
+            <label><input type="radio" name="reasonType" value="mistake" checked /> Ошибочная задача</label>
+            <label><input type="radio" name="reasonType" value="delegation" /> Делегирование задачи</label>
           </div>
-        </div>
-        <div class="reassign-form-row">
-          <label for="reassignReasonText">Причина переназначения</label>
-          <textarea id="reassignReasonText" name="reasonText" rows="3" maxlength="2000" required placeholder="Опишите причину одним сообщением"></textarea>
         </div>
         <div class="reassign-form-row">
           <label for="reassignTarget">Кому передать</label>
@@ -19621,14 +19628,10 @@ function openReassignRequestModal({ taskId, currentAssignees = [], afterCreate }
     clearError();
     const fd = new FormData(form);
     const toEmployeeName = String(fd.get("toEmployeeName") || "").trim();
-    const reasonText = String(fd.get("reasonText") || "").trim();
-    const reasonType = String(fd.get("reasonType") || "subjective").trim().toLowerCase();
+    const reasonText = "";
+    const reasonType = String(fd.get("reasonType") || "mistake").trim().toLowerCase();
     if (!toEmployeeName) {
       showError("Выберите сотрудника-получателя.");
-      return;
-    }
-    if (!reasonText) {
-      showError("Укажите причину переназначения.");
       return;
     }
     const targetEmp = employeeOptions.find((e) => e.fullName === toEmployeeName);
@@ -23268,6 +23271,7 @@ function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
   setByIndex(TASK_COLUMNS.createdBy, pick(["Кем добавлена задача", "Добавил", "Автор добавления"]));
   setByIndex(TASK_COLUMNS.createdAt, pick(["Время занесения в систему", "Дата и время занесения", "Дата занесения"]));
   setByIndex(TASK_COLUMNS.reassignReason, pick(["Причина переназначения"]));
+  setByIndex(TASK_COLUMNS.reassignType, pick(["Тип переназначения"]));
   out[TASK_COLUMNS.status] = normalizeTaskStatusValue(out[TASK_COLUMNS.status]);
   out[TASK_COLUMNS.priority] = normalizeTaskPriorityValue(out[TASK_COLUMNS.priority]);
   return out;

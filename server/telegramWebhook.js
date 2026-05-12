@@ -42,9 +42,18 @@ const TASK_COLUMNS = {
   delayReason: 20,
   createdBy: 21,
   createdAt: 22,
-  reassignReason: 23
+  reassignReason: 23,
+  reassignType: 24
 };
-const TASK_ROW_LENGTH = TASK_COLUMNS.reassignReason + 1;
+const TASK_ROW_LENGTH = TASK_COLUMNS.reassignType + 1;
+
+/** Маппинг типа переназначения в человекочитаемую метку. */
+function getReassignTypeLabel(reasonType) {
+  const t = String(reasonType || "").trim().toLowerCase();
+  if (t === "mistake" || t === "objective") return "Ошибочная задача";
+  if (t === "delegation" || t === "subjective") return "Делегирование задачи";
+  return "";
+}
 const EMPLOYEE_COLUMNS = {
   id: 0,
   fullName: 1,
@@ -144,6 +153,7 @@ function remapTaskRowToCurrentOrder(sourceRow, sourceColumns) {
   setByIndex(TASK_COLUMNS.createdBy, pick(["Кем добавлена задача", "Добавил", "Автор добавления"]), 21);
   setByIndex(TASK_COLUMNS.createdAt, pick(["Время занесения в систему", "Дата и время занесения", "Дата занесения"]), 22);
   setByIndex(TASK_COLUMNS.reassignReason, pick(["Причина переназначения"]), 23);
+  setByIndex(TASK_COLUMNS.reassignType, pick(["Тип переназначения"]), 24);
   out[TASK_COLUMNS.status] = normalizeTaskStatusValue(out[TASK_COLUMNS.status]);
   out[TASK_COLUMNS.priority] = normalizeTaskPriorityValue(out[TASK_COLUMNS.priority]);
   return out;
@@ -1434,7 +1444,9 @@ function mergeTaskRowsWithCurrent(currentPayload, nextPayload) {
     TASK_COLUMNS.closedDate,
     TASK_COLUMNS.readState,
     TASK_COLUMNS.lastSentAt,
-    TASK_COLUMNS.delayReason
+    TASK_COLUMNS.delayReason,
+    TASK_COLUMNS.reassignReason,
+    TASK_COLUMNS.reassignType
   ];
 
   const mergedRows = currentTasks.rows.map((currentRow) => {
@@ -2135,8 +2147,8 @@ async function handleCallback(q, pool, token) {
       return;
     }
     const keyboard = [
-      [{ text: "Объективная причина", callback_data: cb(taskId, "rat|obj") }],
-      [{ text: "Субъективная причина", callback_data: cb(taskId, "rat|subj") }],
+      [{ text: "Ошибочная задача", callback_data: cb(taskId, "rat|mistake") }],
+      [{ text: "Делегирование задачи", callback_data: cb(taskId, "rat|delegation") }],
       [{ text: "⬅️ Назад", callback_data: cb(taskId, "bk") }]
     ];
     setLastTaskContext(payload, chatId, taskId, messageId);
@@ -2144,7 +2156,7 @@ async function handleCallback(q, pool, token) {
     await tg(token, "editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nВыберите тип причины для переназначения:`,
+      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nВыберите тип переназначения:`,
       reply_markup: { inline_keyboard: keyboard }
     });
     await answerOk();
@@ -2156,38 +2168,35 @@ async function handleCallback(q, pool, token) {
       await answerOk("Недостаточно прав");
       return;
     }
-    const type = String(parsed.rest?.[0] || "").trim();
-    if (type === "obj") {
-      const options = getDelayReasonOptions(payload);
-      const keyboard = options.map((reason, i) => [{ text: reason, callback_data: cb(taskId, `rar|${i}`) }]);
-      keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "ra") }]);
-      await tg(token, "editMessageText", {
-        chat_id: chatId,
-        message_id: messageId,
-        text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nВыберите причину:`,
-        reply_markup: { inline_keyboard: keyboard.slice(0, 60) }
-      });
-      await answerOk();
+    const rawType = String(parsed.rest?.[0] || "").trim().toLowerCase();
+    // Поддерживаем как новые типы (mistake/delegation), так и старые из live-сообщений
+    // отправленных до релиза (obj→mistake, subj→delegation).
+    let reasonType = "";
+    if (rawType === "mistake" || rawType === "obj") reasonType = "mistake";
+    else if (rawType === "delegation" || rawType === "subj") reasonType = "delegation";
+    if (!reasonType) {
+      await answerOk("Некорректный выбор");
       return;
     }
-    if (type === "subj") {
-      if (!payload.telegramSessions) payload.telegramSessions = {};
-      payload.telegramSessions[String(chatId)] = {
-        expect: "reassignReasonText",
-        taskId,
-        promptMessageId: Number(messageId) || null
-      };
-      await savePayload(pool, payload);
-      await tg(token, "editMessageText", {
-        chat_id: chatId,
-        message_id: messageId,
-        text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nВведите причину переназначения одним сообщением (или /отмена).`,
-        reply_markup: { inline_keyboard: backOnlyKeyboard(taskId) }
-      });
-      await answerOk();
-      return;
-    }
-    await answerOk("Некорректный выбор");
+    if (!payload.telegramSessions) payload.telegramSessions = {};
+    payload.telegramSessions[String(chatId)] = {
+      expect: "reassignDepartment",
+      taskId,
+      reasonType,
+      reasonText: "",
+      promptMessageId: Number(messageId) || null
+    };
+    const departments = buildDepartmentOptions(payload);
+    const keyboard = departments.map((name, i) => [{ text: name, callback_data: cb(taskId, `rad|${i}`) }]);
+    keyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "ra") }]);
+    await savePayload(pool, payload);
+    await tg(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nШаг 1/2: выберите отдел`,
+      reply_markup: { inline_keyboard: keyboard.slice(0, 80) }
+    });
+    await answerOk();
     return;
   }
 
@@ -2313,7 +2322,7 @@ async function handleCallback(q, pool, token) {
     clearSession(payload, String(chatId));
     await savePayload(pool, payload);
 
-    const reasonLabel = reqStore[requestId].reasonType === "objective" ? "Объективная" : "Субъективная";
+    const reasonLabel = getReassignTypeLabel(reqStore[requestId].reasonType) || "—";
     const requestText =
       `${buildFullTaskMessage(row, payload)}\n\nЗапрос на переназначение\n` +
       `Задача: ${escapeTgHtml(reassignCode)}\n` +
@@ -2583,7 +2592,10 @@ async function handleCallback(q, pool, token) {
       reqEntry.decidedBy = actor;
       rqRow[TASK_COLUMNS.status] = "Передано";
       rqRow[TASK_COLUMNS.reassignReason] = String(reqEntry.reasonText || "").trim();
-      appendTaskHistory(payload, rqTaskId, actor, `Telegram: переназначение подтверждено (${fromName || "—"} → ${toName || "—"})`);
+      // Тип переназначения отображается в новом столбце "Тип переназначения".
+      const _typeLabel = getReassignTypeLabel(reqEntry.reasonType);
+      if (_typeLabel) rqRow[TASK_COLUMNS.reassignType] = _typeLabel;
+      appendTaskHistory(payload, rqTaskId, actor, `Telegram: переназначение подтверждено (${fromName || "—"} → ${toName || "—"})${_typeLabel ? `, тип: ${_typeLabel}` : ""}`);
       const employeesRows = Array.isArray(getEmployeesSection(payload)?.rows) ? getEmployeesSection(payload).rows : [];
       const targetEmp = employeesRows.find((r) => String(r?.[EMPLOYEE_COLUMNS.fullName] || "").trim().toLowerCase() === toName.toLowerCase());
       const targetChat = String(targetEmp?.[EMPLOYEE_COLUMNS.chatId] || "").trim();
@@ -2637,7 +2649,7 @@ async function handleCallback(q, pool, token) {
       }
       const requesterChat = String(reqEntry.requesterChatId || "").trim();
       const sourceMid = Number(reqEntry.sourceMessageId) || 0;
-      const reasonLabel = String(reqEntry.reasonType || "").trim() === "objective" ? "Объективная" : "Субъективная";
+      const reasonLabel = getReassignTypeLabel(reqEntry.reasonType) || "—";
       const requesterText =
         `${buildFullTaskMessage(buildTaskRowForChat(payload, rqRow, requesterChat), payload)}\n\n` +
         `Вы переназначили задачу (${escapeTgHtml(reassignCode)}).\n` +

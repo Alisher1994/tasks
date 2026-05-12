@@ -61,6 +61,7 @@ const TASK_DELAY_REASON_COL = 20;
 const TASK_CREATED_BY_COL = 21;
 const TASK_CREATED_AT_COL = 22;
 const TASK_REASSIGN_REASON_COL = 23;
+const TASK_REASSIGN_TYPE_COL = 24;
 const EMPLOYEE_FULL_NAME_COL = 1;
 const EMPLOYEE_PHONE_COL = 4;
 const EMPLOYEE_TELEGRAM_COL = 5;
@@ -2447,13 +2448,21 @@ app.post("/api/tasks/reassign/request", authMiddleware, async (req, res) => {
     const taskId = String(req.body?.taskId || "").trim();
     const toEmployeeName = String(req.body?.toEmployeeName || "").trim();
     const reasonText = String(req.body?.reasonText || "").trim();
-    const reasonTypeRaw = String(req.body?.reasonType || "subjective").trim().toLowerCase();
-    const reasonType = ["objective", "subjective"].includes(reasonTypeRaw) ? reasonTypeRaw : "subjective";
+    const reasonTypeRaw = String(req.body?.reasonType || "mistake").trim().toLowerCase();
+    // Принимаем как новые имена (mistake/delegation), так и старые (objective/subjective)
+    // — последние мапим к новым: objective→mistake, subjective→delegation.
+    const normalizedType = reasonTypeRaw === "objective"
+      ? "mistake"
+      : reasonTypeRaw === "subjective"
+        ? "delegation"
+        : reasonTypeRaw;
+    const reasonType = ["mistake", "delegation"].includes(normalizedType) ? normalizedType : "mistake";
     const departmentNameInput = String(req.body?.departmentName || "").trim();
 
     if (!taskId) return res.status(400).json({ ok: false, error: "taskId обязателен" });
     if (!toEmployeeName) return res.status(400).json({ ok: false, error: "Не указан получатель" });
-    if (!reasonText) return res.status(400).json({ ok: false, error: "Не указана причина переназначения" });
+    // reasonText теперь опционален: оба новых типа (Ошибочная/Делегирование)
+    // идут одним маршрутом без свободного текста причины.
     if (reasonText.length > 4000) return res.status(400).json({ ok: false, error: "Причина слишком длинная" });
 
     const { rows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
@@ -2564,6 +2573,14 @@ app.post("/api/tasks/reassign/decision", authMiddleware, requireAdmin, async (re
       const reassignCode = String(reqEntry.code || `${taskId}/1`).trim();
       row[TASK_STATUS_COL] = "Передано";
       row[TASK_REASSIGN_REASON_COL] = String(reqEntry.reasonText || "").trim();
+      // Колонка "Тип переназначения" — Ошибочная задача / Делегирование задачи.
+      const _typeRaw = String(reqEntry.reasonType || "").trim().toLowerCase();
+      const _typeLabel = (_typeRaw === "mistake" || _typeRaw === "objective")
+        ? "Ошибочная задача"
+        : (_typeRaw === "delegation" || _typeRaw === "subjective")
+          ? "Делегирование задачи"
+          : "";
+      if (_typeLabel) row[TASK_REASSIGN_TYPE_COL] = _typeLabel;
       reqEntry.status = "approved";
       reqEntry.decidedAt = nowIso;
       reqEntry.decidedBy = actorName;
