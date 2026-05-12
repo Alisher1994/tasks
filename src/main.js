@@ -3988,6 +3988,13 @@ let displaySettings = {
    *   - admin всегда видит всё (фильтр на нём не применяется).
    */
   restrictTasksVisibility: false,
+  /**
+   * Должности, для которых фильтр видимости НЕ применяется (видят всё, как админ).
+   * Массив строк — точное название должности из справочника "Должности".
+   * Имеет смысл только когда restrictTasksVisibility включён.
+   * Пример: ["Генеральный директор", "Директор строительства"].
+   */
+  tasksFullVisibilityPositions: [],
   telegramBotToken: "",
   /** @type {string} username бота без @ — подставляется после setWebhook / getMe */
   telegramBotUsername: "",
@@ -4740,6 +4747,18 @@ function applyTaskVisibilityFilter(entries) {
   if (!userRow) return [];
   const userFullName = normalizePersonName(userRow[EMPLOYEE_COLUMNS.fullName] || "");
   if (!userFullName) return [];
+
+  // Должности с полным доступом к задачам (директора и т.п.) — bypass фильтра.
+  // Сравниваем по точной строке должности из справочника "Должности".
+  const fullVisibilityPositions = Array.isArray(displaySettings.tasksFullVisibilityPositions)
+    ? displaySettings.tasksFullVisibilityPositions
+    : [];
+  if (fullVisibilityPositions.length > 0) {
+    const userPosition = String(userRow[EMPLOYEE_COLUMNS.position] || "").trim();
+    if (userPosition && fullVisibilityPositions.some((p) => String(p).trim() === userPosition)) {
+      return entries;
+    }
+  }
 
   // Отделы, которыми руководит текущий юзер (может возглавлять несколько отделов).
   const depRows = getSectionById("departments")?.rows || [];
@@ -17622,6 +17641,30 @@ function renderOtherSettingsPanel() {
               <input class="other-settings-checkbox" type="checkbox" data-setting="restrictTasksVisibility" ${displaySettings.restrictTasksVisibility === true ? "checked" : ""} />
               <span>Ограничить видимость задач (показывать только свои сотрудникам)</span>
             </label>
+            <div class="tasks-full-visibility-block" style="margin-top:6px; padding-left:24px; ${displaySettings.restrictTasksVisibility === true ? "" : "opacity:.5;pointer-events:none;"}">
+              <div style="font-size:12px;color:#666;margin-bottom:4px;">Должности с полным доступом ко всем задачам (даже когда видимость ограничена):</div>
+              <div class="tasks-full-visibility-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 12px;">
+                ${(() => {
+                  const allRoles = getUniqueValues(getSectionById("roles")?.rows || [], 1);
+                  const selected = new Set(
+                    Array.isArray(displaySettings.tasksFullVisibilityPositions)
+                      ? displaySettings.tasksFullVisibilityPositions.map((s) => String(s).trim())
+                      : []
+                  );
+                  return allRoles
+                    .map((role) => {
+                      const r = String(role || "").trim();
+                      if (!r) return "";
+                      const isOn = selected.has(r);
+                      return `<label class="settings-option settings-option--compact" style="margin:0;">
+                        <input class="tasks-full-vis-role-checkbox" type="checkbox" data-role="${escapeHtmlAttr(r)}" ${isOn ? "checked" : ""} />
+                        <span>${escapeHtmlText(r)}</span>
+                      </label>`;
+                    })
+                    .join("");
+                })()}
+              </div>
+            </div>
             ` : ""}
             <div class="tasks-list-settings-compact">
               <div class="tasks-setting-block">
@@ -18376,6 +18419,35 @@ function attachOtherSettingsHandlers() {
       if (settingName === "hideClosedTasks" || settingName === "restrictTasksVisibility") {
         resetTasksListPagingWindow();
       }
+      if (settingName === "restrictTasksVisibility") {
+        // Обновляем opacity/pointer-events у блока с должностями.
+        const block = document.querySelector(".tasks-full-visibility-block");
+        if (block instanceof HTMLElement) {
+          if (checkbox.checked) {
+            block.style.opacity = "";
+            block.style.pointerEvents = "";
+          } else {
+            block.style.opacity = ".5";
+            block.style.pointerEvents = "none";
+          }
+        }
+      }
+    });
+  });
+
+  // Чекбоксы "Должности с полным доступом к задачам".
+  Array.from(document.querySelectorAll(".tasks-full-vis-role-checkbox")).forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const role = String(cb.dataset.role || "").trim();
+      if (!role) return;
+      const current = new Set(
+        Array.isArray(displaySettings.tasksFullVisibilityPositions)
+          ? displaySettings.tasksFullVisibilityPositions.map((s) => String(s).trim()).filter(Boolean)
+          : []
+      );
+      if (cb.checked) current.add(role); else current.delete(role);
+      displaySettings.tasksFullVisibilityPositions = Array.from(current).sort();
+      saveDisplaySettings();
     });
   });
 
