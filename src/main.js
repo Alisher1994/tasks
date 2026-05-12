@@ -3979,6 +3979,15 @@ let displaySettings = {
   highlightClosed: false,
   highlightNeedDecision: false,
   hideClosedTasks: false,
+  /**
+   * Ограничивать видимость задач для не-админов:
+   *   - выключено: все видят все задачи (поведение до 2026-05-12)
+   *   - включено: не-админ видит задачу, только если он указан в
+   *     "Ответственный"/"Назначенный ответственный", либо он Руководитель отдела
+   *     одного из ответственных, либо он РП/ЗРП объекта задачи.
+   *   - admin всегда видит всё (фильтр на нём не применяется).
+   */
+  restrictTasksVisibility: false,
   telegramBotToken: "",
   /** @type {string} username бота без @ — подставляется после setWebhook / getMe */
   telegramBotUsername: "",
@@ -4707,6 +4716,93 @@ function groupTaskEntriesByObject(entries) {
 function filterTaskEntriesByObjectKey(entries, objectKey) {
   if (objectKey == null) return entries;
   return entries.filter((e) => taskObjectLabelFromRow(e.row) === objectKey);
+}
+
+/**
+ * Применить настройку "Ограничить видимость задач" к списку записей задач.
+ *
+ * Возвращает запись, если выполняется хотя бы одно из условий для текущего юзера:
+ *   - указан в "Ответственный" или в "Назначенный ответственный" задачи;
+ *   - он Руководитель отдела (по справочнику departments), и в задаче ответственным
+ *     является сотрудник этого отдела;
+ *   - он РП или ЗРП объекта, к которому относится задача (по справочнику objects).
+ *
+ * Admin всегда видит всё (настройка на него не действует). Если у юзера нет записи
+ * в "Сотрудники" — он видит пусто (нет identity = нет видимости).
+ *
+ * Дёшево: один проход, lookup-карты строятся один раз перед фильтрацией.
+ */
+function applyTaskVisibilityFilter(entries) {
+  if (!displaySettings.restrictTasksVisibility) return entries;
+  if (currentAuthRole === "admin") return entries;
+
+  const userRow = getCurrentSessionEmployeeRow();
+  if (!userRow) return [];
+  const userFullName = normalizePersonName(userRow[EMPLOYEE_COLUMNS.fullName] || "");
+  if (!userFullName) return [];
+
+  // Отделы, которыми руководит текущий юзер (может возглавлять несколько отделов).
+  const depRows = getSectionById("departments")?.rows || [];
+  const headedDepartments = new Set();
+  for (const dr of depRows) {
+    if (normalizePersonName(dr?.[2]) === userFullName) {
+      const depName = normalizePersonName(dr?.[1]);
+      if (depName) headedDepartments.add(depName);
+    }
+  }
+
+  // Объекты, на которых юзер — РП или ЗРП (поля могут быть мульти-именами).
+  const objRows = getSectionById("objects")?.rows || [];
+  const managedObjects = new Set();
+  for (const orow of objRows) {
+    const objName = normalizePersonName(orow?.[OBJECT_COLUMNS.name]);
+    if (!objName) continue;
+    const rpNames = parseTaskAssigneeNames(orow?.[OBJECT_COLUMNS.rp]);
+    const zrpNames = parseTaskAssigneeNames(orow?.[OBJECT_COLUMNS.zrp]);
+    if (rpNames.includes(userFullName) || zrpNames.includes(userFullName)) {
+      managedObjects.add(objName);
+    }
+  }
+
+  // Карта: имя сотрудника → отдел (для проверки "ответственный из моего отдела").
+  const empRows = getSectionById("employees")?.rows || [];
+  const empDeptByName = new Map();
+  if (headedDepartments.size > 0) {
+    for (const e of empRows) {
+      const fn = normalizePersonName(e?.[EMPLOYEE_COLUMNS.fullName]);
+      if (!fn) continue;
+      const dep = normalizePersonName(e?.[EMPLOYEE_COLUMNS.department]);
+      if (dep) empDeptByName.set(fn, dep);
+    }
+  }
+
+  return entries.filter((entry) => {
+    const row = entry?.row;
+    if (!Array.isArray(row)) return false;
+
+    const responsibleNames = parseTaskAssigneeNames(row[TASK_COLUMNS.responsible]);
+    const assignedNames = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
+    const allTaskAssignees = responsibleNames.concat(assignedNames);
+
+    // 1) Юзер сам указан как ответственный.
+    if (allTaskAssignees.includes(userFullName)) return true;
+
+    // 2) Юзер — руководитель отдела одного из ответственных.
+    if (headedDepartments.size > 0) {
+      for (const name of allTaskAssignees) {
+        const dep = empDeptByName.get(name);
+        if (dep && headedDepartments.has(dep)) return true;
+      }
+    }
+
+    // 3) Юзер — РП/ЗРП объекта задачи.
+    if (managedObjects.size > 0) {
+      const taskObject = normalizePersonName(row[TASK_COLUMNS.object]);
+      if (taskObject && managedObjects.has(taskObject)) return true;
+    }
+
+    return false;
+  });
 }
 
 function getObjectPhotoPreviewKeyForRow(objectRow) {
@@ -5581,6 +5677,11 @@ function renderTable() {
 
   const sectionFilters = filtersBySection[section.id] || {};
   let allFilteredEntries = getFilteredRows(section, sectionFilters);
+  if (section.id === "tasks") {
+    // Глобальный фильтр видимости (admin-toggle): применяется до пагинации/группировок,
+    // чтобы счётчики, выбор объектов и страничный footer показывали корректные значения.
+    allFilteredEntries = applyTaskVisibilityFilter(allFilteredEntries);
+  }
   let tasksListFooterHtml = "";
   let showTasksBackBtn = false;
   const sectionGroupTabs = renderSectionGroupTabs(section.id);
@@ -17516,6 +17617,12 @@ function renderOtherSettingsPanel() {
               <input class="other-settings-checkbox" type="checkbox" data-setting="hideClosedTasks" ${displaySettings.hideClosedTasks === true ? "checked" : ""} />
               <span>Скрывать закрытые задачи</span>
             </label>
+            ${currentAuthRole === "admin" ? `
+            <label class="settings-option settings-option--compact" title="Когда включено: не-админы видят задачи где они указаны в Ответственных, либо они Руководитель отдела ответственного, либо они РП/ЗРП объекта задачи. Админ видит всё всегда.">
+              <input class="other-settings-checkbox" type="checkbox" data-setting="restrictTasksVisibility" ${displaySettings.restrictTasksVisibility === true ? "checked" : ""} />
+              <span>Ограничить видимость задач (показывать только свои сотрудникам)</span>
+            </label>
+            ` : ""}
             <div class="tasks-list-settings-compact">
               <div class="tasks-setting-block">
                 <div class="tasks-setting-block-title">Экран</div>
@@ -18266,7 +18373,7 @@ function attachOtherSettingsHandlers() {
       if (!settingName) return;
       displaySettings[settingName] = checkbox.checked;
       saveDisplaySettings();
-      if (settingName === "hideClosedTasks") {
+      if (settingName === "hideClosedTasks" || settingName === "restrictTasksVisibility") {
         resetTasksListPagingWindow();
       }
     });
