@@ -2717,7 +2717,21 @@ app.post("/api/tasks/close/decision", authMiddleware, requireAdmin, async (req, 
       }
     }
 
-    await saveAppPayload(payload);
+    // ВАЖНО: не используем saveAppPayload — она перетирает секцию задач из БД
+    // и сбрасывает наши изменения status/closedDate. Пишем payload напрямую с
+    // бампом revision (чтобы веб-клиенты с устаревшим baseRev получили 409 и
+    // прошли через 3-way merge) и шлём broadcast по WebSocket.
+    const { rows: savedRows } = await pool.query(
+      `INSERT INTO app_state (id, payload, updated_at, revision) VALUES (1, $1::jsonb, NOW(), 1)
+       ON CONFLICT (id) DO UPDATE SET
+         payload = EXCLUDED.payload,
+         updated_at = NOW(),
+         revision = app_state.revision + 1
+       RETURNING revision`,
+      [JSON.stringify(payload)]
+    );
+    const newRev = Number(savedRows[0]?.revision) || 0;
+    try { broadcastStateChanged(newRev, { source: "close-decision" }); } catch {}
     return res.json({ ok: true });
   } catch (e) {
     console.error(e);
