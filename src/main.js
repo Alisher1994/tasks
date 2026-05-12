@@ -1281,6 +1281,11 @@ async function pullRemoteAppState(options = {}) {
   const rerender = Boolean(options.rerender);
   if (!isHostedRuntime() || !getAuthToken()) return;
   if (hasActiveTaskUiOverlay()) return;
+  // Никогда не тянем серверный снимок поверх несинхронизированных локальных правок.
+  // Иначе случается race: пользователь кликает чекбокс → запускается debounced push →
+  // сервер успевает обработать предыдущий push (или другой клиент пушит) → broadcast →
+  // pull в полёте → ответ возвращается УЖЕ ПОСЛЕ свежего клика и затирает его.
+  if (hasUnsyncedLocalChanges || serverPushInFlight) return;
   const r = await fetch("/api/data", {
     headers: { Authorization: `Bearer ${getAuthToken()}` }
   });
@@ -1291,6 +1296,8 @@ async function pullRemoteAppState(options = {}) {
   }
   if (!r.ok) return;
   const json = await r.json();
+  // Повторная проверка: пока pull был в полёте, юзер мог начать вводить.
+  if (hasUnsyncedLocalChanges || serverPushInFlight) return;
   applyServerBundle(json.data, { rerender });
   const rev = Number(json?.rev) || 0;
   if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
@@ -17642,19 +17649,26 @@ function renderOtherSettingsPanel() {
               <span>Ограничить видимость задач (показывать только свои сотрудникам)</span>
             </label>
             <div class="tasks-full-visibility-block" style="margin-top:6px; padding-left:24px; ${displaySettings.restrictTasksVisibility === true ? "" : "opacity:.5;pointer-events:none;"}">
-              <div style="font-size:12px;color:#666;margin-bottom:4px;">Должности с полным доступом ко всем задачам (даже когда видимость ограничена):</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+                <div style="font-size:12px;color:#666;">Должности с полным доступом ко всем задачам (даже когда видимость ограничена):</div>
+                <div style="display:flex;gap:6px;">
+                  <button type="button" class="tasks-full-vis-select-all-btn" style="font-size:12px;padding:4px 10px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;border-radius:4px;">Выбрать все</button>
+                  <button type="button" class="tasks-full-vis-clear-btn" style="font-size:12px;padding:4px 10px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;border-radius:4px;">Снять все</button>
+                </div>
+              </div>
               <div class="tasks-full-visibility-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 12px;">
                 ${(() => {
-                  const allRoles = getUniqueValues(getSectionById("roles")?.rows || [], 1);
+                  const allRoles = getUniqueValues(getSectionById("roles")?.rows || [], 1)
+                    .map((r) => String(r || "").trim())
+                    .filter(Boolean)
+                    .sort((a, b) => a.localeCompare(b, "ru"));
                   const selected = new Set(
                     Array.isArray(displaySettings.tasksFullVisibilityPositions)
                       ? displaySettings.tasksFullVisibilityPositions.map((s) => String(s).trim())
                       : []
                   );
                   return allRoles
-                    .map((role) => {
-                      const r = String(role || "").trim();
-                      if (!r) return "";
+                    .map((r) => {
                       const isOn = selected.has(r);
                       return `<label class="settings-option settings-option--compact" style="margin:0;">
                         <input class="tasks-full-vis-role-checkbox" type="checkbox" data-role="${escapeHtmlAttr(r)}" ${isOn ? "checked" : ""} />
@@ -18446,8 +18460,31 @@ function attachOtherSettingsHandlers() {
           : []
       );
       if (cb.checked) current.add(role); else current.delete(role);
-      displaySettings.tasksFullVisibilityPositions = Array.from(current).sort();
+      displaySettings.tasksFullVisibilityPositions = Array.from(current).sort((a, b) => a.localeCompare(b, "ru"));
       saveDisplaySettings();
+    });
+  });
+
+  // Кнопка "Выбрать все" — отмечает все доступные должности.
+  document.querySelector(".tasks-full-vis-select-all-btn")?.addEventListener("click", () => {
+    const allRoles = getUniqueValues(getSectionById("roles")?.rows || [], 1)
+      .map((r) => String(r || "").trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, "ru"));
+    displaySettings.tasksFullVisibilityPositions = allRoles;
+    saveDisplaySettings();
+    // Визуально отметить все чекбоксы прямо сейчас без полной перерисовки панели.
+    document.querySelectorAll(".tasks-full-vis-role-checkbox").forEach((c) => {
+      if (c instanceof HTMLInputElement) c.checked = true;
+    });
+  });
+
+  // Кнопка "Снять все" — очищает список.
+  document.querySelector(".tasks-full-vis-clear-btn")?.addEventListener("click", () => {
+    displaySettings.tasksFullVisibilityPositions = [];
+    saveDisplaySettings();
+    document.querySelectorAll(".tasks-full-vis-role-checkbox").forEach((c) => {
+      if (c instanceof HTMLInputElement) c.checked = false;
     });
   });
 
