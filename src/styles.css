@@ -2612,11 +2612,12 @@ th.actions-col {
 .number-col::before {
   content: "";
   position: absolute;
-  top: -1px;
+  top: 0;
   left: 0;
-  bottom: -1px;
+  bottom: 0;
   right: 0;
   background: inherit;
+  background-clip: padding-box;
   pointer-events: none;
   z-index: -1;
 }
