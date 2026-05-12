@@ -3153,18 +3153,45 @@ async function handleMessage(msg, pool, token) {
     const lowerText = String(text || "").toLowerCase();
     const wantSkip = lowerText === "/пропустить" || lowerText === "/skip" || lowerText === "пропустить" || lowerText === "skip";
 
-    const docFileId = msg.document?.file_id ? String(msg.document.file_id) : "";
-    const docName = msg.document?.file_name ? String(msg.document.file_name) : "";
-    const docMime = msg.document?.mime_type ? String(msg.document.mime_type) : "";
-    let photoFileId = "";
-    if (Array.isArray(msg.photo) && msg.photo.length > 0) {
-      photoFileId = String(msg.photo[msg.photo.length - 1]?.file_id || "");
+    // Принимаем любой медиа-тип: документ, фото, видео, video_note, аудио,
+    // голосовое, анимация (GIF). Берём первый непустой file_id.
+    let pickedFileId = "";
+    let pickedName = "";
+    let pickedMime = "";
+    if (msg.document?.file_id) {
+      pickedFileId = String(msg.document.file_id);
+      pickedName = String(msg.document.file_name || "");
+      pickedMime = String(msg.document.mime_type || "");
+    } else if (msg.video?.file_id) {
+      pickedFileId = String(msg.video.file_id);
+      pickedName = String(msg.video.file_name || "video.mp4");
+      pickedMime = String(msg.video.mime_type || "video/mp4");
+    } else if (msg.animation?.file_id) {
+      pickedFileId = String(msg.animation.file_id);
+      pickedName = String(msg.animation.file_name || "animation.mp4");
+      pickedMime = String(msg.animation.mime_type || "video/mp4");
+    } else if (msg.video_note?.file_id) {
+      pickedFileId = String(msg.video_note.file_id);
+      pickedName = "video_note.mp4";
+      pickedMime = "video/mp4";
+    } else if (Array.isArray(msg.photo) && msg.photo.length > 0) {
+      pickedFileId = String(msg.photo[msg.photo.length - 1]?.file_id || "");
+      pickedName = "";
+      pickedMime = "image/jpeg";
+    } else if (msg.audio?.file_id) {
+      pickedFileId = String(msg.audio.file_id);
+      pickedName = String(msg.audio.file_name || "audio.mp3");
+      pickedMime = String(msg.audio.mime_type || "audio/mpeg");
+    } else if (msg.voice?.file_id) {
+      pickedFileId = String(msg.voice.file_id);
+      pickedName = "voice.ogg";
+      pickedMime = String(msg.voice.mime_type || "audio/ogg");
     }
 
     if (wantSkip) {
       clearSession(payload, chatKey);
       await savePayload(pool, payload);
-      await safeDeleteMessage(token, chatId, messageId);
+      // Не удаляем команду /пропустить — её всё равно нет в чате как медиа.
       await submitTaskCloseRequest({
         pool, token, payload, chatId, taskId, row, viewerRow, empName,
         baseTaskId, assigneeName, messageId: promptMessageId, appTz
@@ -3172,14 +3199,12 @@ async function handleMessage(msg, pool, token) {
       return;
     }
 
-    if (docFileId || photoFileId) {
-      const attachment = docFileId
-        ? await downloadTelegramFileAsAttachment(token, docFileId, docName, docMime)
-        : await downloadTelegramFileAsAttachment(token, photoFileId, "", "image/jpeg");
+    if (pickedFileId) {
+      const attachment = await downloadTelegramFileAsAttachment(token, pickedFileId, pickedName, pickedMime);
       if (!attachment) {
         await tg(token, "sendMessage", {
           chat_id: chatId,
-          text: "Не удалось сохранить файл. Попробуйте ещё раз или отправьте /пропустить."
+          text: "Не удалось сохранить файл. Попробуйте ещё раз или нажмите «Пропустить»."
         });
         return;
       }
@@ -3192,7 +3217,8 @@ async function handleMessage(msg, pool, token) {
       );
       clearSession(payload, chatKey);
       await savePayload(pool, payload);
-      await safeDeleteMessage(token, chatId, messageId);
+      // НЕ удаляем сообщение пользователя с файлом — пусть видит подтверждение,
+      // что он действительно отправил то что отправил.
       await submitTaskCloseRequest({
         pool, token, payload, chatId, taskId, row, viewerRow, empName,
         baseTaskId, assigneeName, messageId: promptMessageId, appTz
@@ -3200,10 +3226,10 @@ async function handleMessage(msg, pool, token) {
       return;
     }
 
-    // Ни /пропустить, ни файл — переспрашиваем.
+    // Ни «Пропустить», ни медиа — переспрашиваем и перечисляем что бот понимает.
     await tg(token, "sendMessage", {
       chat_id: chatId,
-      text: "Пожалуйста, отправьте файл (документ или фото) одним сообщением или /пропустить, если документа нет."
+      text: "Пожалуйста, отправьте файл (документ, фото, видео, GIF, аудио или голосовое) одним сообщением, либо нажмите «Пропустить» в карточке задачи выше."
     });
     return;
   }
