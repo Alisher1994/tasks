@@ -14,7 +14,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { randomBytes } from "crypto";
 import { createServer as createHttpServer } from "http";
-import { configureTelegramWebhook, handleTelegramWebhook } from "./telegramWebhook.js";
+import { configureTelegramWebhook, handleTelegramWebhook, clearCloseConfirmPrompts } from "./telegramWebhook.js";
 import { runGoogleSheetsSync, startGoogleSheetsAutoSync } from "./googleSheetsSync.js";
 import { runMigrations } from "./migrate.js";
 import { validateAppPayload } from "./validatePayload.js";
@@ -2702,8 +2702,12 @@ app.post("/api/tasks/close/decision", authMiddleware, requireAdmin, async (req, 
       }
       appendTaskHistory(payload, taskId, actorName, `Веб: подтверждено закрытие задачи (${actorName}, ${nowIso})`);
       delete payload.telegramCloseRequests[taskId];
-      if (token && requesterChat) {
-        await tgSendMessage(token, requesterChat, `✅ Задача №${taskId}: закрытие подтверждено (${actorName}).`);
+      if (token) {
+        if (requesterChat) {
+          await tgSendMessage(token, requesterChat, `✅ Задача №${taskId}: закрытие подтверждено (${actorName}).`);
+        }
+        // Гасим висящие "Подтвердить/Отклонить" в админских чатах.
+        try { await clearCloseConfirmPrompts(token, closeReq, taskId, `закрытие подтверждено (${actorName})`); } catch {}
       }
     } else {
       const prevStatus = String(closeReq.previousStatus || "В процессе").trim() || "В процессе";
@@ -2712,8 +2716,11 @@ app.post("/api/tasks/close/decision", authMiddleware, requireAdmin, async (req, 
       }
       appendTaskHistory(payload, taskId, actorName, `Веб: отклонён запрос на закрытие, статус → «${prevStatus}»`);
       delete payload.telegramCloseRequests[taskId];
-      if (token && requesterChat) {
-        await tgSendMessage(token, requesterChat, `❌ Задача №${taskId}: запрос на закрытие отклонён администратором (${actorName}). Статус возвращён в «${prevStatus}».`);
+      if (token) {
+        if (requesterChat) {
+          await tgSendMessage(token, requesterChat, `❌ Задача №${taskId}: запрос на закрытие отклонён администратором (${actorName}). Статус возвращён в «${prevStatus}».`);
+        }
+        try { await clearCloseConfirmPrompts(token, closeReq, taskId, `закрытие отклонено (${actorName})`); } catch {}
       }
     }
 

@@ -2683,6 +2683,8 @@ async function handleCallback(q, pool, token) {
         text: `Задача №${taskId}: закрытие подтверждено. Исполнителю отправлено уведомление.`,
         reply_markup: { inline_keyboard: [] }
       });
+      // Гасим prompt'ы у других админских чатов, кому ушло уведомление.
+      await clearCloseConfirmPrompts(token, req, taskId, `закрытие подтверждено (${empName || "admin"})`, chatId);
       await broadcastTaskCardUpdate(payload, token, row, confirmInfo, req.chatId);
     } else {
       // Откат: возвращаем статус, который был до перехода в "Проверка".
@@ -2703,6 +2705,8 @@ async function handleCallback(q, pool, token) {
         text: `Задача №${taskId}: закрытие отклонено. Исполнитель уведомлён.`,
         reply_markup: { inline_keyboard: [] }
       });
+      // Гасим prompt'ы у других админских чатов.
+      await clearCloseConfirmPrompts(token, req, taskId, `закрытие отклонено (${empName || "admin"})`, chatId);
     }
     await answerOk();
     return;
@@ -3000,8 +3004,47 @@ async function notifyCloseConfirmRecipients(pool, token, payload, taskId, row, r
       ]
     ]
   };
+  // Запоминаем message_id каждого admin-уведомления. Позже при решении (web/bot)
+  // отредактируем эти сообщения, чтобы кнопки исчезли и текст сменился на «уже обработано».
+  const promptMessages = {};
   for (const cid of targetChatIds) {
-    await tg(token, "sendMessage", { chat_id: cid, text, reply_markup: kb });
+    const sent = await tg(token, "sendMessage", { chat_id: cid, text, reply_markup: kb });
+    const mid = Number(sent?.result?.message_id) || 0;
+    if (mid) promptMessages[cid] = mid;
+  }
+  // Сохраняем обратно в payload, если есть свежий closeReq в БД.
+  if (Object.keys(promptMessages).length > 0) {
+    try {
+      const currentPayload = await loadPayload(pool);
+      if (currentPayload?.telegramCloseRequests?.[String(taskId)]) {
+        currentPayload.telegramCloseRequests[String(taskId)].confirmPrompts = promptMessages;
+        await savePayload(pool, currentPayload);
+      }
+    } catch (_) { /* noop */ }
+  }
+}
+
+/**
+ * После решения админа (через бот или веб) — редактируем все ранее посланные
+ * "Подтвердить/Отклонить" сообщения, убирая кнопки и подменяя текст на финальную
+ * заметку, чтобы другие админские чаты не видели уже устаревший prompt.
+ */
+export async function clearCloseConfirmPrompts(token, closeReq, taskId, finalNote, exceptChatId = null) {
+  if (!closeReq || typeof closeReq !== "object") return;
+  const prompts = closeReq.confirmPrompts && typeof closeReq.confirmPrompts === "object"
+    ? closeReq.confirmPrompts
+    : {};
+  const noteText = `Задача №${String(taskId).trim()}: ${String(finalNote || "запрос обработан").trim()}.`;
+  for (const [cid, mid] of Object.entries(prompts)) {
+    if (exceptChatId && String(cid) === String(exceptChatId)) continue;
+    try {
+      await tg(token, "editMessageText", {
+        chat_id: cid,
+        message_id: Number(mid) || 0,
+        text: noteText,
+        reply_markup: { inline_keyboard: [] }
+      });
+    } catch (_) { /* noop — old message could be gone */ }
   }
 }
 
