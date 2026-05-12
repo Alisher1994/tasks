@@ -2670,12 +2670,17 @@ async function handleCallback(q, pool, token) {
       });
       await broadcastTaskCardUpdate(payload, token, row, confirmInfo, req.chatId);
     } else {
+      // Откат: возвращаем статус, который был до перехода в "Проверка".
+      const prevStatus = String(req.previousStatus || "В процессе").trim() || "В процессе";
+      if (String(row[TASK_COLUMNS.status] || "").trim() === "Проверка") {
+        row[TASK_COLUMNS.status] = prevStatus;
+      }
       delete payload.telegramCloseRequests[taskId];
-      appendTaskHistory(payload, taskId, empName, `Telegram: отклонён запрос на закрытие`);
+      appendTaskHistory(payload, taskId, empName, `Telegram: отклонён запрос на закрытие, статус возвращён → «${prevStatus}»`);
       await savePayload(pool, payload);
       await tg(token, "sendMessage", {
         chat_id: req.chatId,
-        text: `Задача №${taskId}: запрос на закрытие отклонён.`
+        text: `Задача №${taskId}: запрос на закрытие отклонён. Статус задачи возвращён в «${prevStatus}».`
       });
       await tg(token, "editMessageText", {
         chat_id: chatId,
@@ -2926,6 +2931,9 @@ async function submitTaskCloseRequest({ pool, token, payload, chatId, taskId, ro
     const cid = String(r[EMPLOYEE_COLUMNS.chatId] || "").trim();
     if (cid) requestAllowed.add(cid);
   }
+  // Запоминаем статус до закрытия (для отката при отклонении админом)
+  // и переводим задачу в "Проверка" — будет видно админу в одноимённой вкладке/фильтре.
+  const previousStatus = String(row[TASK_COLUMNS.status] || "В процессе").trim() || "В процессе";
   payload.telegramCloseRequests[taskId] = {
     chatId: String(chatId),
     employeeName: empName,
@@ -2934,13 +2942,15 @@ async function submitTaskCloseRequest({ pool, token, payload, chatId, taskId, ro
     reassignCode: taskId.includes("/") ? taskId : "",
     at: Date.now(),
     sourceMessageId: Number(messageId) || null,
-    allowedConfirmChatIds: Array.from(requestAllowed)
+    allowedConfirmChatIds: Array.from(requestAllowed),
+    previousStatus
   };
+  row[TASK_COLUMNS.status] = "Проверка";
   appendTaskHistory(
     payload,
     taskId,
     empName,
-    `Telegram: запрошено закрытие задачи (ожидает подтверждения${requestAllowed.size ? `, согласующих: ${requestAllowed.size}` : ""})`
+    `Telegram: запрошено закрытие задачи, статус → «Проверка» (ожидает подтверждения${requestAllowed.size ? `, согласующих: ${requestAllowed.size}` : ""})`
   );
   setLastTaskContext(payload, chatId, taskId, messageId);
   await savePayload(pool, payload);

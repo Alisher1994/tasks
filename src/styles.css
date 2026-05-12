@@ -10422,6 +10422,103 @@ html {
   background: transparent !important;
 }
 
+/* Новый степпер прогресса задачи: 4 шага с кружком, иконкой и подписью под ним.
+   Состояния: todo (серый, неактивный), active (фирменный orange — текущий шаг),
+   done (зелёный с галочкой — завершённый шаг). Линия между кружками подкрашивается
+   зелёным когда переход уже совершён. */
+.status-stepper-v2 {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  padding: 12px 8px 18px;
+  margin-bottom: 8px;
+}
+
+.status-stepper-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 86px;
+  text-align: center;
+}
+
+.status-stepper-circle {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #d4d6e0;
+  background: #fff;
+  color: #98a0b4;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.status-stepper-circle .lucide-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.status-stepper-label {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: #98a0b4;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color 160ms ease;
+}
+
+.status-stepper-step.is-active .status-stepper-circle {
+  border-color: #f59e3a;
+  background: #f59e3a;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(245, 158, 58, 0.28);
+}
+
+.status-stepper-step.is-active .status-stepper-label {
+  color: #f59e3a;
+  font-weight: 600;
+}
+
+.status-stepper-step.is-done .status-stepper-circle {
+  border-color: #16a34a;
+  background: #16a34a;
+  color: #fff;
+}
+
+.status-stepper-step.is-done .status-stepper-label {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.status-stepper-connector {
+  flex: 1 1 auto;
+  min-width: 24px;
+  height: 2px;
+  background: #d4d6e0;
+  margin: 19px 4px 0;
+  border-radius: 2px;
+  transition: background 160ms ease;
+}
+
+.status-stepper-connector.is-done {
+  background: #16a34a;
+}
+
+@media (max-width: 600px) {
+  .status-stepper-step {
+    min-width: 60px;
+  }
+  .status-stepper-label {
+    font-size: 11px;
+  }
+  .status-stepper-connector {
+    min-width: 10px;
+  }
+}
+
 /* Бэйдж со счётчиком на вкладке "Файлы" — показывает количество прикреплённых файлов. */
 .task-card-tab .task-card-tab-badge {
   display: inline-flex;

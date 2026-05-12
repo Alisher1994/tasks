@@ -362,6 +362,7 @@ const REPORT_FILTER_ALL_STATUSES = [...STATUS_OPTIONS];
 const STATUS_CHART_COLORS = {
   Новый: "#a8b4f0",
   "В процессе": "#e8c9a8",
+  Проверка: "#c9b8e8",
   [STATUS_DECISION]: "#e0a8a8",
   [STATUS_DECISION_OLD]: "#e0a8a8",
   Закрыт: "#9dceb0",
@@ -372,6 +373,7 @@ const STATUS_CHART_COLORS = {
 const STATUS_CHART_COLORS_ACCENT = {
   Новый: "#5c6bc0",
   "В процессе": "#c08457",
+  Проверка: "#7a5cb0",
   [STATUS_DECISION]: "#b06a6a",
   [STATUS_DECISION_OLD]: "#b06a6a",
   Закрыт: "#4a9d6a",
@@ -382,6 +384,7 @@ const STATUS_CHART_COLORS_ACCENT = {
 const REMINDER_CARD_UI = {
   Новый: "new",
   "В процессе": "progress",
+  Проверка: "review",
   [STATUS_DECISION]: "decision",
   [STATUS_DECISION_OLD]: "decision",
   Закрыт: "closed"
@@ -389,6 +392,7 @@ const REMINDER_CARD_UI = {
 const TELEGRAM_STATUS_EMOJI = {
   Новый: "🟣",
   "В процессе": "🟡",
+  Проверка: "🟠",
   [STATUS_DECISION]: "🔴",
   [STATUS_DECISION_OLD]: "🔴",
   Закрыт: "🟢"
@@ -3708,6 +3712,7 @@ const STATUS_TABS = [
   { id: "all", label: "Все статусы" },
   { id: "Новый", label: "Новый" },
   { id: "В процессе", label: "В процессе" },
+  { id: "Проверка", label: "Проверка" },
   { id: "Закрыт", label: "Закрыт" },
   { id: TASKS_UNSENT_TAB_ID, label: "Не отправленные" },
   { id: "trash", label: "Корзина" }
@@ -15128,6 +15133,20 @@ function attachEditableCellHandlers(section) {
 
 function openCellEditor(section, cell, rowIndex, colIndex) {
   const row = section.rows[rowIndex] || [];
+  // Заморозка закрытых задач: запрещаем редактирование всех колонок кроме самой
+  // ячейки "Статус" (через неё можно реопен — изменить на "В процессе"/"Новый").
+  if (
+    section.id === "tasks"
+    && colIndex !== TASK_COLUMNS.status
+    && normalizeTaskStatusValue(String(row?.[TASK_COLUMNS.status] || "")) === "Закрыт"
+  ) {
+    showStatusDialog({
+      title: "Задача закрыта",
+      message: "Чтобы внести правки, сначала измените статус задачи (например, на «В процессе»).",
+      type: "info"
+    });
+    return;
+  }
   if (section.id === "data" && colIndex === 4) {
     openResponsibleMultiSelectModal(section, rowIndex);
     return;
@@ -19723,9 +19742,12 @@ function openTaskDetailsModal(section, row, rowIndex) {
       </div>
     `).join("")
     : '<span class="close-approver-empty">Нет активных заявок на переназначение.</span>';
+  const isTaskClosed = normalizeTaskStatusValue(String(row[TASK_COLUMNS.status] || "")) === "Закрыт";
   const reassignHtml = `${reassignListHtml}
     <div class="task-reassign-request-actions">
-      <button type="button" class="secondary task-reassign-open-form-btn" data-task-id="${escapeHtmlAttr(taskId)}">Запросить переназначение</button>
+      ${isTaskClosed
+        ? '<span class="close-approver-empty">Задача закрыта — переназначение и редактирование заморожены. Сначала смените статус.</span>'
+        : `<button type="button" class="secondary task-reassign-open-form-btn" data-task-id="${escapeHtmlAttr(taskId)}">Запросить переназначение</button>`}
     </div>`;
   const modal = document.createElement("div");
   modal.className = "details-modal-overlay";
@@ -20445,22 +20467,44 @@ function resolveMediaPreviewForSlot(storedName, preview) {
 }
 
 function renderStatusStepper(currentStatus) {
-  const steps = ["Новый", "В процессе", "Закрыт"];
+  const steps = [
+    { label: "Новый", icon: "circle-dot" },
+    { label: "В процессе", icon: "loader-2" },
+    { label: "Проверка", icon: "clipboard-check" },
+    { label: "Закрыт", icon: "check-circle-2" }
+  ];
   const currentIndex = getStatusStepIndex(currentStatus);
   const safeIndex = currentIndex >= 0 ? currentIndex : 0;
-  const progress = steps.length > 1 ? (safeIndex / (steps.length - 1)) * 100 : 0;
+  const finalIndex = steps.length - 1;
+  // Когда задача закрыта (последний шаг — current), показываем и сам шаг как done.
+  const isAllDone = safeIndex >= finalIndex;
   const items = steps
     .map((step, index) => {
-      const stateClass = index < safeIndex ? "done" : index === safeIndex ? "active" : "";
-      return `<div class="step ${stateClass}"><span>${step}</span></div>`;
+      let state;
+      if (index < safeIndex) state = "done";
+      else if (index === safeIndex) state = isAllDone ? "done" : "active";
+      else state = "todo";
+      const inner = state === "done"
+        ? `<i data-lucide="check" class="lucide-icon" aria-hidden="true"></i>`
+        : `<i data-lucide="${step.icon}" class="lucide-icon" aria-hidden="true"></i>`;
+      const connector = index < steps.length - 1
+        ? `<div class="status-stepper-connector ${index < safeIndex ? "is-done" : ""}" aria-hidden="true"></div>`
+        : "";
+      return `
+        <div class="status-stepper-step is-${state}">
+          <div class="status-stepper-circle">${inner}</div>
+          <div class="status-stepper-label">${escapeHtmlText(step.label)}</div>
+        </div>${connector}`;
     })
     .join("");
-  return `<div class="status-stepper" style="--step-progress:${progress}%">${items}</div>`;
+  return `<div class="status-stepper-v2" role="list">${items}</div>`;
 }
 
 function getStatusStepIndex(status) {
-  if (status === "Закрыт") return 2;
-  if (status === "В процессе") return 1;
+  const v = String(status || "").trim();
+  if (v === "Закрыт") return 3;
+  if (v === "Проверка") return 2;
+  if (v === "В процессе") return 1;
   return 0;
 }
 
