@@ -13232,7 +13232,11 @@ function renderTasksSplitLayout(section, options) {
         const subId = String(item?.code || buildReassignChildTaskId(String(row[TASK_COLUMNS.number] || "").trim(), idx + 1)).trim();
         const cloned = Array.isArray(row) ? row.slice() : [];
         cloned[TASK_COLUMNS.number] = subId;
-        cloned[TASK_COLUMNS.assignedResponsible] = to;
+        // Подстрока переназначения — это «запись» отправителя (того, кто переназначил).
+        // Поэтому Ответственный = from (А), а не to (Б): причина писалась А, и должна
+        // показываться в А-строке. Само направление видно в столбце "Задача":
+        // "Переназначение: A → B".
+        cloned[TASK_COLUMNS.assignedResponsible] = from;
         cloned[TASK_COLUMNS.reassignReason] = reason;
         cloned[TASK_COLUMNS.status] = label;
         cloned[TASK_COLUMNS.plan] = String(item?.comment || "").trim();
@@ -13256,7 +13260,7 @@ function renderTasksSplitLayout(section, options) {
         const reassignMainCells = mainVisibleColumnIndexes.map((colIndex) => {
           let val = cloned[colIndex];
           if (colIndex === TASK_COLUMNS.task) val = `Переназначение: ${from} → ${to}`;
-          else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `${escapeHtmlText(to)}`;
+          else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `${escapeHtmlText(from)}`;
           else if (colIndex === TASK_COLUMNS.status) val = `<span class="status-badge status-${slugify(label)}">${escapeHtmlText(label)}</span>`;
           else if (colIndex === TASK_COLUMNS.reassignReason) val = `${escapeHtmlText(reason)}`;
           else if (colIndex === TASK_COLUMNS.createdAt) {
@@ -13626,7 +13630,8 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
     const subId = String(item?.code || buildReassignChildTaskId(taskId, idx + 1)).trim();
     const cloned = Array.isArray(taskRow) ? taskRow.slice() : [];
     cloned[TASK_COLUMNS.number] = subId;
-    cloned[TASK_COLUMNS.assignedResponsible] = to;
+    // См. комментарий выше: подстрока переназначения — запись отправителя (A).
+    cloned[TASK_COLUMNS.assignedResponsible] = from;
     cloned[TASK_COLUMNS.reassignReason] = reason;
     cloned[TASK_COLUMNS.status] = label;
     cloned[TASK_COLUMNS.plan] = String(item?.comment || "").trim();
@@ -13649,7 +13654,7 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
       let val = cloned[colIndex];
       if (colIndex === TASK_COLUMNS.number) val = `↪ ${subId}`;
       else if (colIndex === TASK_COLUMNS.task) val = `Переназначение: ${from} → ${to}`;
-      else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `${escapeHtmlText(to)}`;
+      else if (colIndex === TASK_COLUMNS.assignedResponsible) val = `${escapeHtmlText(from)}`;
       else if (colIndex === TASK_COLUMNS.status) val = `<span class="status-badge status-${slugify(label)}">${escapeHtmlText(label)}</span>`;
       else if (colIndex === TASK_COLUMNS.reassignReason) val = `${escapeHtmlText(reason)}`;
       else if (colIndex === TASK_COLUMNS.createdAt) {
