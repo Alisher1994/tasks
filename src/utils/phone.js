@@ -170,3 +170,65 @@ export function sanitizePhoneInputValue(rawValue) {
   const rule = getPhoneRuleByDial(dial);
   return `+${digits.slice(0, rule.max)}`;
 }
+
+export function enforcePhoneKeyInput(event) {
+  const key = String(event.key || "");
+  if (!key) return;
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  const allowedControl = new Set(["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Home", "End", "Tab"]);
+  if (allowedControl.has(key)) return;
+  if (/^\d$/.test(key)) return;
+  if (key === "+") {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement)) return;
+    const start = Number(input.selectionStart ?? 0);
+    if (start === 0 && !input.value.includes("+")) return;
+  }
+  event.preventDefault();
+}
+
+export function attachStrictPhoneInputBehavior(input, onAfterSanitize, onMaxReached) {
+  if (!(input instanceof HTMLInputElement)) return;
+  const syncMaxLength = () => {
+    const dial = detectDialCodeByPhone(input.value);
+    const rule = getPhoneRuleByDial(dial);
+    input.maxLength = rule.max + 1;
+    return rule.max;
+  };
+  let prevDigitsLen = getPhoneDigitsCount(input.value);
+  syncMaxLength();
+  input.addEventListener("keydown", enforcePhoneKeyInput);
+  input.addEventListener("input", () => {
+    input.value = sanitizePhoneInputValue(input.value);
+    const maxDigits = syncMaxLength();
+    onAfterSanitize?.();
+    const digitsLen = getPhoneDigitsCount(input.value);
+    if (digitsLen >= maxDigits && prevDigitsLen < maxDigits) {
+      onMaxReached?.();
+    }
+    prevDigitsLen = digitsLen;
+  });
+  input.addEventListener("paste", () => {
+    requestAnimationFrame(() => {
+      input.value = sanitizePhoneInputValue(input.value);
+      const maxDigits = syncMaxLength();
+      onAfterSanitize?.();
+      const digitsLen = getPhoneDigitsCount(input.value);
+      if (digitsLen >= maxDigits && prevDigitsLen < maxDigits) {
+        onMaxReached?.();
+      }
+      prevDigitsLen = digitsLen;
+    });
+  });
+}
+
+export function formatUzPhoneDisplay(normalizedPhone) {
+  const n = normalizeUzPhone(normalizedPhone);
+  return n === "+" ? DEFAULT_PHONE_PREFIX : n;
+}
+
+/** Номер считается пригодным для сравнения, когда в нём есть хотя бы 8 цифр. */
+export function employeePhoneLocalCompleteNormalized(normalizedPhone) {
+  const digits = String(normalizedPhone || "").replace(/\D/g, "");
+  return digits.length >= 8;
+}

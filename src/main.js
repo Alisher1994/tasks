@@ -68,7 +68,11 @@ import {
   isPhoneLengthValid,
   buildCountryPhoneOptions,
   applyCountryDialToPhone,
-  sanitizePhoneInputValue
+  sanitizePhoneInputValue,
+  enforcePhoneKeyInput,
+  attachStrictPhoneInputBehavior,
+  formatUzPhoneDisplay,
+  employeePhoneLocalCompleteNormalized
 } from "./utils/phone.js";
 import {
   configureSessionIdle,
