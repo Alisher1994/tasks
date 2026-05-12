@@ -20,6 +20,9 @@ import { validateAppPayload } from "./validatePayload.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, "..");
+const distDir = path.join(rootDir, "dist");
+const { existsSync } = await import("fs");
+const staticRoot = existsSync(distDir) ? distDir : rootDir;
 
 const { Pool } = pg;
 const pool = new Pool({
@@ -2398,6 +2401,118 @@ app.post("/api/telegram/send-media-group-proxy", authMiddleware, async (req, res
   }
 });
 
+function computeNextReassignCodeInPayload(payload, taskId) {
+  const task = String(taskId || "").trim();
+  if (!task) return "1";
+  let max = 0;
+  const parseSeq = (code) => {
+    const m = String(code || "").trim().match(/^(.+?)\/(\d+)$/);
+    if (!m || m[1] !== task) return 0;
+    const n = Number(m[2]);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  const logArr = Array.isArray(payload?.taskReassignLog?.[task]) ? payload.taskReassignLog[task] : [];
+  for (const item of logArr) {
+    const n = parseSeq(item?.code);
+    if (n > max) max = n;
+  }
+  const reqStore = payload?.telegramReassignRequests && typeof payload.telegramReassignRequests === "object"
+    ? payload.telegramReassignRequests
+    : {};
+  for (const key of Object.keys(reqStore)) {
+    const item = reqStore[key];
+    if (String(item?.taskId || "").trim() !== task) continue;
+    const n = parseSeq(item?.code);
+    if (n > max) max = n;
+  }
+  return `${task}/${max + 1}`;
+}
+
+app.post("/api/tasks/reassign/request", authMiddleware, async (req, res) => {
+  try {
+    const taskId = String(req.body?.taskId || "").trim();
+    const toEmployeeName = String(req.body?.toEmployeeName || "").trim();
+    const reasonText = String(req.body?.reasonText || "").trim();
+    const reasonTypeRaw = String(req.body?.reasonType || "subjective").trim().toLowerCase();
+    const reasonType = ["objective", "subjective"].includes(reasonTypeRaw) ? reasonTypeRaw : "subjective";
+    const departmentNameInput = String(req.body?.departmentName || "").trim();
+
+    if (!taskId) return res.status(400).json({ ok: false, error: "taskId обязателен" });
+    if (!toEmployeeName) return res.status(400).json({ ok: false, error: "Не указан получатель" });
+    if (!reasonText) return res.status(400).json({ ok: false, error: "Не указана причина переназначения" });
+    if (reasonText.length > 4000) return res.status(400).json({ ok: false, error: "Причина слишком длинная" });
+
+    const { rows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
+    const payload = rows[0]?.payload && typeof rows[0].payload === "object"
+      ? JSON.parse(JSON.stringify(rows[0].payload))
+      : {};
+
+    const tasks = getTaskRows(payload);
+    const taskRow = tasks.find((r) => String(r?.[TASK_NUMBER_COL] || "").trim() === taskId);
+    if (!taskRow) return res.status(404).json({ ok: false, error: "Задача не найдена" });
+
+    const targetEmployee = findEmployeeByFullNameInPayload(payload, toEmployeeName);
+    if (!targetEmployee) {
+      return res.status(404).json({ ok: false, error: "Получатель не найден среди сотрудников" });
+    }
+    const targetDepartment = departmentNameInput
+      || String(targetEmployee?.[2] || "").trim();
+
+    const reqStore = ensureObjectStore(payload, "telegramReassignRequests");
+    const duplicate = Object.values(reqStore).some((item) =>
+      item && typeof item === "object"
+      && String(item.taskId || "").trim() === taskId
+      && String(item.status || "").trim() === "pending"
+      && String(item.toEmployeeName || "").trim().toLowerCase() === toEmployeeName.toLowerCase()
+    );
+    if (duplicate) {
+      return res.status(409).json({ ok: false, error: "По этой задаче уже есть pending-заявка на этого сотрудника." });
+    }
+
+    const requesterName = String(req.user?.name || "").trim() || "Пользователь";
+    const currentAssignees = parseTaskAssigneeNames(taskRow[TASK_ASSIGNED_COL]);
+    const fromName = currentAssignees.find((n) => n.toLowerCase() === requesterName.toLowerCase())
+      || currentAssignees[0]
+      || "";
+
+    const requestId = `rr_${Date.now().toString(36)}${randomBytes(3).toString("hex")}`;
+    const code = computeNextReassignCodeInPayload(payload, taskId);
+    const nowIso = new Date().toISOString();
+
+    reqStore[requestId] = {
+      id: requestId,
+      code,
+      taskId,
+      status: "pending",
+      reasonType,
+      reasonText,
+      departmentName: targetDepartment,
+      fromEmployeeName: fromName,
+      toEmployeeName,
+      requesterChatId: "",
+      requesterName,
+      requesterAssigneeName: fromName || requesterName,
+      createdAt: nowIso,
+      sourceMessageId: null,
+      source: "web",
+      allowedConfirmChatIds: []
+    };
+
+    appendTaskHistory(
+      payload,
+      taskId,
+      requesterName,
+      `Веб: запрошено переназначение (${fromName || "—"} → ${toEmployeeName})`
+    );
+
+    await saveAppPayload(payload);
+    return res.json({ ok: true, requestId, code });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Ошибка создания заявки на переназначение" });
+  }
+});
+
 app.post("/api/tasks/reassign/decision", authMiddleware, requireAdmin, async (req, res) => {
   try {
     const requestId = String(req.body?.requestId || "").trim();
@@ -3131,10 +3246,10 @@ app.delete("/api/admin/users/:id", authMiddleware, requireAdmin, async (req, res
   }
 });
 
-app.use(express.static(rootDir, { index: false }));
+app.use(express.static(staticRoot, { index: false }));
 
 app.get("*", (_req, res) => {
-  res.sendFile(path.join(rootDir, "index.html"));
+  res.sendFile(path.join(staticRoot, "index.html"));
 });
 
 const PORT = Number(process.env.PORT) || 3000;

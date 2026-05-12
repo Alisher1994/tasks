@@ -1,3 +1,121 @@
+import "./styles.css";
+import { escapeHtmlText, escapeHtmlAttr, escapeRegexLiteral } from "./utils/escape.js";
+import { isPlainObjectRecord, cloneJsonSafe } from "./utils/object.js";
+import {
+  parseRuDateStringToParts,
+  formatDatePartsStorage,
+  calendarDiffDays,
+  parseRuDate,
+  getCalendarDatePartsInTimeZone
+} from "./utils/date.js";
+import { iconSvg, withIcon, withLucideIcon, initLucideIcons } from "./ui/icons.js";
+import { copyTextToClipboard } from "./utils/clipboard.js";
+import { isHostedRuntime } from "./utils/runtime.js";
+import {
+  shortenHistorySnippet,
+  normalizePersonName,
+  isGenericSystemUserName,
+  formatTelegramPreviewHtml
+} from "./utils/string.js";
+import { isStandalonePwaMode, applyStandalonePwaClass, registerPwaServiceWorker } from "./pwa.js";
+import { AUTH_TOKEN_KEY, getAuthToken, setAuthToken } from "./auth/token.js";
+import {
+  configureTemplateTokens,
+  formatTemplateTokenDisplay,
+  initTemplateTokenEditors,
+  insertTokenIntoTemplateSource,
+  resolveTemplateEditorSource
+} from "./ui/template-token-editor.js";
+import {
+  formatSmsInviteHistoryStatusLabel,
+  shortenSmsGatewayId,
+  mapSmsGatewayStateLabel,
+  summarizeSmsGatewayResponse,
+  summarizeSmsTextForHistory,
+  getSmsHistoryGatewayCategory
+} from "./integrations/sms-format.js";
+import {
+  normalizeDateDisplayFormatId,
+  normalizeTimeDisplayFormatId,
+  normalizeGoogleSheetsInterval,
+  normalizeGoogleSheetsWriteMode
+} from "./utils/normalize.js";
+import {
+  STATUS_DECISION_OLD,
+  STATUS_DECISION,
+  STATUS_OPTIONS,
+  normalizeTaskStatusValue,
+  normalizeTaskPriorityValue
+} from "./domain/task-status.js";
+import {
+  DEFAULT_PHONE_PREFIX,
+  PHONE_MIN_DIGITS,
+  PHONE_MAX_DIGITS,
+  PHONE_MAX_LENGTH,
+  normalizeUzPhone,
+  DIAL_TO_ISO,
+  COUNTRY_NAME_BY_ISO,
+  PHONE_TOTAL_DIGITS_BY_DIAL,
+  flagEmojiFromIso2,
+  flagSvgUrlByIso,
+  globeSvgDataUrl,
+  detectCountryIsoByPhone,
+  phoneFlagByValue,
+  getPhoneDigitsCount,
+  detectDialCodeByPhone,
+  getPhoneRuleByDial,
+  getPhoneLengthHint,
+  isPhoneLengthValid,
+  buildCountryPhoneOptions,
+  applyCountryDialToPhone,
+  sanitizePhoneInputValue
+} from "./utils/phone.js";
+import {
+  configureSessionIdle,
+  clearLastSessionActivityTs,
+  trackSessionActivity,
+  startSessionIdleWatcher,
+  stopSessionIdleWatcher
+} from "./auth/session-activity.js";
+import { initGlobalScrollbarActivityTracker } from "./ui/scrollbar-activity.js";
+import {
+  configureTurboLoader,
+  startTurboLoader,
+  finishTurboLoader,
+  shouldUseTurboLoader,
+  pulseTurboLoader
+} from "./ui/turbo-loader.js";
+import {
+  REPORT_SHARE_STORAGE_KEY,
+  OVERDUE_NOTIFY_RUNTIME_KEY,
+  STATUS_REMINDER_RUNTIME_KEY,
+  SESSION_STORAGE_KEY,
+  SESSION_PHONE_STORAGE_KEY,
+  ACTIVE_SECTION_STORAGE_KEY,
+  DISPLAY_SETTINGS_KEY,
+  DATA_STORAGE_KEY,
+  OBJECT_PHOTO_THUMBS_STORAGE_KEY,
+  TRASH_STORAGE_KEY,
+  TASK_HISTORY_STORAGE_KEY,
+  TASK_MULTI_STATE_STORAGE_KEY,
+  TASK_CLOSE_META_STORAGE_KEY,
+  TASK_ATTACHMENTS_STORAGE_KEY,
+  TASK_REASSIGN_REQUESTS_STORAGE_KEY,
+  TASK_REASSIGN_LOG_STORAGE_KEY,
+  TASK_MESSAGE_RECIPIENTS_STORAGE_KEY,
+  TABLE_LAYOUT_STORAGE_KEY,
+  CELL_COMMENTS_STORAGE_KEY,
+  REPORT_CHART_ORDER_STORAGE_KEY,
+  REPORT_PHASE_GROUP_LAYOUT_KEY,
+  REPORT_VIEW_TAB_STORAGE_KEY,
+  REPORT_SYSTEM_CHART_VISIBILITY_STORAGE_KEY,
+  REPORT_CUSTOM_CHARTS_STORAGE_KEY,
+  OBJECTS_SEED_VERSION_KEY
+} from "./constants/storage-keys.js";
+import { openLoginSupportModal } from "./ui/login-support-modal.js";
+import { startLoginMotionCanvas, stopLoginMotionCanvas } from "./ui/login-motion-canvas.js";
+import { getSessionUserDisplayName, saveSessionPhone, getSessionPhone } from "./auth/session-storage.js";
+
 const loginForm = document.getElementById("loginForm");
 const loginError = document.getElementById("loginError");
 const loginSection = document.getElementById("loginSection");
@@ -20,50 +138,11 @@ const passwordInput = document.getElementById("password");
 const togglePasswordBtn = document.getElementById("togglePasswordBtn");
 const loginPhoneFlag = document.getElementById("loginPhoneFlag");
 const loginPhoneCountryBtn = document.getElementById("loginPhoneCountryBtn");
-const turboTopLoader = document.getElementById("turboTopLoader");
-const turboTopLoaderBar = document.getElementById("turboTopLoaderBar");
-const loginMotionCanvas = document.getElementById("loginMotionCanvas");
 
 const AUTH_PHONE = "+998994067406";
 const AUTH_PASSWORD = "7406";
-const DEFAULT_PHONE_PREFIX = "+";
-const PHONE_MIN_DIGITS = 8;
-const PHONE_MAX_DIGITS = 15;
-const PHONE_MAX_LENGTH = PHONE_MAX_DIGITS + 1;
-const REPORT_SHARE_STORAGE_KEY = "mbc_report_share_links";
-const OVERDUE_NOTIFY_RUNTIME_KEY = "mbc_overdue_notify_runtime";
-const STATUS_REMINDER_RUNTIME_KEY = "mbc_status_reminder_runtime";
 const STATUS_REMINDER_SEND_WINDOW_MINUTES = 5;
-/** JWT при работе с сервером (Railway) */
-const AUTH_TOKEN_KEY = "mbc_jwt";
-const SESSION_STORAGE_KEY = "mbc_task_auth_user";
-const SESSION_PHONE_STORAGE_KEY = "mbc_task_auth_phone";
-const SESSION_LAST_ACTIVITY_KEY = "mbc_task_last_activity_ts";
-const ACTIVE_SECTION_STORAGE_KEY = "mbc_task_active_section";
-const DISPLAY_SETTINGS_KEY = "mbc_task_display_settings";
-const DATA_STORAGE_KEY = "mbc_task_sections_data";
-const SESSION_IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
-const SESSION_IDLE_CHECK_INTERVAL_MS = 60 * 1000;
-/** Data URL превью фото объектов (ключ obj-ph-{id}) — переживает перезагрузку; в ячейке по-прежнему имя файла */
-const OBJECT_PHOTO_THUMBS_STORAGE_KEY = "mbc_object_photo_thumbs";
-const TRASH_STORAGE_KEY = "mbc_task_trash_data";
-/** История действий по задачам: { [taskId]: Array<{ t, who, action }> } */
-const TASK_HISTORY_STORAGE_KEY = "mbc_task_action_history";
-const TASK_MULTI_STATE_STORAGE_KEY = "mbc_task_multi_state";
-const TASK_CLOSE_META_STORAGE_KEY = "mbc_task_close_meta";
-const TASK_ATTACHMENTS_STORAGE_KEY = "mbc_task_attachments";
-const TASK_REASSIGN_REQUESTS_STORAGE_KEY = "mbc_task_reassign_requests";
-const TASK_REASSIGN_LOG_STORAGE_KEY = "mbc_task_reassign_log";
-const TASK_MESSAGE_RECIPIENTS_STORAGE_KEY = "mbc_task_message_recipients";
-const TABLE_LAYOUT_STORAGE_KEY = "mbc_table_layout_state_v1";
-const CELL_COMMENTS_STORAGE_KEY = "mbc_cell_comments";
 const TASK_HISTORY_MAX_PER_TASK = 300;
-const REPORT_CHART_ORDER_STORAGE_KEY = "mbc_report_chart_tile_order";
-/** «row» — Топ фаз / Разделы / Подразделы в одной строке; «separate» — каждый график на всю ширину */
-const REPORT_PHASE_GROUP_LAYOUT_KEY = "mbc_report_phase_group_layout";
-const REPORT_VIEW_TAB_STORAGE_KEY = "mbc_report_view_tab";
-const REPORT_SYSTEM_CHART_VISIBILITY_STORAGE_KEY = "mbc_report_system_chart_visibility";
-const REPORT_CUSTOM_CHARTS_STORAGE_KEY = "mbc_report_custom_charts";
 const REPORT_CUSTOM_MAX_CHARTS = 12;
 const REPORT_CUSTOM_GROUP_BY_OPTIONS = [
   { id: "status", label: "По статусу" },
@@ -210,35 +289,6 @@ const SMS_HISTORY_COLUMNS = {
   smsText: 8
 };
 
-function isStandalonePwaMode() {
-  try {
-    const byDisplayMode = typeof window.matchMedia === "function"
-      && window.matchMedia("(display-mode: standalone)").matches;
-    const byNavigator = window.navigator?.standalone === true;
-    return byDisplayMode || byNavigator;
-  } catch (_) {
-    return false;
-  }
-}
-
-function applyStandalonePwaClass() {
-  const enabled = isStandalonePwaMode();
-  document.documentElement.classList.toggle("pwa-standalone", enabled);
-  document.body.classList.toggle("pwa-standalone", enabled);
-}
-
-async function registerPwaServiceWorker() {
-  try {
-    if (!("serviceWorker" in navigator)) return;
-    const isLocal = location.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/i.test(location.hostname);
-    const isSecure = location.protocol === "https:" || isLocal;
-    if (!isSecure) return;
-    await navigator.serviceWorker.register("/sw.js");
-  } catch (_) {
-    // noop
-  }
-}
-
 const EMPLOYEE_TELEGRAM_OPTIONS = ["Подключен", "Не подключен"];
 const SYSTEM_ROLES = [
   "РП",
@@ -284,9 +334,6 @@ const SYSTEM_DELAY_REASONS = [
   "Нехватка персонала",
   "Форс-мажор"
 ];
-const STATUS_DECISION_OLD = "Треб. реш. рук.";
-const STATUS_DECISION = "Требует решение руководителя";
-const STATUS_OPTIONS = ["Новый", "В процессе", "Закрыт"];
 const REMINDER_STATUS_OPTIONS = STATUS_OPTIONS.filter((status) => status !== "Закрыт");
 
 /** Подписи месяцев для графика «Добавление задач по месяцам» (текущий год, ось X). */
@@ -330,18 +377,6 @@ const TELEGRAM_STATUS_EMOJI = {
   [STATUS_DECISION_OLD]: "🔴",
   Закрыт: "🟢"
 };
-
-function normalizeTaskStatusValue(raw) {
-  const value = String(raw || "").trim();
-  if (value === STATUS_DECISION_OLD || value === STATUS_DECISION) return "В процессе";
-  return value;
-}
-
-function normalizeTaskPriorityValue(raw) {
-  const value = String(raw || "").trim();
-  if (value === "Низкий") return "Средний";
-  return value;
-}
 
 const DATE_DISPLAY_FORMAT_OPTIONS = [
   { id: "DMY_DOT", label: "ДД.ММ.ГГГГ (31.12.2025)" },
@@ -416,395 +451,8 @@ const TASK_MESSAGE_PLACEHOLDERS_LEGACY = [
   { token: "{Название объекта}", col: "object", label: "legacy" }
 ];
 const TASK_MESSAGE_PLACEHOLDERS = [...TASK_MESSAGE_PLACEHOLDERS_UI, ...TASK_MESSAGE_PLACEHOLDERS_LEGACY];
-const TEMPLATE_EDITOR_TEXTAREA_SELECTOR = ".task-message-template-input, .reminder-text-input, #telegramCloseAcceptedInput";
-let activeTemplateEditorSource = null;
-const templateEditorBySource = new WeakMap();
-const templateSourceByEditor = new WeakMap();
-const templateSelectionByEditor = new WeakMap();
-let draggingTemplateTokenChip = null;
-let draggingTemplateTokenSource = null;
-const templateTokenList = Array.from(
-  new Set(TASK_MESSAGE_PLACEHOLDERS.map((item) => String(item.token || "").trim()).filter(Boolean))
-).sort((a, b) => b.length - a.length);
+configureTemplateTokens(TASK_MESSAGE_PLACEHOLDERS.map((item) => item.token));
 
-function escapeRegexLiteral(value) {
-  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function getTemplateTokenRegex() {
-  if (!templateTokenList.length) return null;
-  return new RegExp(`(${templateTokenList.map((token) => escapeRegexLiteral(token)).join("|")})`, "g");
-}
-
-function splitTemplateTextByTokens(text) {
-  const src = String(text || "");
-  const re = getTemplateTokenRegex();
-  if (!re) return [{ type: "text", value: src }];
-  const out = [];
-  let last = 0;
-  let m;
-  while ((m = re.exec(src)) !== null) {
-    if (m.index > last) {
-      out.push({ type: "text", value: src.slice(last, m.index) });
-    }
-    out.push({ type: "token", value: m[0] });
-    last = m.index + m[0].length;
-  }
-  if (last < src.length) {
-    out.push({ type: "text", value: src.slice(last) });
-  }
-  if (!out.length) out.push({ type: "text", value: "" });
-  return out;
-}
-
-function createTemplateTokenChip(token) {
-  const displayToken = formatTemplateTokenDisplay(token);
-  const chip = document.createElement("span");
-  chip.className = "template-token-chip";
-  chip.setAttribute("contenteditable", "false");
-  chip.setAttribute("draggable", "true");
-  chip.dataset.token = String(token || "");
-  chip.innerHTML = `
-    <span class="template-token-chip__label">${escapeHtmlText(displayToken)}</span>
-    <button type="button" class="template-token-chip__remove" aria-label="Удалить тег" title="Удалить тег">×</button>
-  `;
-  return chip;
-}
-
-function formatTemplateTokenDisplay(token) {
-  return String(token || "")
-    .replace(/^\[/, "")
-    .replace(/\]$/, "")
-    .replace(/^\{/, "")
-    .replace(/\}$/, "");
-}
-
-function extractTemplateEditorValue(editor) {
-  if (!editor) return "";
-  let out = "";
-  const walk = (node) => {
-    if (!node) return;
-    if (node.nodeType === Node.TEXT_NODE) {
-      out += node.nodeValue || "";
-      return;
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE) return;
-    const el = /** @type {HTMLElement} */ (node);
-    if (el.classList?.contains("template-token-chip")) {
-      out += String(el.dataset.token || "");
-      return;
-    }
-    if (el.tagName === "BR") {
-      out += "\n";
-      return;
-    }
-    const tag = el.tagName;
-    const isBlock = tag === "DIV" || tag === "P";
-    const children = Array.from(el.childNodes);
-    children.forEach((child) => walk(child));
-    if (isBlock && !out.endsWith("\n")) {
-      out += "\n";
-    }
-  };
-  Array.from(editor.childNodes).forEach((node) => walk(node));
-  return out.replace(/\u200B/g, "");
-}
-
-function renderTemplateEditorFromValue(editor, value) {
-  if (!editor) return;
-  const prevScroll = editor.scrollTop;
-  editor.innerHTML = "";
-  const parts = splitTemplateTextByTokens(value);
-  parts.forEach((part) => {
-    if (part.type === "token") {
-      editor.appendChild(createTemplateTokenChip(part.value));
-      return;
-    }
-    editor.appendChild(document.createTextNode(part.value));
-  });
-  editor.scrollTop = prevScroll;
-}
-
-function syncTemplateEditorToSource(editor, source, { normalize = false } = {}) {
-  if (!editor || !source) return;
-  const value = extractTemplateEditorValue(editor);
-  if (normalize) {
-    renderTemplateEditorFromValue(editor, value);
-  }
-  source.value = value;
-  source.dispatchEvent(new Event("input", { bubbles: true }));
-}
-
-function placeCaretAfterNode(node) {
-  const sel = window.getSelection?.();
-  if (!sel || !node) return;
-  const range = document.createRange();
-  range.setStartAfter(node);
-  range.collapse(true);
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
-function captureTemplateEditorSelection(editor) {
-  const sel = window.getSelection?.();
-  if (!sel || sel.rangeCount === 0 || !editor) return;
-  const range = sel.getRangeAt(0);
-  if (!editor.contains(range.commonAncestorContainer)) return;
-  templateSelectionByEditor.set(editor, range.cloneRange());
-}
-
-function restoreTemplateEditorSelection(editor) {
-  if (!editor) return false;
-  const sel = window.getSelection?.();
-  if (!sel) return false;
-  const saved = templateSelectionByEditor.get(editor);
-  if (saved && editor.contains(saved.commonAncestorContainer)) {
-    sel.removeAllRanges();
-    sel.addRange(saved);
-    return true;
-  }
-  const range = document.createRange();
-  range.selectNodeContents(editor);
-  range.collapse(false);
-  sel.removeAllRanges();
-  sel.addRange(range);
-  templateSelectionByEditor.set(editor, range.cloneRange());
-  return true;
-}
-
-function getCaretRangeFromPoint(clientX, clientY, editor) {
-  if (!editor) return null;
-  let range = null;
-  if (document.caretRangeFromPoint) {
-    range = document.caretRangeFromPoint(clientX, clientY);
-  } else if (document.caretPositionFromPoint) {
-    const pos = document.caretPositionFromPoint(clientX, clientY);
-    if (pos) {
-      range = document.createRange();
-      range.setStart(pos.offsetNode, pos.offset);
-      range.collapse(true);
-    }
-  }
-  if (!range) return null;
-  if (!editor.contains(range.commonAncestorContainer)) return null;
-  const chipAncestor =
-    range.startContainer instanceof Element
-      ? range.startContainer.closest(".template-token-chip")
-      : range.startContainer.parentElement?.closest?.(".template-token-chip");
-  if (chipAncestor instanceof HTMLElement && editor.contains(chipAncestor)) {
-    const rect = chipAncestor.getBoundingClientRect();
-    const placeBefore = clientX < rect.left + rect.width / 2;
-    range = document.createRange();
-    if (placeBefore) range.setStartBefore(chipAncestor);
-    else range.setStartAfter(chipAncestor);
-    range.collapse(true);
-  }
-  return range;
-}
-
-function insertTokenChipAtCaret(editor, token) {
-  if (!editor || !token) return false;
-  editor.focus();
-  const sel = window.getSelection?.();
-  if (!sel) return false;
-  if (!sel.rangeCount || !editor.contains(sel.getRangeAt(0).commonAncestorContainer)) {
-    restoreTemplateEditorSelection(editor);
-  }
-  if (!sel.rangeCount) return false;
-  const range = sel.getRangeAt(0);
-  if (!editor.contains(range.commonAncestorContainer)) return false;
-  range.deleteContents();
-  const chip = createTemplateTokenChip(token);
-  range.insertNode(chip);
-  placeCaretAfterNode(chip);
-  captureTemplateEditorSelection(editor);
-  return true;
-}
-
-function insertTokenIntoTemplateSource(source, token) {
-  if (!source || !token) return false;
-  const editor = templateEditorBySource.get(source);
-  if (editor && insertTokenChipAtCaret(editor, token)) {
-    syncTemplateEditorToSource(editor, source);
-    return true;
-  }
-  const start = typeof source.selectionStart === "number" ? source.selectionStart : source.value.length;
-  const end = typeof source.selectionEnd === "number" ? source.selectionEnd : source.value.length;
-  const v = source.value;
-  source.value = `${v.slice(0, start)}${token}${v.slice(end)}`;
-  const pos = start + token.length;
-  source.focus();
-  if (typeof source.setSelectionRange === "function") source.setSelectionRange(pos, pos);
-  source.dispatchEvent(new Event("input", { bubbles: true }));
-  return true;
-}
-
-function resolveTemplateEditorSource(selector) {
-  const matchesSelector = (el) => el instanceof HTMLTextAreaElement && (!selector || el.matches(selector));
-
-  if (matchesSelector(activeTemplateEditorSource)) {
-    return activeTemplateEditorSource;
-  }
-
-  const sel = window.getSelection?.();
-  const anchorNode = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
-  const anchorEl =
-    anchorNode instanceof Element
-      ? anchorNode
-      : anchorNode && anchorNode.parentElement instanceof Element
-        ? anchorNode.parentElement
-        : null;
-  const editorFromSelection = anchorEl ? anchorEl.closest(".template-token-editor") : null;
-  if (editorFromSelection instanceof HTMLElement) {
-    const source = templateSourceByEditor.get(editorFromSelection);
-    if (matchesSelector(source)) {
-      activeTemplateEditorSource = source;
-      return source;
-    }
-  }
-
-  const focused = document.activeElement;
-  if (focused instanceof HTMLElement) {
-    const focusedEditor = focused.closest(".template-token-editor");
-    if (focusedEditor instanceof HTMLElement) {
-      const source = templateSourceByEditor.get(focusedEditor);
-      if (matchesSelector(source)) {
-        activeTemplateEditorSource = source;
-        return source;
-      }
-    }
-  }
-
-  const fallback = document.querySelector(selector || TEMPLATE_EDITOR_TEXTAREA_SELECTOR);
-  return fallback instanceof HTMLTextAreaElement ? fallback : null;
-}
-
-function initTemplateTokenEditors() {
-  const sources = Array.from(document.querySelectorAll(TEMPLATE_EDITOR_TEXTAREA_SELECTOR));
-  sources.forEach((source) => {
-    if (!(source instanceof HTMLTextAreaElement)) return;
-    if (templateEditorBySource.has(source)) return;
-    const editor = document.createElement("div");
-    editor.className = "template-token-editor";
-    editor.setAttribute("contenteditable", "true");
-    editor.setAttribute("spellcheck", "false");
-    editor.dataset.sourceFor = source.id || "";
-    renderTemplateEditorFromValue(editor, source.value);
-    source.classList.add("template-token-source");
-    source.setAttribute("aria-hidden", "true");
-    source.tabIndex = -1;
-    source.style.display = "none";
-    source.insertAdjacentElement("afterend", editor);
-    templateEditorBySource.set(source, editor);
-    templateSourceByEditor.set(editor, source);
-
-    editor.addEventListener("focus", () => {
-      activeTemplateEditorSource = source;
-      captureTemplateEditorSelection(editor);
-    });
-    editor.addEventListener("click", (event) => {
-      const removeBtn = event.target instanceof HTMLElement ? event.target.closest(".template-token-chip__remove") : null;
-      if (removeBtn) {
-        const chip = removeBtn.closest(".template-token-chip");
-        chip?.remove();
-        syncTemplateEditorToSource(editor, source);
-        captureTemplateEditorSelection(editor);
-        return;
-      }
-      activeTemplateEditorSource = source;
-      captureTemplateEditorSelection(editor);
-    });
-    editor.addEventListener("keyup", () => captureTemplateEditorSelection(editor));
-    editor.addEventListener("mouseup", () => captureTemplateEditorSelection(editor));
-    editor.addEventListener("beforeinput", (event) => {
-      if (event.inputType === "insertParagraph") {
-        event.preventDefault();
-        document.execCommand("insertText", false, "\n");
-      }
-    });
-    editor.addEventListener("dragstart", (event) => {
-      const target = event.target instanceof HTMLElement ? event.target.closest(".template-token-chip") : null;
-      if (!(target instanceof HTMLElement)) return;
-      draggingTemplateTokenChip = target;
-      draggingTemplateTokenSource = source;
-      target.classList.add("is-dragging");
-      if (event.dataTransfer) {
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("text/plain", String(target.dataset.token || ""));
-      }
-    });
-    editor.addEventListener("dragend", () => {
-      if (draggingTemplateTokenChip instanceof HTMLElement) {
-        draggingTemplateTokenChip.classList.remove("is-dragging");
-      }
-      editor.querySelectorAll(".template-token-chip.drop-before, .template-token-chip.drop-after").forEach((el) => {
-        el.classList.remove("drop-before", "drop-after");
-      });
-      draggingTemplateTokenChip = null;
-      draggingTemplateTokenSource = null;
-    });
-    editor.addEventListener("dragover", (event) => {
-      if (!(draggingTemplateTokenChip instanceof HTMLElement)) return;
-      if (draggingTemplateTokenSource !== source) return;
-      event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    });
-    editor.addEventListener("drop", (event) => {
-      if (!(draggingTemplateTokenChip instanceof HTMLElement)) return;
-      if (draggingTemplateTokenSource !== source) return;
-      event.preventDefault();
-      editor.querySelectorAll(".template-token-chip.drop-before, .template-token-chip.drop-after").forEach((el) => {
-        el.classList.remove("drop-before", "drop-after");
-      });
-      let dropRange = getCaretRangeFromPoint(event.clientX, event.clientY, editor);
-      if (!dropRange) {
-        restoreTemplateEditorSelection(editor);
-        const sel = window.getSelection?.();
-        dropRange = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
-      }
-      if (!dropRange || !editor.contains(dropRange.commonAncestorContainer)) {
-        dropRange = document.createRange();
-        dropRange.selectNodeContents(editor);
-        dropRange.collapse(false);
-      }
-      draggingTemplateTokenChip.remove();
-      dropRange.insertNode(draggingTemplateTokenChip);
-      placeCaretAfterNode(draggingTemplateTokenChip);
-      captureTemplateEditorSelection(editor);
-      syncTemplateEditorToSource(editor, source);
-    });
-    editor.addEventListener("input", () => {
-      activeTemplateEditorSource = source;
-      captureTemplateEditorSelection(editor);
-      syncTemplateEditorToSource(editor, source);
-    });
-    editor.addEventListener("blur", () => {
-      syncTemplateEditorToSource(editor, source, { normalize: true });
-      captureTemplateEditorSelection(editor);
-    });
-  });
-}
-
-function isHostedRuntime() {
-  return typeof window !== "undefined" && (window.location.protocol === "http:" || window.location.protocol === "https:");
-}
-
-function getAuthToken() {
-  try {
-    return sessionStorage.getItem(AUTH_TOKEN_KEY) || "";
-  } catch (_) {
-    return "";
-  }
-}
-
-function setAuthToken(token) {
-  try {
-    if (token) sessionStorage.setItem(AUTH_TOKEN_KEY, token);
-    else sessionStorage.removeItem(AUTH_TOKEN_KEY);
-  } catch (_) {
-    /* noop */
-  }
-}
 
 function setAppBootLoading(isLoading) {
   const active = Boolean(isLoading);
@@ -851,171 +499,6 @@ function playLoginIntroOnce() {
   }, 520);
 }
 
-function startLoginMotionCanvas() {
-  if (!loginMotionCanvas || loginMotionCanvasCleanup) return;
-  const canvas = loginMotionCanvas;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
-  const pointer = { x: 0, y: 0, tx: 0, ty: 0, active: false };
-  let width = 0;
-  let height = 0;
-  let dpr = 1;
-  let raf = 0;
-  let lastFrame = 0;
-  let nodes = [];
-  const colors = ["#3e4095", "#5661d6", "#7d7fe2", "#d1ae6c"];
-  const buildNodes = () => {
-    const spacing = width < 700 ? 56 : 74;
-    const cols = Math.max(5, Math.ceil(width / spacing) + 2);
-    const rows = Math.max(5, Math.ceil(height / spacing) + 2);
-    const xGap = width / Math.max(1, cols - 1);
-    const yGap = height / Math.max(1, rows - 1);
-    nodes = [];
-    for (let row = 0; row < rows; row += 1) {
-      for (let col = 0; col < cols; col += 1) {
-        const jitterX = (Math.random() - 0.5) * xGap * 0.44;
-        const jitterY = (Math.random() - 0.5) * yGap * 0.44;
-        const homeX = col * xGap + jitterX;
-        const homeY = row * yGap + jitterY;
-        nodes.push({
-          homeX,
-          homeY,
-          x: homeX,
-          y: homeY,
-          vx: 0,
-          vy: 0,
-          phase: Math.random() * Math.PI * 2,
-          drift: 3 + Math.random() * 8,
-          size: 1.2 + Math.random() * 2.1,
-          color: colors[(row + col) % colors.length],
-          alpha: 0.26 + Math.random() * 0.42
-        });
-      }
-    }
-  };
-  const resize = () => {
-    const rect = canvas.getBoundingClientRect();
-    dpr = Math.min(1.35, window.devicePixelRatio || 1);
-    width = Math.max(1, Math.floor(rect.width));
-    height = Math.max(1, Math.floor(rect.height));
-    canvas.width = Math.floor(width * dpr);
-    canvas.height = Math.floor(height * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    pointer.x = pointer.tx = width * 0.5;
-    pointer.y = pointer.ty = height * 0.5;
-    buildNodes();
-  };
-  const move = (event) => {
-    pointer.tx = event.clientX;
-    pointer.ty = event.clientY;
-    pointer.active = true;
-  };
-  const leave = () => {
-    pointer.active = false;
-  };
-  const draw = (ts = 0) => {
-    if (document.hidden) {
-      raf = requestAnimationFrame(draw);
-      return;
-    }
-    if (ts - lastFrame < 16) {
-      raf = requestAnimationFrame(draw);
-      return;
-    }
-    lastFrame = ts;
-    ctx.clearRect(0, 0, width, height);
-    const time = ts * 0.001;
-    pointer.x += (pointer.tx - pointer.x) * 0.17;
-    pointer.y += (pointer.ty - pointer.y) * 0.17;
-    ctx.save();
-    ctx.globalCompositeOperation = "source-over";
-    const linkDistance = width < 700 ? 84 : 108;
-    const pullRadius = Math.min(360, Math.max(210, width * 0.26));
-    if (pointer.active && !reduceMotion) {
-      const pulseRadius = pullRadius * 0.78;
-      const pulse = ctx.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, pulseRadius);
-      pulse.addColorStop(0, "rgba(209, 174, 108, 0.22)");
-      pulse.addColorStop(0.55, "rgba(126, 140, 230, 0.09)");
-      pulse.addColorStop(1, "rgba(62, 64, 149, 0)");
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = pulse;
-      ctx.beginPath();
-      ctx.arc(pointer.x, pointer.y, pulseRadius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    nodes.forEach((node) => {
-      const idleX = Math.cos(time * 0.94 + node.phase) * node.drift;
-      const idleY = Math.sin(time * 0.86 + node.phase * 1.17) * node.drift;
-      const targetX = node.homeX + idleX;
-      const targetY = node.homeY + idleY;
-      node.vx += (targetX - node.x) * 0.02;
-      node.vy += (targetY - node.y) * 0.02;
-
-      if (pointer.active && !reduceMotion) {
-        const dx = pointer.x - node.x;
-        const dy = pointer.y - node.y;
-        const dist = Math.max(1, Math.hypot(dx, dy));
-        if (dist < pullRadius) {
-          const force = (1 - dist / pullRadius) ** 2.2;
-          node.vx += (dx / dist) * force * 2.25;
-          node.vy += (dy / dist) * force * 2.25;
-        }
-      }
-      node.vx *= 0.84;
-      node.vy *= 0.84;
-      node.x += node.vx;
-      node.y += node.vy;
-    });
-
-    for (let i = 0; i < nodes.length; i += 1) {
-      const a = nodes[i];
-      for (let j = i + 1; j < nodes.length; j += 1) {
-        const b = nodes[j];
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist > linkDistance) continue;
-        ctx.globalAlpha = (1 - dist / linkDistance) * 0.22;
-        ctx.strokeStyle = "rgba(139, 141, 201, 0.9)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-      }
-    }
-
-    nodes.forEach((node) => {
-      const pointerBoost = pointer.active
-        ? Math.max(0, 1 - Math.hypot(pointer.x - node.x, pointer.y - node.y) / pullRadius)
-        : 0;
-      ctx.globalAlpha = Math.min(0.94, node.alpha + pointerBoost * 0.5);
-      ctx.fillStyle = node.color;
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, node.size + pointerBoost * 2.2, 0, Math.PI * 2);
-      ctx.fill();
-    });
-    ctx.restore();
-    raf = requestAnimationFrame(draw);
-  };
-  resize();
-  window.addEventListener("resize", resize);
-  window.addEventListener("pointermove", move, { passive: true });
-  window.addEventListener("pointerleave", leave, { passive: true });
-  raf = requestAnimationFrame(draw);
-  loginMotionCanvasCleanup = () => {
-    cancelAnimationFrame(raf);
-    window.removeEventListener("resize", resize);
-    window.removeEventListener("pointermove", move);
-    window.removeEventListener("pointerleave", leave);
-    loginMotionCanvasCleanup = null;
-  };
-}
-
-function stopLoginMotionCanvas() {
-  if (typeof loginMotionCanvasCleanup === "function") loginMotionCanvasCleanup();
-}
 
 function updateLoginProgressiveFields() {
   if (!loginForm || !phoneInput || !passwordInput || !loginBtn) return;
@@ -1051,7 +534,7 @@ function showLoginGreeting(userName, onDone) {
   overlay.className = "login-greeting-overlay";
   overlay.innerHTML = `
     <div class="login-greeting-card" role="status" aria-live="polite">
-      <img src="mb new logo 1.svg" alt="" class="login-greeting-logo" aria-hidden="true" />
+      <img src="/mb new logo 1.svg" alt="" class="login-greeting-logo" aria-hidden="true" />
       <div class="login-greeting-title">${escapeHtmlText(getGreetingText(userName))}</div>
       <div class="login-greeting-subtitle">Загружаем рабочее пространство</div>
     </div>
@@ -1084,227 +567,6 @@ function setLoginSubmitting(isSubmitting) {
   if (passwordInput) passwordInput.disabled = loginSubmitInFlight;
   if (loginPhoneCountryBtn) loginPhoneCountryBtn.disabled = loginSubmitInFlight;
   if (togglePasswordBtn) togglePasswordBtn.disabled = loginSubmitInFlight;
-}
-
-function copyTextToClipboard(text) {
-  const value = String(text || "");
-  if (!value) return;
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(value).catch(() => {});
-    return;
-  }
-  const ta = document.createElement("textarea");
-  ta.value = value;
-  ta.setAttribute("readonly", "");
-  ta.style.position = "fixed";
-  ta.style.left = "-9999px";
-  document.body.appendChild(ta);
-  ta.select();
-  try {
-    document.execCommand("copy");
-  } catch (_) {
-    /* noop */
-  }
-  ta.remove();
-}
-
-function openLoginSupportModal() {
-  const overlay = document.createElement("div");
-  overlay.className = "responsible-modal-overlay login-support-modal-overlay";
-  overlay.innerHTML = `
-    <div class="responsible-modal login-support-modal" role="dialog" aria-modal="true" aria-label="Служба поддержки">
-      <h3>Служба поддержки</h3>
-      <div class="login-support-contact-card">
-        <span class="login-support-contact-icon"><i data-lucide="user-round-cog" class="lucide-icon" aria-hidden="true"></i></span>
-        <div>
-          <div class="login-support-contact-title">Администратор системы</div>
-          <strong>Алишер</strong>
-          <div class="login-support-contact-row">
-            <i data-lucide="phone" class="lucide-icon" aria-hidden="true"></i>
-            <a href="tel:+998994067406">+998 99 406 74 06</a>
-            <button type="button" class="login-support-copy-btn" data-copy-support-phone="+998994067406" title="Скопировать телефон" aria-label="Скопировать телефон">
-              <i data-lucide="copy" class="lucide-icon" aria-hidden="true"></i>
-            </button>
-          </div>
-          <div class="login-support-contact-row">
-            <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
-            <a href="https://t.me/alishermusayev94" target="_blank" rel="noopener">Telegram: @alishermusayev94</a>
-          </div>
-        </div>
-      </div>
-      <div class="responsible-modal-actions">
-        <button type="button" class="secondary login-support-close">Закрыть</button>
-      </div>
-    </div>
-  `;
-  const close = () => overlay.remove();
-  overlay.querySelector(".login-support-close")?.addEventListener("click", close);
-  overlay.querySelector("[data-copy-support-phone]")?.addEventListener("click", (event) => {
-    copyTextToClipboard(event.currentTarget?.getAttribute("data-copy-support-phone") || "+998994067406");
-    event.currentTarget?.classList.add("is-copied");
-    window.setTimeout(() => event.currentTarget?.classList.remove("is-copied"), 900);
-  });
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) close();
-  });
-  document.addEventListener("keydown", function onKey(event) {
-    if (event.key !== "Escape") return;
-    document.removeEventListener("keydown", onKey);
-    close();
-  });
-  document.body.appendChild(overlay);
-  initLucideIcons();
-}
-
-function setTurboLoaderProgress(progress) {
-  if (!turboTopLoaderBar) return;
-  const safe = Math.max(0, Math.min(100, Number(progress) || 0));
-  turboTopLoaderBar.style.width = `${safe}%`;
-}
-
-function startTurboLoader() {
-  if (!turboTopLoader || !turboTopLoaderBar) return;
-  if (document.body.classList.contains("app-booting")) return;
-  clearTimeout(turboLoaderHideTimer);
-  turboTopLoader.classList.add("is-active");
-  if (turboLoaderProgress <= 0 || turboLoaderProgress >= 100) {
-    turboLoaderProgress = 8;
-    setTurboLoaderProgress(turboLoaderProgress);
-  }
-  clearInterval(turboLoaderProgressTimer);
-  turboLoaderProgressTimer = setInterval(() => {
-    turboLoaderProgress = Math.min(90, turboLoaderProgress + (turboLoaderProgress < 45 ? 12 : turboLoaderProgress < 75 ? 6 : 2));
-    setTurboLoaderProgress(turboLoaderProgress);
-    if (turboLoaderProgress >= 90) {
-      clearInterval(turboLoaderProgressTimer);
-      turboLoaderProgressTimer = null;
-    }
-  }, 90);
-}
-
-function finishTurboLoader() {
-  if (!turboTopLoader || !turboTopLoaderBar) return;
-  clearInterval(turboLoaderProgressTimer);
-  turboLoaderProgressTimer = null;
-  turboLoaderProgress = 100;
-  setTurboLoaderProgress(100);
-  clearTimeout(turboLoaderHideTimer);
-  turboLoaderHideTimer = setTimeout(() => {
-    turboTopLoader.classList.remove("is-active");
-    turboLoaderProgress = 0;
-    setTurboLoaderProgress(0);
-  }, 170);
-}
-
-function shouldUseTurboLoader(sectionId = activeSectionId) {
-  return String(sectionId || "") !== "tasks";
-}
-
-function pulseTurboLoader() {
-  if (!shouldUseTurboLoader()) return;
-  startTurboLoader();
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      finishTurboLoader();
-    });
-  });
-}
-
-function readLastSessionActivityTs() {
-  try {
-    const raw = sessionStorage.getItem(SESSION_LAST_ACTIVITY_KEY);
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : 0;
-  } catch (_) {
-    return 0;
-  }
-}
-
-function writeLastSessionActivityTs(ts = Date.now()) {
-  try {
-    sessionStorage.setItem(SESSION_LAST_ACTIVITY_KEY, String(Math.max(0, Math.floor(ts))));
-  } catch (_) {
-    /* noop */
-  }
-}
-
-function clearLastSessionActivityTs() {
-  try {
-    sessionStorage.removeItem(SESSION_LAST_ACTIVITY_KEY);
-  } catch (_) {
-    /* noop */
-  }
-}
-
-function trackSessionActivity(force = false) {
-  if (!getAuthToken()) return;
-  const now = Date.now();
-  if (!force && now - lastSessionActivityWriteAt < 5000) return;
-  lastSessionActivityWriteAt = now;
-  writeLastSessionActivityTs(now);
-}
-
-function bindSessionActivityListeners() {
-  if (sessionActivityListenersBound) return;
-  sessionActivityListenersBound = true;
-  const handler = () => trackSessionActivity(false);
-  const opts = { passive: true, capture: true };
-  ["pointerdown", "keydown", "touchstart", "wheel", "scroll"].forEach((eventName) => {
-    window.addEventListener(eventName, handler, opts);
-  });
-}
-
-function markScrollbarActivity() {
-  document.documentElement.classList.add("scrollbars-active");
-  clearTimeout(scrollbarActivityTimer);
-  scrollbarActivityTimer = setTimeout(() => {
-    document.documentElement.classList.remove("scrollbars-active");
-  }, 900);
-}
-
-function initGlobalScrollbarActivityTracker() {
-  const opts = { passive: true, capture: true };
-  ["scroll", "wheel", "touchmove"].forEach((eventName) => {
-    window.addEventListener(eventName, markScrollbarActivity, opts);
-  });
-}
-
-function handleIdleSessionExpired() {
-  if (!getAuthToken()) return;
-  clearSession();
-  showLogin();
-  showStatusDialog({
-    title: "Сессия завершена",
-    message: "Вы были неактивны слишком долго. Войдите снова, чтобы продолжить работу и синхронизацию Telegram.",
-    type: "error"
-  });
-}
-
-function checkSessionIdleTimeout() {
-  if (!getAuthToken()) return;
-  const last = readLastSessionActivityTs();
-  if (!last) {
-    trackSessionActivity(true);
-    return;
-  }
-  if (Date.now() - last >= SESSION_IDLE_TIMEOUT_MS) {
-    handleIdleSessionExpired();
-  }
-}
-
-function startSessionIdleWatcher() {
-  if (!getAuthToken()) return;
-  bindSessionActivityListeners();
-  trackSessionActivity(true);
-  clearInterval(sessionIdleCheckTimer);
-  sessionIdleCheckTimer = setInterval(() => {
-    checkSessionIdleTimeout();
-  }, SESSION_IDLE_CHECK_INTERVAL_MS);
-}
-
-function stopSessionIdleWatcher() {
-  clearInterval(sessionIdleCheckTimer);
-  sessionIdleCheckTimer = null;
 }
 
 function buildAppPayload() {
@@ -1343,14 +605,7 @@ let initialRemoteBundleLoaded = false;
 let serverDataRevision = 0;
 let authExpiredNoticeShown = false;
 let bootLoaderCloseTimer = null;
-let sessionIdleCheckTimer = null;
-let sessionActivityListenersBound = false;
-let lastSessionActivityWriteAt = 0;
-let turboLoaderProgress = 0;
-let turboLoaderProgressTimer = null;
-let turboLoaderHideTimer = null;
 let employeeChatIdAutoRefreshTimer = null;
-let scrollbarActivityTimer = null;
 
 function handleServerAuthExpired() {
   if (authExpiredNoticeShown) return;
@@ -1582,14 +837,6 @@ function mergeBotManagedTaskFieldsIntoLocalRow(localRow, remoteRow) {
   }
 
   return changed;
-}
-
-function isPlainObjectRecord(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function cloneJsonSafe(value) {
-  return JSON.parse(JSON.stringify(value));
 }
 
 /**
@@ -2204,47 +1451,6 @@ function stopRemoteAutoPull() {
   remotePullTimer = null;
 }
 
-function escapeHtmlText(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function escapeHtmlAttr(s) {
-  return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-}
-
-function getSessionUserDisplayName() {
-  return String(localStorage.getItem(SESSION_STORAGE_KEY) || "").trim() || "Пользователь";
-}
-
-function saveSessionPhone(phone) {
-  try {
-    const normalized = normalizeUzPhone(String(phone || ""));
-    if (!normalized) {
-      localStorage.removeItem(SESSION_PHONE_STORAGE_KEY);
-      return;
-    }
-    localStorage.setItem(SESSION_PHONE_STORAGE_KEY, normalized);
-  } catch (_) {
-    /* noop */
-  }
-}
-
-function getSessionPhone() {
-  try {
-    return normalizeUzPhone(String(localStorage.getItem(SESSION_PHONE_STORAGE_KEY) || ""));
-  } catch (_) {
-    return "";
-  }
-}
-
-function isGenericSystemUserName(value) {
-  const name = String(value || "").trim().toLowerCase();
-  return name === "пользователь" || name === "администратор";
-}
-
 function findEmployeeFullNameByPhone(phone) {
   const normalized = normalizeUzPhone(String(phone || ""));
   if (!normalized) return "";
@@ -2508,12 +1714,6 @@ function taskHistoryCtx(section, rowIndex, colIndex) {
   };
 }
 
-function shortenHistorySnippet(s, maxLen = 100) {
-  const t = String(s ?? "");
-  if (t.length <= maxLen) return t;
-  return `${t.slice(0, maxLen)}…`;
-}
-
 /** Подставляет значения строки задачи в шаблон с токенами вида [ид_задачи] */
 function applyTaskMessageTemplate(template, row) {
   if (!template || !row) return "";
@@ -2538,12 +1738,6 @@ function applyTaskMessageTemplate(template, row) {
     out = out.split(item.token).join(val);
   }
   return out.replace(/\r\n?/g, "\n");
-}
-
-function normalizePersonName(s) {
-  return String(s ?? "")
-    .trim()
-    .replace(/\s+/g, " ");
 }
 
 /** Строка объекта по наименованию из задачи: РП и ЗРП с этой же строки (не путать с однофамильцами на других объектах). */
@@ -2794,11 +1988,6 @@ function getTaskReadStatePartsForRow(row) {
 
 function composeTaskReadState(isRead, whenText = "—") {
   return `${isRead ? "Прочитано" : "Не прочитано"}\n${String(whenText || "—").trim() || "—"}`;
-}
-
-function formatTelegramPreviewHtml(text) {
-  const t = String(text ?? "").trim() || "—";
-  return escapeHtmlText(t).replace(/\r\n|\r|\n/g, "<br />");
 }
 
 function findTaskMessageTemplateTextareaByStatus(status) {
@@ -3640,25 +2829,6 @@ function attachGlobalDuplicateRecipientsHandlers() {
   renderGlobalDupShuttleIntoDom();
 }
 
-function normalizeDateDisplayFormatId(value) {
-  const id = String(value || "");
-  return ["DMY_DOT", "ISO", "DMY_SLASH", "MDY_SLASH"].includes(id) ? id : "DMY_DOT";
-}
-
-function normalizeTimeDisplayFormatId(value) {
-  return String(value) === "12" ? "12" : "24";
-}
-
-function normalizeGoogleSheetsInterval(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 30;
-  return Math.min(1440, Math.max(1, Math.floor(n)));
-}
-
-function normalizeGoogleSheetsWriteMode(value) {
-  return String(value || "").trim() === "update" ? "update" : "rewrite";
-}
-
 function formatGoogleSheetsSyncStatusText() {
   const status = String(displaySettings.googleSheetsLastSyncStatus || "").trim();
   const atIso = String(displaySettings.googleSheetsLastSyncAt || "").trim();
@@ -3853,110 +3023,6 @@ async function triggerEmployeesChatIdRefresh(options = {}) {
     }
     return false;
   }
-}
-
-function formatSmsInviteHistoryStatusLabel(entry) {
-  const status = String(entry?.status || "").trim();
-  if (status === "sent" || entry?.ok === true) return "Отправлено";
-  return "Ошибка";
-}
-
-function shortenSmsGatewayId(rawId) {
-  const id = String(rawId || "").trim();
-  if (!id) return "";
-  if (id.length <= 12) return id;
-  return `${id.slice(0, 6)}...${id.slice(-4)}`;
-}
-
-function mapSmsGatewayStateLabel(rawState) {
-  const state = String(rawState || "").trim().toLowerCase();
-  if (!state) return "";
-  if (state === "pending" || state === "queued") return "в очереди";
-  if (state === "sent") return "отправлено";
-  if (state === "delivered") return "доставлено";
-  if (state === "failed" || state === "error" || state === "rejected") return "ошибка";
-  return String(rawState || "").trim();
-}
-
-function summarizeSmsGatewayResponse(rawValue) {
-  const full = String(rawValue || "").trim();
-  if (!full) {
-    return { shortText: "—", fullText: "—" };
-  }
-  if (/unauthorized|401/i.test(full)) {
-    return { shortText: "Ошибка авторизации", fullText: full };
-  }
-  if (/Принято SMS Gate:/i.test(full)) {
-    const stateMatch = full.match(/state=([^,\s]+)/i);
-    const recipientsMatch = full.match(/recipients=([0-9]+)/i);
-    const idMatch = full.match(/id=([^,\s]+)/i);
-    const stateLabel = mapSmsGatewayStateLabel(stateMatch?.[1] || "");
-    const recipients = recipientsMatch?.[1] ? Number(recipientsMatch[1]) : 0;
-    const shortId = shortenSmsGatewayId(idMatch?.[1] || "");
-    const shortText = [
-      stateLabel ? `Принято: ${stateLabel}` : "Принято gateway",
-      recipients > 0 ? `получателей: ${recipients}` : "",
-      shortId ? `ID: ${shortId}` : ""
-    ].filter(Boolean).join(" | ");
-    return { shortText, fullText: full };
-  }
-  if (full.startsWith("{") || full.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(full);
-      const state = String(parsed?.state || parsed?.states?.[0]?.state || "").trim();
-      const recipientsCount = Array.isArray(parsed?.recipients)
-        ? parsed.recipients.length
-        : Number(parsed?.recipientsCount || 0);
-      const shortId = shortenSmsGatewayId(parsed?.id || "");
-      const stateLabel = mapSmsGatewayStateLabel(state);
-      const shortText = [
-        stateLabel ? `Gateway: ${stateLabel}` : "Принято gateway",
-        recipientsCount > 0 ? `получателей: ${recipientsCount}` : "",
-        shortId ? `ID: ${shortId}` : ""
-      ].filter(Boolean).join(" | ");
-      return { shortText: shortText || "Принято gateway", fullText: full };
-    } catch (_) {
-      // fallback below
-    }
-  }
-  if (full.length > 140) {
-    return { shortText: `${full.slice(0, 137)}...`, fullText: full };
-  }
-  return { shortText: full, fullText: full };
-}
-
-function summarizeSmsTextForHistory(rawValue) {
-  const full = String(rawValue || "").trim();
-  if (!full) {
-    return { shortText: "—", fullText: "—" };
-  }
-  const oneLine = full.replace(/\s+/g, " ").trim();
-  if (/регистрац/i.test(oneLine) && /t\.me\//i.test(oneLine)) {
-    return {
-      shortText: "Приглашение в Telegram-бот (ссылка на регистрацию).",
-      fullText: full
-    };
-  }
-  if (/задач[аеи]\s*№/i.test(oneLine) && /t\.me\//i.test(oneLine)) {
-    return {
-      shortText: "Уведомление по задаче (ссылка на Telegram-бот).",
-      fullText: full
-    };
-  }
-  if (oneLine.length > 160) {
-    return { shortText: `${oneLine.slice(0, 157)}...`, fullText: full };
-  }
-  return { shortText: oneLine, fullText: full };
-}
-
-function getSmsHistoryGatewayCategory(responseText, statusText = "") {
-  const response = String(responseText || "").trim();
-  const status = String(statusText || "").trim().toLowerCase();
-  if (/unauthorized|401/i.test(response)) return "auth_error";
-  if (status === "ошибка") return "error";
-  if (status === "отправлено") return "success";
-  if (/error|failed|rejected/i.test(response)) return "error";
-  return "other";
 }
 
 function renderSmsInviteHistoryTableHtml(entries) {
@@ -4397,51 +3463,6 @@ function getServerTimezone() {
   }
 }
 
-function getCalendarDatePartsInTimeZone(date, timeZone) {
-  const d = date instanceof Date ? date : new Date(date);
-  if (Number.isNaN(d.getTime())) return null;
-  const tz = timeZone || getServerTimezone();
-  try {
-    const fmt = new Intl.DateTimeFormat("en-CA", {
-      timeZone: tz,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    });
-    const parts = fmt.formatToParts(d);
-    const y = Number(parts.find((p) => p.type === "year")?.value);
-    const m = Number(parts.find((p) => p.type === "month")?.value);
-    const day = Number(parts.find((p) => p.type === "day")?.value);
-    if (!y || !m || !day) return null;
-    return { year: y, month: m, day };
-  } catch (_) {
-    return null;
-  }
-}
-
-function parseRuDateStringToParts(value) {
-  const s = String(value || "").trim();
-  if (!s) return null;
-  const [a, b, c] = s.split(".");
-  if (!a || !b || !c) return null;
-  const day = Number(a);
-  const month = Number(b);
-  const year = Number(c);
-  if (!day || !month || !year) return null;
-  if (day < 1 || day > 31 || month < 1 || month > 12) return null;
-  return { day, month, year };
-}
-
-function formatDatePartsStorage(day, month, year) {
-  return `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}`;
-}
-
-function calendarDiffDays(fromParts, toParts) {
-  const a = Date.UTC(fromParts.year, fromParts.month - 1, fromParts.day);
-  const b = Date.UTC(toParts.year, toParts.month - 1, toParts.day);
-  return Math.round((b - a) / 86400000);
-}
-
 function formatStoredDateForDisplay(stored) {
   const p = parseRuDateStringToParts(stored);
   if (!p) return String(stored || "");
@@ -4455,12 +3476,6 @@ function formatStoredDateForDisplay(stored) {
   return formatDatePartsStorage(p.day, p.month, p.year);
 }
 
-function parseRuDate(value) {
-  const parts = parseRuDateStringToParts(value);
-  if (!parts) return null;
-  const date = new Date(parts.year, parts.month - 1, parts.day);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
 const PRIORITY_OPTIONS = ["Средний", "Высокий", "Критический"];
 const TASKS_UNSENT_TAB_ID = "unsent_import";
 const STATUS_TABS = [
@@ -4575,8 +3590,6 @@ const SECTION_GROUPS = {
   }
 };
 
-/** Сид «Объекты»; `mbc_objects_seed_version` в localStorage — при увеличении версии строки обновляются у всех, у кого сохранены старые данные */
-const OBJECTS_SEED_VERSION_KEY = "mbc_objects_seed_version";
 const OBJECTS_SEED_VERSION = 1;
 const DEFAULT_OBJECTS_ROWS = [
   ["1", "Center one by MBC", "г. Ташкент, ул. Садика Азимова", "Активен", "Nasirov Karimjon", "Qosimov Sarvar", ""],
@@ -4882,7 +3895,6 @@ let reportChartDragId = null;
 /** Во время drag-and-drop кастомных плиток отчёта */
 let reportCustomChartDragId = null;
 let loginIntroShown = false;
-let loginMotionCanvasCleanup = null;
 let loginSubmitInFlight = false;
 /** Выделенные кастомные диаграммы для массовой группировки */
 let reportCustomSelectedChartIds = new Set();
@@ -5010,43 +4022,6 @@ let taskReassignLog = {};
 let cellCommentsByCellKey = {};
 let cellCommentDeletedIds = new Set();
 const expandedTaskAssigneeRows = new Set();
-
-function iconSvg(name) {
-  const attrs = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide-icon" aria-hidden="true"';
-  const icons = {
-    "layout-dashboard": `<svg ${attrs}><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`,
-    user: `<svg ${attrs}><circle cx="12" cy="8" r="4"/><path d="M6 20c1.6-2.7 4-4 6-4s4.4 1.3 6 4"/></svg>`,
-    panelLeft: `<svg ${attrs}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>`,
-    listChecks: `<svg ${attrs}><path d="M9 6h11"/><path d="M9 12h11"/><path d="M9 18h11"/><path d="m3 6 1 1 2-2"/><path d="m3 12 1 1 2-2"/><path d="m3 18 1 1 2-2"/></svg>`,
-    users: `<svg ${attrs}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
-    userCheck: `<svg ${attrs}><path d="m16 11 2 2 4-4"/><path d="M8 7a4 4 0 1 1 8 0 4 4 0 0 1-8 0"/><path d="M6 21v-2a6 6 0 0 1 9-5"/></svg>`,
-    "check-circle-2": `<svg ${attrs}><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>`,
-    database: `<svg ${attrs}><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 11v6c0 1.7 4 3 9 3s9-1.3 9-3v-6"/></svg>`,
-    "rotate-ccw": `<svg ${attrs}><path d="M3 2v6h6"/><path d="M3 8a9 9 0 1 0 2.6-4.6L3 6"/></svg>`,
-    history: `<svg ${attrs}><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/><path d="M12 7v5l3 2"/></svg>`,
-    pencil: `<svg ${attrs}><path d="M12 20h9"/><path d="m16.5 3.5 4 4L7 21l-4 1 1-4Z"/></svg>`,
-    "trash-2": `<svg ${attrs}><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`,
-    building2: `<svg ${attrs}><path d="M6 22V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v18"/><path d="M2 22h20"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>`,
-    settings: `<svg ${attrs}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.6 1.6 0 0 0 15 19.4a1.6 1.6 0 0 0-1 .6 1.6 1.6 0 0 0-.4 1V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-.4-1 1.6 1.6 0 0 0-1-.6 1.6 1.6 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-.6-1 1.6 1.6 0 0 0-1-.4H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1-.4 1.6 1.6 0 0 0 .6-1 1.6 1.6 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 9 4.6a1.6 1.6 0 0 0 1-.6 1.6 1.6 0 0 0 .4-1V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 .4 1 1.6 1.6 0 0 0 1 .6 1.6 1.6 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.6 1.6 0 0 0 19.4 9c.28.3.47.67.54 1.08.07.41.02.83-.14 1.22.16.39.21.81.14 1.22A1.6 1.6 0 0 0 19.4 15Z"/></svg>`,
-    briefcase: `<svg ${attrs}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M2 13h20"/></svg>`,
-    barChart: `<svg ${attrs}><path d="M3 3v18h18"/><path d="M7 16V8"/><path d="M12 16v-5"/><path d="M17 16V5"/></svg>`
-  };
-  return icons[name] || "";
-}
-
-function withIcon(iconName, text) {
-  return `<span class="icon-label">${iconSvg(iconName)}<span>${text}</span></span>`;
-}
-
-function withLucideIcon(iconName, text) {
-  return `<span class="icon-label"><i data-lucide="${iconName}" class="lucide-icon" aria-hidden="true"></i><span>${text}</span></span>`;
-}
-
-function initLucideIcons() {
-  if (window.lucide && typeof window.lucide.createIcons === "function") {
-    window.lucide.createIcons();
-  }
-}
 
 function getSectionIcon(sectionId) {
   const iconBySection = {
@@ -5272,7 +4247,7 @@ function openQuickAccessMenu() {
         }).join("")}
       </svg>
       <div class="quick-access-center">
-        <img src="mb new logo 1.svg" alt="" />
+        <img src="/mb new logo 1.svg" alt="" />
         <span class="quick-access-center-title">Меню</span>
         <span class="quick-access-center-label">${escapeHtmlText(items[selectedIndex]?.label || "Меню")}</span>
       </div>
@@ -8240,7 +7215,7 @@ function renderReportCustomChartsHtml() {
   if (!list.length) {
     return `
       <div class="report-custom-empty">
-        <dotlottie-player src="Chart%20Diagram2.lottie" background="transparent" speed="1" style="width:220px;height:220px" loop autoplay></dotlottie-player>
+        <dotlottie-player src="/Chart%20Diagram2.lottie" background="transparent" speed="1" style="width:220px;height:220px" loop autoplay></dotlottie-player>
         <p>Тут пока пусто</p>
       </div>
     `;
@@ -12204,235 +11179,6 @@ function syncResponsibleCatalogEmployeeNames({
   return changed;
 }
 
-function normalizeUzPhone(rawValue) {
-  const raw = String(rawValue || "").trim();
-  if (!raw) return DEFAULT_PHONE_PREFIX;
-  let s = raw.replace(/[^\d+]/g, "");
-  if (s.startsWith("00")) s = `+${s.slice(2)}`;
-  if (!s.startsWith("+")) s = `+${s.replace(/\D/g, "")}`;
-  const digits = s.slice(1).replace(/\D/g, "").slice(0, PHONE_MAX_DIGITS);
-  return `+${digits}`;
-}
-
-function sanitizePhoneInputValue(rawValue) {
-  const n = normalizeUzPhone(rawValue);
-  if (n === "+") return DEFAULT_PHONE_PREFIX;
-  const digits = n.replace(/\D/g, "");
-  const dial = detectDialCodeByPhone(n);
-  const rule = getPhoneRuleByDial(dial);
-  return `+${digits.slice(0, rule.max)}`;
-}
-
-function enforcePhoneKeyInput(event) {
-  const key = String(event.key || "");
-  if (!key) return;
-  if (event.ctrlKey || event.metaKey || event.altKey) return;
-  const allowedControl = new Set(["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Home", "End", "Tab"]);
-  if (allowedControl.has(key)) return;
-  if (/^\d$/.test(key)) return;
-  if (key === "+") {
-    const input = event.target;
-    if (!(input instanceof HTMLInputElement)) return;
-    const start = Number(input.selectionStart ?? 0);
-    if (start === 0 && !input.value.includes("+")) return;
-  }
-  event.preventDefault();
-}
-
-function attachStrictPhoneInputBehavior(input, onAfterSanitize, onMaxReached) {
-  if (!(input instanceof HTMLInputElement)) return;
-  const syncMaxLength = () => {
-    const dial = detectDialCodeByPhone(input.value);
-    const rule = getPhoneRuleByDial(dial);
-    input.maxLength = rule.max + 1; // + для символа "+"
-    return rule.max;
-  };
-  let prevDigitsLen = getPhoneDigitsCount(input.value);
-  syncMaxLength();
-  input.addEventListener("keydown", enforcePhoneKeyInput);
-  input.addEventListener("input", () => {
-    input.value = sanitizePhoneInputValue(input.value);
-    const maxDigits = syncMaxLength();
-    onAfterSanitize?.();
-    const digitsLen = getPhoneDigitsCount(input.value);
-    if (digitsLen >= maxDigits && prevDigitsLen < maxDigits) {
-      onMaxReached?.();
-    }
-    prevDigitsLen = digitsLen;
-  });
-  input.addEventListener("paste", () => {
-    requestAnimationFrame(() => {
-      input.value = sanitizePhoneInputValue(input.value);
-      const maxDigits = syncMaxLength();
-      onAfterSanitize?.();
-      const digitsLen = getPhoneDigitsCount(input.value);
-      if (digitsLen >= maxDigits && prevDigitsLen < maxDigits) {
-        onMaxReached?.();
-      }
-      prevDigitsLen = digitsLen;
-    });
-  });
-}
-
-function formatUzPhoneDisplay(normalizedPhone) {
-  const n = normalizeUzPhone(normalizedPhone);
-  return n === "+" ? DEFAULT_PHONE_PREFIX : n;
-}
-
-/** Номер считается пригодным для сравнения, когда в нём есть хотя бы 8 цифр. */
-function employeePhoneLocalCompleteNormalized(normalizedPhone) {
-  const digits = String(normalizedPhone || "").replace(/\D/g, "");
-  return digits.length >= 8;
-}
-
-const DIAL_TO_ISO = [
-  ["998", "UZ"], ["7", "RU"], ["380", "UA"], ["375", "BY"], ["1", "US"],
-  ["90", "TR"], ["971", "AE"], ["966", "SA"], ["44", "GB"], ["49", "DE"],
-  ["33", "FR"], ["39", "IT"], ["34", "ES"], ["48", "PL"], ["995", "GE"],
-  ["994", "AZ"], ["996", "KG"], ["992", "TJ"], ["993", "TM"], ["20", "EG"],
-  ["91", "IN"], ["92", "PK"], ["86", "CN"], ["81", "JP"], ["82", "KR"],
-  ["61", "AU"], ["55", "BR"], ["52", "MX"], ["62", "ID"], ["63", "PH"],
-  ["65", "SG"], ["60", "MY"], ["66", "TH"], ["84", "VN"], ["98", "IR"]
-];
-
-const COUNTRY_NAME_BY_ISO = {
-  UZ: "Узбекистан", RU: "Россия", UA: "Украина", BY: "Беларусь", US: "США",
-  TR: "Турция", AE: "ОАЭ", SA: "Саудовская Аравия", GB: "Великобритания", DE: "Германия",
-  FR: "Франция", IT: "Италия", ES: "Испания", PL: "Польша", GE: "Грузия",
-  AZ: "Азербайджан", KG: "Кыргызстан", TJ: "Таджикистан", TM: "Туркменистан", EG: "Египет",
-  IN: "Индия", PK: "Пакистан", CN: "Китай", JP: "Япония", KR: "Южная Корея",
-  AU: "Австралия", BR: "Бразилия", MX: "Мексика", ID: "Индонезия", PH: "Филиппины",
-  SG: "Сингапур", MY: "Малайзия", TH: "Таиланд", VN: "Вьетнам", IR: "Иран"
-};
-
-/** Ограничения по длине в формате E.164 (общее количество цифр без "+"). */
-const PHONE_TOTAL_DIGITS_BY_DIAL = {
-  "998": { min: 12, max: 12 }, // UZ: 998 + 9
-  "7": { min: 11, max: 11 },   // RU/KZ: 7 + 10
-  "380": { min: 12, max: 12 },
-  "375": { min: 12, max: 12 },
-  "1": { min: 11, max: 11 },   // US/CA NANP
-  "90": { min: 12, max: 12 },
-  "971": { min: 12, max: 12 },
-  "966": { min: 12, max: 12 },
-  "44": { min: 12, max: 12 },
-  "49": { min: 11, max: 13 },
-  "33": { min: 11, max: 11 },
-  "39": { min: 11, max: 13 },
-  "34": { min: 11, max: 11 },
-  "48": { min: 11, max: 11 },
-  "995": { min: 12, max: 12 },
-  "994": { min: 12, max: 12 },
-  "996": { min: 12, max: 12 },
-  "992": { min: 12, max: 12 },
-  "993": { min: 11, max: 11 },
-  "20": { min: 12, max: 12 },
-  "91": { min: 12, max: 12 },
-  "92": { min: 12, max: 12 },
-  "86": { min: 13, max: 13 },
-  "81": { min: 11, max: 12 },
-  "82": { min: 11, max: 12 },
-  "61": { min: 11, max: 11 },
-  "55": { min: 12, max: 13 },
-  "52": { min: 12, max: 12 },
-  "62": { min: 10, max: 13 },
-  "63": { min: 12, max: 12 },
-  "65": { min: 10, max: 10 },
-  "60": { min: 10, max: 12 },
-  "66": { min: 11, max: 11 },
-  "84": { min: 11, max: 11 },
-  "98": { min: 12, max: 12 }
-};
-
-function flagEmojiFromIso2(iso2) {
-  const code = String(iso2 || "").trim().toUpperCase();
-  if (!/^[A-Z]{2}$/.test(code)) return "🌐";
-  return String.fromCodePoint(...Array.from(code).map((c) => 127397 + c.charCodeAt(0)));
-}
-
-function flagSvgUrlByIso(iso2) {
-  const code = String(iso2 || "").trim().toLowerCase();
-  if (!/^[a-z]{2}$/.test(code)) return "";
-  return `https://flagcdn.com/${code}.svg`;
-}
-
-function globeSvgDataUrl() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="14" viewBox="0 0 18 14"><rect width="18" height="14" rx="2" fill="#eef3f9"/><circle cx="9" cy="7" r="4.2" fill="none" stroke="#6b7c93" stroke-width="1"/><path d="M4.8 7h8.4M9 2.8c1.6 1.1 1.6 7.3 0 8.4M9 2.8c-1.6 1.1-1.6 7.3 0 8.4" stroke="#6b7c93" stroke-width="1" fill="none"/></svg>`;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-}
-
-function detectCountryIsoByPhone(rawPhone) {
-  const digits = normalizeUzPhone(rawPhone).replace(/\D/g, "");
-  if (!digits) return "";
-  let best = "";
-  let bestIso = "";
-  for (const [dial, iso] of DIAL_TO_ISO) {
-    if (digits.startsWith(dial) && dial.length > best.length) {
-      best = dial;
-      bestIso = iso;
-    }
-  }
-  return bestIso;
-}
-
-function phoneFlagByValue(rawPhone) {
-  const iso = detectCountryIsoByPhone(rawPhone);
-  return flagEmojiFromIso2(iso);
-}
-
-function getPhoneDigitsCount(rawPhone) {
-  return normalizeUzPhone(rawPhone).replace(/\D/g, "").length;
-}
-
-function detectDialCodeByPhone(rawPhone) {
-  const digits = normalizeUzPhone(rawPhone).replace(/\D/g, "");
-  if (!digits) return "";
-  let best = "";
-  for (const [dial] of DIAL_TO_ISO) {
-    if (digits.startsWith(dial) && dial.length > best.length) {
-      best = dial;
-    }
-  }
-  return best;
-}
-
-function getPhoneRuleByDial(dial) {
-  const d = String(dial || "").trim();
-  return PHONE_TOTAL_DIGITS_BY_DIAL[d] || { min: PHONE_MIN_DIGITS, max: PHONE_MAX_DIGITS };
-}
-
-function getPhoneLengthHint(rawPhone) {
-  const dial = detectDialCodeByPhone(rawPhone);
-  const rule = getPhoneRuleByDial(dial);
-  return rule.min === rule.max ? `${rule.max}` : `${rule.min}-${rule.max}`;
-}
-
-function isPhoneLengthValid(rawPhone) {
-  const normalized = normalizeUzPhone(rawPhone);
-  const len = normalized.replace(/\D/g, "").length;
-  const dial = detectDialCodeByPhone(normalized);
-  const rule = getPhoneRuleByDial(dial);
-  return len >= rule.min && len <= rule.max;
-}
-
-function buildCountryPhoneOptions() {
-  return DIAL_TO_ISO
-    .map(([dial, iso]) => ({
-      dial,
-      iso,
-      flagUrl: flagSvgUrlByIso(iso),
-      name: COUNTRY_NAME_BY_ISO[iso] || iso
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
-}
-
-function applyCountryDialToPhone(rawPhone, selectedDial) {
-  const normalized = normalizeUzPhone(rawPhone);
-  const digits = normalized.replace(/\D/g, "");
-  const prevDial = detectDialCodeByPhone(normalized);
-  const national = prevDial && digits.startsWith(prevDial) ? digits.slice(prevDial.length) : digits;
-  return normalizeUzPhone(`+${selectedDial}${national}`);
-}
 
 function setCaretAfterDialCode(input) {
   if (!(input instanceof HTMLInputElement)) return;
@@ -20282,11 +19028,159 @@ async function decideTaskReassignRequest(requestId, decision) {
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) return { ok: false, error: String(j?.error || `Ошибка ${r.status}`) };
-    await pullRemoteAppState({ rerender: true });
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e?.message || e) };
   }
+}
+
+async function requestTaskReassignment({ taskId, toEmployeeName, reasonText, reasonType, departmentName } = {}) {
+  if (!isHostedRuntime() || !getAuthToken()) {
+    return { ok: false, error: "Действие доступно только при подключенном сервере." };
+  }
+  try {
+    const r = await fetch("/api/tasks/reassign/request", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({
+        taskId: String(taskId || "").trim(),
+        toEmployeeName: String(toEmployeeName || "").trim(),
+        reasonText: String(reasonText || "").trim(),
+        reasonType: String(reasonType || "subjective").trim().toLowerCase(),
+        departmentName: String(departmentName || "").trim()
+      })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, error: String(j?.error || `Ошибка ${r.status}`) };
+    return { ok: true, requestId: String(j?.requestId || ""), code: String(j?.code || "") };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+function openReassignRequestModal({ taskId, currentAssignees = [], afterCreate } = {}) {
+  const employeesSection = getSectionById("employees");
+  const allEmployees = Array.isArray(employeesSection?.rows) ? employeesSection.rows : [];
+  const employeeOptions = allEmployees
+    .map((empRow) => {
+      const fullName = String(empRow?.[EMPLOYEE_COLUMNS.fullName] || "").trim();
+      if (!fullName) return null;
+      const department = String(empRow?.[EMPLOYEE_COLUMNS.department] || "").trim();
+      return { fullName, department };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      const byDep = a.department.localeCompare(b.department, "ru");
+      return byDep !== 0 ? byDep : a.fullName.localeCompare(b.fullName, "ru");
+    });
+  const optionsHtml = employeeOptions
+    .map((emp) => `<option value="${escapeHtmlAttr(emp.fullName)}">${escapeHtmlText(emp.fullName)}${emp.department ? ` — ${escapeHtmlText(emp.department)}` : ""}</option>`)
+    .join("");
+
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay reassign-request-modal-overlay";
+  overlay.tabIndex = -1;
+  overlay.innerHTML = `
+    <div class="responsible-modal reassign-request-modal" role="dialog" aria-modal="true" aria-label="Запрос на переназначение">
+      <h3>Запрос на переназначение задачи #${escapeHtmlText(taskId)}</h3>
+      <form data-reassign-form>
+        <div class="reassign-form-row">
+          <label>Тип причины</label>
+          <div class="reassign-radio-group">
+            <label><input type="radio" name="reasonType" value="objective" /> Объективная</label>
+            <label><input type="radio" name="reasonType" value="subjective" checked /> Субъективная</label>
+          </div>
+        </div>
+        <div class="reassign-form-row">
+          <label for="reassignReasonText">Причина переназначения</label>
+          <textarea id="reassignReasonText" name="reasonText" rows="3" maxlength="2000" required placeholder="Опишите причину одним сообщением"></textarea>
+        </div>
+        <div class="reassign-form-row">
+          <label for="reassignTarget">Кому передать</label>
+          <select id="reassignTarget" name="toEmployeeName" required>
+            <option value="">— выберите сотрудника —</option>
+            ${optionsHtml}
+          </select>
+        </div>
+        <div class="reassign-form-row">
+          <span class="close-approver-empty">Текущий исполнитель: ${escapeHtmlText(currentAssignees.join(", ") || "—")}</span>
+        </div>
+        <p class="error reassign-form-error hidden" data-reassign-error></p>
+        <div class="responsible-modal-actions">
+          <button type="button" class="secondary" data-reassign-cancel>Отмена</button>
+          <button type="submit" class="primary" data-reassign-submit>Отправить заявку</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  const close = () => overlay.remove();
+  const errorEl = overlay.querySelector("[data-reassign-error]");
+  const showError = (msg) => {
+    if (!errorEl) return;
+    errorEl.textContent = msg;
+    errorEl.classList.remove("hidden");
+  };
+  const clearError = () => {
+    if (!errorEl) return;
+    errorEl.textContent = "";
+    errorEl.classList.add("hidden");
+  };
+
+  overlay.querySelector("[data-reassign-cancel]")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  document.addEventListener("keydown", function onKey(event) {
+    if (event.key !== "Escape") return;
+    document.removeEventListener("keydown", onKey);
+    close();
+  });
+  const form = overlay.querySelector("[data-reassign-form]");
+  const submitBtn = overlay.querySelector("[data-reassign-submit]");
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    clearError();
+    const fd = new FormData(form);
+    const toEmployeeName = String(fd.get("toEmployeeName") || "").trim();
+    const reasonText = String(fd.get("reasonText") || "").trim();
+    const reasonType = String(fd.get("reasonType") || "subjective").trim().toLowerCase();
+    if (!toEmployeeName) {
+      showError("Выберите сотрудника-получателя.");
+      return;
+    }
+    if (!reasonText) {
+      showError("Укажите причину переназначения.");
+      return;
+    }
+    const targetEmp = employeeOptions.find((e) => e.fullName === toEmployeeName);
+    submitBtn?.setAttribute("disabled", "disabled");
+    const result = await requestTaskReassignment({
+      taskId,
+      toEmployeeName,
+      reasonText,
+      reasonType,
+      departmentName: targetEmp?.department || ""
+    });
+    if (!result.ok) {
+      submitBtn?.removeAttribute("disabled");
+      showError(result.error || "Не удалось создать заявку.");
+      return;
+    }
+    close();
+    if (typeof afterCreate === "function") {
+      await afterCreate(result);
+    } else {
+      await pullRemoteAppState({ rerender: true });
+      renderTablePreserveScroll();
+    }
+  });
+
+  document.body.appendChild(overlay);
+  initLucideIcons();
 }
 
 function openTaskDetailsModal(section, row, rowIndex) {
@@ -20335,7 +19229,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
       .join("")
     : '<span class="close-approver-empty">Не определены (проверьте руководителя отдела и Telegram-подключение).</span>';
   const pendingReassign = getPendingReassignRequestsForTask(taskId);
-  const reassignHtml = pendingReassign.length
+  const reassignListHtml = pendingReassign.length
     ? pendingReassign.map((req) => `
       <div class="task-reassign-card">
         <div><strong>ID:</strong> ${escapeHtmlText(String(req.id || "—"))}</div>
@@ -20351,6 +19245,10 @@ function openTaskDetailsModal(section, row, rowIndex) {
       </div>
     `).join("")
     : '<span class="close-approver-empty">Нет активных заявок на переназначение.</span>';
+  const reassignHtml = `${reassignListHtml}
+    <div class="task-reassign-request-actions">
+      <button type="button" class="secondary task-reassign-open-form-btn" data-task-id="${escapeHtmlAttr(taskId)}">Запросить переназначение</button>
+    </div>`;
   const modal = document.createElement("div");
   modal.className = "details-modal-overlay";
   modal.tabIndex = -1;
@@ -20438,26 +19336,45 @@ function openTaskDetailsModal(section, row, rowIndex) {
     modal.querySelector(".status-stepper")?.classList.add("animated");
     modal.focus();
   });
+  const finalizeReassignDecision = async (btn, id, decision) => {
+    btn.setAttribute("disabled", "disabled");
+    const r = await decideTaskReassignRequest(id, decision);
+    if (!r.ok) {
+      btn.removeAttribute("disabled");
+      window.alert(r.error || (decision === "approve" ? "Не удалось подтвердить заявку" : "Не удалось отклонить заявку"));
+      return;
+    }
+    modal.remove();
+    await pullRemoteAppState({ rerender: true });
+    renderTablePreserveScroll();
+  };
   modal.querySelectorAll(".task-reassign-approve-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       const id = String(btn.getAttribute("data-reassign-id") || "").trim();
       if (!id) return;
-      btn.setAttribute("disabled", "disabled");
-      const r = await decideTaskReassignRequest(id, "approve");
-      if (!r.ok) window.alert(r.error || "Не удалось подтвердить заявку");
-      modal.remove();
-      renderTablePreserveScroll();
+      finalizeReassignDecision(btn, id, "approve");
     });
   });
   modal.querySelectorAll(".task-reassign-reject-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       const id = String(btn.getAttribute("data-reassign-id") || "").trim();
       if (!id) return;
-      btn.setAttribute("disabled", "disabled");
-      const r = await decideTaskReassignRequest(id, "reject");
-      if (!r.ok) window.alert(r.error || "Не удалось отклонить заявку");
-      modal.remove();
-      renderTablePreserveScroll();
+      finalizeReassignDecision(btn, id, "reject");
+    });
+  });
+  modal.querySelectorAll(".task-reassign-open-form-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tid = String(btn.getAttribute("data-task-id") || taskId || "").trim();
+      if (!tid) return;
+      openReassignRequestModal({
+        taskId: tid,
+        currentAssignees: parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]),
+        afterCreate: async () => {
+          modal.remove();
+          await pullRemoteAppState({ rerender: true });
+          renderTablePreserveScroll();
+        }
+      });
     });
   });
 
@@ -24322,6 +23239,19 @@ if (responsibleCatalogCleaned) {
 }
 registerHotkeys();
 document.addEventListener("click", closeOpenFiltersFromOutsideClick);
+configureTurboLoader({ getActiveSection: () => activeSectionId });
+configureSessionIdle({
+  onExpired: () => {
+    if (!getAuthToken()) return;
+    clearSession();
+    showLogin();
+    showStatusDialog({
+      title: "Сессия завершена",
+      message: "Вы были неактивны слишком долго. Войдите снова, чтобы продолжить работу и синхронизацию Telegram.",
+      type: "error"
+    });
+  }
+});
 initGlobalScrollbarActivityTracker();
 applyStandalonePwaClass();
 void registerPwaServiceWorker();

@@ -3222,6 +3222,72 @@ tr:nth-child(even) td {
   gap: 8px;
 }
 
+.task-reassign-request-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.reassign-request-modal {
+  max-width: 520px;
+  width: 100%;
+}
+
+.reassign-request-modal form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reassign-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reassign-form-row label {
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+}
+
+.reassign-form-row textarea,
+.reassign-form-row select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font: inherit;
+  background: #fff;
+  resize: vertical;
+}
+
+.reassign-form-row textarea:focus,
+.reassign-form-row select:focus {
+  outline: none;
+  border-color: #3e4095;
+  box-shadow: 0 0 0 3px rgba(62, 64, 149, 0.15);
+}
+
+.reassign-radio-group {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.reassign-radio-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.reassign-form-error {
+  margin: 0;
+  font-size: 13px;
+}
+
 .editable-cell {
   cursor: text;
 }
