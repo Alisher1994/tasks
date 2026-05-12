@@ -1342,6 +1342,10 @@ function applyServerBundle(data, options = {}) {
       restoreDisplaySettings();
       startOverdueTaskNotificationsScheduler();
       startStatusTaskRemindersScheduler();
+      // Сайдбар/мобильная навигация зависят от displaySettings.analyticsAccessibleForUsers —
+      // если admin перевернул тогл, не-админ должен увидеть это сразу после pull.
+      if (typeof renderSidebarMenu === "function") renderSidebarMenu();
+      if (typeof renderMobileBottomNav === "function") renderMobileBottomNav();
     } catch (_) {
       /* noop */
     }
@@ -1599,6 +1603,12 @@ function getTaskCreatorDisplayName() {
 function canAccessSettingsMenu() {
   if (!isHostedRuntime() || !getAuthToken()) return true;
   return currentAuthRole === "admin";
+}
+
+function canAccessAnalytics() {
+  if (currentAuthRole === "admin") return true;
+  // Не-админам разрешён доступ только если admin не отключил вкладку.
+  return displaySettings.analyticsAccessibleForUsers !== false;
 }
 
 async function refreshAuthMeProfile() {
@@ -4026,6 +4036,13 @@ let displaySettings = {
    */
   restrictTasksVisibility: false,
   /**
+   * Доступ к вкладке "Аналитика" для обычных пользователей:
+   *   - true (по умолчанию): не-админ видит вкладку Аналитика в сайдбаре и мобильной навигации.
+   *   - false: вкладка скрыта от не-админа, и попытка перейти в раздел "report" редиректит на "Задачи".
+   *   - admin всегда видит вкладку.
+   */
+  analyticsAccessibleForUsers: true,
+  /**
    * Должности, для которых фильтр видимости НЕ применяется (видят всё, как админ).
    * Массив строк — точное название должности из справочника "Должности".
    * Имеет смысл только когда restrictTasksVisibility включён.
@@ -4175,9 +4192,12 @@ function isQuickAccessMenuOpen() {
 
 function getQuickAccessVisibleItems() {
   const allowSettings = canAccessSettingsMenu();
-  return allowSettings
-    ? QUICK_ACCESS_MENU_ITEMS
-    : QUICK_ACCESS_MENU_ITEMS.filter((item) => ["tasks", "gantt", "analytics", "kpi"].includes(item.id));
+  if (allowSettings) return QUICK_ACCESS_MENU_ITEMS;
+  const analyticsAllowed = canAccessAnalytics();
+  const allowedIds = analyticsAllowed
+    ? ["tasks", "gantt", "analytics", "kpi"]
+    : ["tasks", "gantt"];
+  return QUICK_ACCESS_MENU_ITEMS.filter((item) => allowedIds.includes(item.id));
 }
 
 function activateQuickAccessItem(itemId) {
@@ -4408,6 +4428,11 @@ function selectSection(sectionId) {
   if (!allowSettings && sectionId !== "tasks" && sectionId !== "report") {
     sectionId = "tasks";
   }
+  // Если admin отключил доступ к Аналитике — не-админ при попытке перейти в "report"
+  // редиректится на "Задачи".
+  if (sectionId === "report" && !canAccessAnalytics()) {
+    sectionId = "tasks";
+  }
   const useTurboLoader = shouldUseTurboLoader(sectionId);
   if (useTurboLoader) startTurboLoader();
   if (sectionId === "report" && activeSectionId !== "report") {
@@ -4556,20 +4581,21 @@ function renderMobileTopMenu({ allowSettings, isReferenceActive, isUsersActive, 
 function renderMobileBottomNav() {
   if (!(mobileBottomNav instanceof HTMLElement)) return;
 
-  const items = [
-    {
+  const items = [];
+  if (canAccessAnalytics()) {
+    items.push({
       key: "report",
       label: "Аналитика",
       icon: "barChart",
       active: activeSectionId === "report"
-    },
-    {
-      key: "tasks",
-      label: "Задачи",
-      icon: "listChecks",
-      active: activeSectionId === "tasks"
-    }
-  ];
+    });
+  }
+  items.push({
+    key: "tasks",
+    label: "Задачи",
+    icon: "listChecks",
+    active: activeSectionId === "tasks"
+  });
 
   mobileBottomNav.innerHTML = items.map((item) => `
     <button
@@ -4601,10 +4627,14 @@ function renderMobileBottomNav() {
 
 function renderSidebarMenu() {
   const allowSettings = canAccessSettingsMenu();
+  const allowAnalytics = canAccessAnalytics();
   renderSidebarAccountInfo();
-  if (!allowSettings && activeSectionId !== "tasks" && activeSectionId !== "report") {
-    activeSectionId = "tasks";
-    saveActiveSection("tasks");
+  // Не-админ без доступа к настройкам и без доступа к Аналитике — только Задачи.
+  if (!allowSettings) {
+    if (activeSectionId !== "tasks" && (activeSectionId !== "report" || !allowAnalytics)) {
+      activeSectionId = "tasks";
+      saveActiveSection("tasks");
+    }
   }
   const sectionById = new Map(sections.map((section) => [section.id, section]));
   const isReferenceActive = SECTION_GROUPS.reference.sections.includes(activeSectionId);
@@ -4632,6 +4662,10 @@ function renderSidebarMenu() {
     expandSidebarMenu();
     selectSection("report");
   });
+  // Скрываем вкладку Аналитика для не-админов если admin отключил доступ.
+  if (!allowAnalytics) {
+    reportButton.style.display = "none";
+  }
   tabsRoot.appendChild(reportButton);
 
   if (allowSettings) {
@@ -5110,7 +5144,7 @@ function renderSectionHeaderIconButtons(section) {
               <span>Синхронизация</span>
             </span>
           </button>` : ""}
-          ${section.id === "tasks" ? `
+          ${section.id === "tasks" && currentAuthRole === "admin" ? `
           <button type="button" class="header-more-menu-item" id="sendOverdueTasksBtn" title="Отправить просроченные">
             ${withLucideIcon("bell-ring", "Просроченные")}
           </button>` : ""}
@@ -6141,16 +6175,17 @@ function renderBulkActions(selectedCount, isTrashView, sectionId, options = {}) 
       </div>
     `;
   }
+  const isAdmin = currentAuthRole === "admin";
   if (sectionId === "employees") {
     return `
       <div class="${rowClass}">
         <span class="bulk-actions-count">Выбрано: ${selectedCount}</span>
-        <button type="button" class="icon-action-btn bulk-employee-sms-btn" id="bulkEmployeeSmsBtn" title="Отправить SMS выбранным сотрудникам">
+        ${isAdmin ? `<button type="button" class="icon-action-btn bulk-employee-sms-btn" id="bulkEmployeeSmsBtn" title="Отправить SMS выбранным сотрудникам">
           <i data-lucide="message-square" class="lucide-icon" aria-hidden="true"></i>
-        </button>
-        <button type="button" class="icon-action-btn danger-btn bulk-delete-btn" id="bulkDeleteBtn" title="Удалить выбранные">
+        </button>` : ""}
+        ${isAdmin ? `<button type="button" class="icon-action-btn danger-btn bulk-delete-btn" id="bulkDeleteBtn" title="Удалить выбранные">
           <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
-        </button>
+        </button>` : ""}
       </div>
     `;
   }
@@ -6158,9 +6193,9 @@ function renderBulkActions(selectedCount, isTrashView, sectionId, options = {}) 
     return `
       <div class="${rowClass}">
         <span class="bulk-actions-count">Выбрано: ${selectedCount}</span>
-        <button type="button" class="icon-action-btn danger-btn bulk-delete-btn" id="bulkDeleteBtn" title="Удалить выбранные">
+        ${isAdmin ? `<button type="button" class="icon-action-btn danger-btn bulk-delete-btn" id="bulkDeleteBtn" title="Удалить выбранные">
           <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
-        </button>
+        </button>` : ""}
       </div>
     `;
   }
@@ -6168,15 +6203,15 @@ function renderBulkActions(selectedCount, isTrashView, sectionId, options = {}) 
   return `
     <div class="${rowClass}">
       <span class="bulk-actions-count">Выбрано: ${selectedCount}</span>
-      <button type="button" class="icon-action-btn bulk-send-btn" id="bulkSendBtn" title="Отправить выбранные">
+      ${isAdmin ? `<button type="button" class="icon-action-btn bulk-send-btn" id="bulkSendBtn" title="Отправить выбранные">
         <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
-      </button>
-      <button type="button" class="icon-action-btn bulk-task-sms-btn" id="bulkTaskSmsBtn" title="Отправить SMS по выбранным задачам">
+      </button>` : ""}
+      ${isAdmin ? `<button type="button" class="icon-action-btn bulk-task-sms-btn" id="bulkTaskSmsBtn" title="Отправить SMS по выбранным задачам">
         <i data-lucide="message-square" class="lucide-icon" aria-hidden="true"></i>
-      </button>
-      <button type="button" class="icon-action-btn danger-btn bulk-delete-btn" id="bulkDeleteBtn" title="Удалить выбранные">
+      </button>` : ""}
+      ${isAdmin ? `<button type="button" class="icon-action-btn danger-btn bulk-delete-btn" id="bulkDeleteBtn" title="Удалить выбранные">
         <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
-      </button>
+      </button>` : ""}
     </div>
   `;
 }
@@ -6280,35 +6315,36 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
   }
   if (sectionId === "tasks") {
     const isMobileTasks = isMobileCompactViewport();
-    const canSendTaskSms = currentAuthRole === "admin";
+    const isAdmin = currentAuthRole === "admin";
     return `
       <div class="action-buttons">
         <button type="button" class="icon-action-btn view-row-btn" title="Просмотр" data-row-index="${rowIndex}">
           <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
         </button>
-        <button type="button" class="icon-action-btn send-row-btn" title="Отправить в Telegram" data-row-index="${rowIndex}">
+        ${isAdmin ? `<button type="button" class="icon-action-btn send-row-btn" title="Отправить в Telegram" data-row-index="${rowIndex}">
           <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
-        </button>
-        ${isMobileTasks ? "" : `<button type="button" class="icon-action-btn send-row-sms-btn" title="${canSendTaskSms ? "Отправить SMS по задаче" : "Доступно только администратору"}" data-row-index="${rowIndex}" ${canSendTaskSms ? "" : "disabled"}>
+        </button>` : ""}
+        ${isAdmin && !isMobileTasks ? `<button type="button" class="icon-action-btn send-row-sms-btn" title="Отправить SMS по задаче" data-row-index="${rowIndex}">
           <i data-lucide="message-square" class="lucide-icon" aria-hidden="true"></i>
-        </button>`}
-        ${isMobileTasks ? "" : `<button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
+        </button>` : ""}
+        ${isAdmin && !isMobileTasks ? `<button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
           <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
-        </button>`}
+        </button>` : ""}
       </div>
     `;
   }
+  const isAdmin = currentAuthRole === "admin";
   return `
     <div class="action-buttons">
       <button type="button" class="icon-action-btn view-row-btn" title="Просмотр" data-row-index="${rowIndex}">
         <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
       </button>
-      <button type="button" class="icon-action-btn send-row-btn" title="Отправить" data-row-index="${rowIndex}">
+      ${isAdmin ? `<button type="button" class="icon-action-btn send-row-btn" title="Отправить" data-row-index="${rowIndex}">
         <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
-      </button>
-      <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
+      </button>` : ""}
+      ${isAdmin ? `<button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
         <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
-      </button>
+      </button>` : ""}
     </div>
   `;
 }
@@ -13172,10 +13208,10 @@ function renderTasksSplitLayout(section, options) {
                   <button type="button" class="icon-action-btn task-sub-view-btn" title="Просмотр задачи" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
                     <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
                   </button>
-                  <button type="button" class="icon-action-btn task-sub-send-btn" title="Отправить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
+                  ${currentAuthRole === "admin" ? `<button type="button" class="icon-action-btn task-sub-send-btn" title="Отправить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
                     <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
-                  </button>
-                  ${hideSelectionControls ? "" : `<button type="button" class="icon-action-btn danger-btn task-sub-remove-btn" title="Удалить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
+                  </button>` : ""}
+                  ${hideSelectionControls || currentAuthRole !== "admin" ? "" : `<button type="button" class="icon-action-btn danger-btn task-sub-remove-btn" title="Удалить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
                     <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
                   </button>`}
                 </div>
@@ -13549,12 +13585,12 @@ function renderTaskAssigneesAccordionRows(taskRow, visibleColumnIndexes, isTrash
         <button type="button" class="icon-action-btn task-sub-view-btn" title="Просмотр задачи" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
           <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
         </button>
-        <button type="button" class="icon-action-btn task-sub-send-btn" title="Отправить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
+        ${currentAuthRole === "admin" ? `<button type="button" class="icon-action-btn task-sub-send-btn" title="Отправить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
           <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
-        </button>
-        <button type="button" class="icon-action-btn danger-btn task-sub-remove-btn" title="Удалить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
+        </button>` : ""}
+        ${currentAuthRole === "admin" ? `<button type="button" class="icon-action-btn danger-btn task-sub-remove-btn" title="Удалить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(name)}">
           <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
-        </button>
+        </button>` : ""}
       `;
       return `
         <tr class="task-assignee-subrow ${expanded ? "" : "hidden"}" data-task-assignees-row="${escapeHtmlAttr(taskId)}">
@@ -17674,6 +17710,10 @@ function renderOtherSettingsPanel() {
               <span>Скрывать закрытые задачи</span>
             </label>
             ${currentAuthRole === "admin" ? `
+            <label class="settings-option settings-option--compact" title="Когда выключено: не-админы не видят вкладку Аналитика в боковом меню и мобильной навигации. Админ видит вкладку всегда.">
+              <input class="other-settings-checkbox" type="checkbox" data-setting="analyticsAccessibleForUsers" ${displaySettings.analyticsAccessibleForUsers !== false ? "checked" : ""} />
+              <span>Доступ к вкладке "Аналитика" для обычных пользователей</span>
+            </label>
             <label class="settings-option settings-option--compact" title="Когда включено: не-админы видят задачи где они указаны в Ответственных, либо они Руководитель отдела ответственного, либо они РП/ЗРП объекта задачи. Админ видит всё всегда.">
               <input class="other-settings-checkbox" type="checkbox" data-setting="restrictTasksVisibility" ${displaySettings.restrictTasksVisibility === true ? "checked" : ""} />
               <span>Ограничить видимость задач (показывать только свои сотрудникам)</span>
@@ -18475,6 +18515,13 @@ function attachOtherSettingsHandlers() {
             block.style.pointerEvents = "none";
           }
         }
+      }
+      if (settingName === "analyticsAccessibleForUsers") {
+        // Перерисовываем сайдбар и мобильную навигацию, чтобы вкладка
+        // Аналитика появилась/исчезла сразу (для самого админа — у других
+        // пользователей это произойдёт после real-time pull).
+        renderSidebarMenu();
+        renderMobileBottomNav();
       }
     });
   });
