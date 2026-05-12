@@ -1463,12 +1463,15 @@ function ensureRealtimeConfigured() {
     getToken: () => getAuthToken(),
     getCurrentRev: () => serverDataRevision,
     onStateChanged: () => {
-      // Сервер сообщил, что появилась новая ревизия.
-      // Подтягиваем без рендера, если есть активный overlay (форма/модалка),
-      // и с рендером в обычном случае. Сам pull игнорируется при оверлее —
-      // как только пользователь его закроет, следующий тик auto-pull сработает.
+      // Если у юзера есть несохранённые правки или сейчас идёт push —
+      // не дёргаем pull, иначе можно затереть то что он редактирует/сохраняет.
+      // pull сделает следующий тик auto-pull, когда состояние стабилизируется.
       if (hasUnsyncedLocalChanges || serverPushInFlight) return;
-      pullRemoteAppState({ rerender: activeSectionId === "tasks" && !isTasksGraphModeActive() }).catch(() => {});
+      // Рендер активного раздела безопасен только если юзер не печатает в инпуте —
+      // иначе сорвём фокус. Если печатает — pull всё равно сделаем (данные в памяти
+      // обновятся), а рендер пройдёт при следующем тике/смене раздела.
+      const safeToRerender = !isUserEditingNow() && !hasInlineTableEditorActive();
+      pullRemoteAppState({ rerender: safeToRerender }).catch(() => {});
     }
   });
 }
@@ -23331,6 +23334,17 @@ updateLoginPhoneFlag();
 startLoginMotionCanvas();
 window.addEventListener("resize", () => {
   updateTableStickyHeaderOffsets();
+});
+
+// Защита от случайной потери данных: если есть несохранённые правки или
+// push в процессе — браузер покажет подтверждение перед закрытием/обновлением.
+// Современные браузеры игнорируют кастомный текст и показывают свой стандартный диалог,
+// но факт показа диалога завязан на returnValue.
+window.addEventListener("beforeunload", (event) => {
+  if (!hasUnsyncedLocalChanges && !serverPushInFlight) return;
+  event.preventDefault();
+  event.returnValue = "У вас есть несохранённые изменения. Точно покинуть страницу?";
+  return event.returnValue;
 });
 
 document.addEventListener("click", (event) => {
