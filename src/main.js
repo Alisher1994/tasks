@@ -2967,6 +2967,116 @@ function getGoogleSheetsBrandIconHtml() {
   `;
 }
 
+/**
+ * Прикрепляет один файл к задаче (тот же путь хранения что для вкладки "Файлы").
+ * Возвращает true при успехе. Сразу пушит на сервер через pushAppToServerImmediate.
+ */
+async function attachFileToTaskAttachments(taskId, file) {
+  const id = String(taskId || "").trim();
+  if (!id || !file) return false;
+  try {
+    const resolved = await resolveStoredAttachmentFromFile(file);
+    if (!resolved) return false;
+    const entry = sanitizeTaskAttachmentEntry({
+      ...resolved,
+      id: `f_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+    });
+    if (!entry) return false;
+    const list = getTaskAttachmentStoreMap(id, { create: true });
+    list.push(entry);
+    saveTaskAttachmentsData({ skipServerSync: true });
+    if (isHostedRuntime() && getAuthToken()) {
+      await pushAppToServerImmediate();
+    }
+    return true;
+  } catch (e) {
+    window.alert(`Не удалось прикрепить файл: ${String(e?.message || e)}`);
+    return false;
+  }
+}
+
+/**
+ * Модалка после закрытия задачи: «Прикрепить файл (обоснование)» или «Пропустить».
+ * Файл уходит во вкладку «Файлы» этой задачи. Возвращает Promise — resolved после
+ * закрытия модалки, чтобы вызывающий код мог продолжить (но мы его не ждём).
+ */
+function openCloseTaskFileAttachModal(taskId) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "status-dialog-overlay";
+    overlay.innerHTML = `
+      <div class="status-dialog-box is-info" style="max-width:520px;">
+        <h4><span>Закрытие задачи</span></h4>
+        <div class="status-dialog-message">
+          Прикрепите файл-обоснование (акт, фото, документ) — он попадёт во вкладку «Файлы» задачи.<br>
+          Если документального основания нет — нажмите «Пропустить».
+        </div>
+        <input type="file" class="task-close-file-input" style="display:none;" />
+        <div class="task-close-file-name" style="font-size:13px;color:#555;margin-top:10px;min-height:18px;"></div>
+        <div class="status-dialog-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap;">
+          <button type="button" class="confirm-btn task-close-skip-btn" style="background:#e0e0e0;color:#333;">Пропустить</button>
+          <button type="button" class="confirm-btn task-close-attach-btn">Прикрепить файл</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const fileInput = overlay.querySelector(".task-close-file-input");
+    const fileName = overlay.querySelector(".task-close-file-name");
+    const attachBtn = overlay.querySelector(".task-close-attach-btn");
+    const skipBtn = overlay.querySelector(".task-close-skip-btn");
+    let isUploading = false;
+
+    const finish = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+
+    attachBtn.addEventListener("click", async () => {
+      if (isUploading) return;
+      const file = fileInput.files?.[0];
+      if (!file) {
+        // Файл ещё не выбран — открываем системный пикер
+        fileInput.click();
+        return;
+      }
+      isUploading = true;
+      attachBtn.disabled = true;
+      skipBtn.disabled = true;
+      const prevText = attachBtn.textContent;
+      attachBtn.textContent = "Загрузка...";
+      const ok = await attachFileToTaskAttachments(taskId, file);
+      if (ok) {
+        finish({ attached: true });
+      } else {
+        isUploading = false;
+        attachBtn.disabled = false;
+        skipBtn.disabled = false;
+        attachBtn.textContent = prevText;
+      }
+    });
+
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files?.[0];
+      if (file) {
+        fileName.textContent = `Выбран: ${file.name}`;
+        attachBtn.textContent = "Загрузить и закрыть";
+      } else {
+        fileName.textContent = "";
+        attachBtn.textContent = "Прикрепить файл";
+      }
+    });
+
+    skipBtn.addEventListener("click", () => {
+      if (isUploading) return;
+      finish({ attached: false });
+    });
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay && !isUploading) finish({ attached: false });
+    });
+  });
+}
+
 function showStatusDialog({ title = "Уведомление", message = "", type = "info", icon = "" } = {}) {
   const overlay = document.createElement("div");
   overlay.className = "status-dialog-overlay";
@@ -15127,6 +15237,14 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
         }
         row[TASK_COLUMNS.status] = value;
         cleanupTaskMultiStateForRow(row);
+        // После закрытия задачи предлагаем прикрепить файл-обоснование.
+        // Модалка показывается асинхронно — статус уже применён и сохранится.
+        if (nextStatus === "Закрыт") {
+          const taskId = String(row[TASK_COLUMNS.number] || "").trim();
+          if (taskId) {
+            openCloseTaskFileAttachModal(taskId).catch(() => {});
+          }
+        }
       },
       taskHistoryCtx(section, rowIndex, colIndex)
     );
