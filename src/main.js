@@ -606,6 +606,18 @@ let statusReminderTimer = null;
 let statusReminderInFlight = false;
 let hasUnsyncedLocalChanges = false;
 let serverPushInFlight = false;
+/**
+ * Счётчик локальных правок — растёт на каждое markLocalChange().
+ * Используется push-функциями, чтобы понять: были ли НОВЫЕ правки между моментом
+ * "начали push" и "получили ответ сервера". Если были — НЕ сбрасываем
+ * hasUnsyncedLocalChanges, иначе следующий pullRemoteAppState может затереть
+ * только что введённые данные серверным снимком.
+ */
+let localChangeCounter = 0;
+function markLocalChange() {
+  localChangeCounter += 1;
+  hasUnsyncedLocalChanges = true;
+}
 let pendingRemoteTasksRerender = false;
 let initialRemoteBundleLoaded = false;
 let serverDataRevision = 0;
@@ -680,7 +692,7 @@ function scheduleServerSync() {
       .catch(() => {});
     return;
   }
-  hasUnsyncedLocalChanges = true;
+  markLocalChange();
   clearTimeout(serverSyncTimer);
   serverSyncTimer = setTimeout(() => {
     pushAppToServer().catch(() => {});
@@ -690,6 +702,11 @@ function scheduleServerSync() {
 async function pushAppToServer() {
   if (!isHostedRuntime() || !getAuthToken()) return;
   if (!initialRemoteBundleLoaded) return;
+  // Снимок счётчика на момент старта push. Если во время сетевого запроса юзер
+  // успеет ввести ещё что-то — markLocalChange увеличит счётчик, и мы НЕ
+  // сбросим hasUnsyncedLocalChanges в конце (иначе следующий pull/applyServerBundle
+  // затрёт свежий ввод серверной копией).
+  const counterAtStart = localChangeCounter;
   serverPushInFlight = true;
   try {
     const data = buildAppPayload();
@@ -707,7 +724,7 @@ async function pushAppToServer() {
       return;
     }
     if (r.status === 409) {
-      await reconcileAndRetryPush(data, r);
+      await reconcileAndRetryPush(data, r, counterAtStart);
       return;
     }
     if (r.ok) {
@@ -715,7 +732,10 @@ async function pushAppToServer() {
       const rev = Number(j?.rev) || 0;
       if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
       lastServerSnapshot = cloneSnapshot(data);
-      hasUnsyncedLocalChanges = false;
+      if (localChangeCounter === counterAtStart) {
+        hasUnsyncedLocalChanges = false;
+      }
+      // Иначе оставляем флаг — следующий debounced push подхватит свежие правки.
     }
   } finally {
     serverPushInFlight = false;
@@ -730,8 +750,9 @@ async function pushAppToServer() {
  *
  * Возвращает true, если итоговый PUT прошёл.
  */
-async function reconcileAndRetryPush(localData, initialConflictResponse) {
+async function reconcileAndRetryPush(localData, initialConflictResponse, counterAtStart) {
   let response = initialConflictResponse;
+  const trackedCounter = Number.isFinite(counterAtStart) ? counterAtStart : localChangeCounter;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const conflictJson = await response.json().catch(() => null);
     const serverData = conflictJson?.data && typeof conflictJson.data === "object" ? conflictJson.data : {};
@@ -763,10 +784,14 @@ async function reconcileAndRetryPush(localData, initialConflictResponse) {
       const retryJson = await retry.json().catch(() => null);
       const retryRev = Number(retryJson?.rev) || 0;
       if (Number.isFinite(retryRev) && retryRev > 0) serverDataRevision = retryRev;
-      // Применяем результат локально, чтобы UI отразил вмерженные чужие правки
-      applyServerBundle(merged, { rerender: true });
       lastServerSnapshot = cloneSnapshot(merged);
-      hasUnsyncedLocalChanges = false;
+      // Если за время merge юзер успел ввести ещё данные — не применяем merged
+      // локально и не сбрасываем флаг: его свежий ввод имеет приоритет, следующий
+      // push отправит обновлённое состояние и сольёт с сервером.
+      if (localChangeCounter === trackedCounter) {
+        applyServerBundle(merged, { rerender: true });
+        hasUnsyncedLocalChanges = false;
+      }
       return true;
     }
     if (retry.status !== 409) {
@@ -791,6 +816,7 @@ async function pushAppToServerImmediate() {
     }
     if (!initialRemoteBundleLoaded) return false;
   }
+  const counterAtStart = localChangeCounter;
   hasUnsyncedLocalChanges = true;
   serverPushInFlight = true;
   try {
@@ -809,14 +835,16 @@ async function pushAppToServerImmediate() {
       return false;
     }
     if (r.status === 409) {
-      return await reconcileAndRetryPush(data, r);
+      return await reconcileAndRetryPush(data, r, counterAtStart);
     }
     if (r.ok) {
       const j = await r.json().catch(() => null);
       const rev = Number(j?.rev) || 0;
       if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
       lastServerSnapshot = cloneSnapshot(data);
-      hasUnsyncedLocalChanges = false;
+      if (localChangeCounter === counterAtStart) {
+        hasUnsyncedLocalChanges = false;
+      }
     }
     return r.ok;
   } finally {
@@ -1474,10 +1502,12 @@ function ensureRealtimeConfigured() {
       // не дёргаем pull, иначе можно затереть то что он редактирует/сохраняет.
       // pull сделает следующий тик auto-pull, когда состояние стабилизируется.
       if (hasUnsyncedLocalChanges || serverPushInFlight) return;
-      // Рендер активного раздела безопасен только если юзер не печатает в инпуте —
-      // иначе сорвём фокус. Если печатает — pull всё равно сделаем (данные в памяти
-      // обновятся), а рендер пройдёт при следующем тике/смене раздела.
-      const safeToRerender = !isUserEditingNow() && !hasInlineTableEditorActive();
+      // Не перерисовываем Аналитику ("report") в реальном времени — графики
+      // re-mount-ятся, скролл прыгает наверх, пользователь не может читать дашборд.
+      // Данные в памяти обновляются всё равно — при клике "Обновить" или смене
+      // раздела актуальное состояние сразу отрендерится.
+      const isAnalytics = activeSectionId === "report";
+      const safeToRerender = !isUserEditingNow() && !hasInlineTableEditorActive() && !isAnalytics;
       pullRemoteAppState({ rerender: safeToRerender }).catch(() => {});
     }
   });
