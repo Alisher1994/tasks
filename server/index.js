@@ -868,12 +868,17 @@ async function saveAppPayload(payload) {
   } catch (_) {
     /* noop */
   }
-  await pool.query(
-    `INSERT INTO app_state (id, payload, updated_at)
-     VALUES (1, $1::jsonb, NOW())
-     ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+  const { rows } = await pool.query(
+    `INSERT INTO app_state (id, payload, updated_at, revision)
+     VALUES (1, $1::jsonb, NOW(), 1)
+     ON CONFLICT (id) DO UPDATE SET
+       payload = EXCLUDED.payload,
+       updated_at = NOW(),
+       revision = app_state.revision + 1
+     RETURNING revision`,
     [JSON.stringify(nextPayload)]
   );
+  return Number(rows[0]?.revision) || 0;
 }
 
 function buildBotApiUrl(token, method) {
@@ -2233,10 +2238,10 @@ app.get("/api/admin/server/metrics", authMiddleware, requireAdmin, async (_req, 
 
 app.get("/api/data", authMiddleware, async (_req, res) => {
   try {
-    const { rows } = await pool.query("SELECT payload, updated_at FROM app_state WHERE id = 1");
+    const { rows } = await pool.query("SELECT payload, revision FROM app_state WHERE id = 1");
     const payload = rows[0]?.payload ?? null;
-    const rev = rows[0]?.updated_at ? Date.parse(rows[0].updated_at) : 0;
-    return res.json({ data: payload, rev: Number.isFinite(rev) ? rev : 0 });
+    const rev = Number(rows[0]?.revision) || 0;
+    return res.json({ data: payload, rev });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: "Ошибка чтения данных" });
@@ -3037,15 +3042,15 @@ app.put("/api/data", authMiddleware, async (req, res) => {
     }
     const data = typeof incomingData === "object" && incomingData ? { ...incomingData } : incomingData;
     const baseRev = Number(req.body?.baseRev) || 0;
-    const { rows: currentRows } = await pool.query("SELECT payload, updated_at FROM app_state WHERE id = 1");
+    const { rows: currentRows } = await pool.query("SELECT payload, revision FROM app_state WHERE id = 1");
     const currentPayload = currentRows[0]?.payload && typeof currentRows[0].payload === "object"
       ? currentRows[0].payload
       : {};
-    const currentRev = currentRows[0]?.updated_at ? Date.parse(currentRows[0].updated_at) : 0;
-    if (baseRev > 0 && Number.isFinite(currentRev) && currentRev > 0 && baseRev < currentRev) {
+    const currentRev = Number(currentRows[0]?.revision) || 0;
+    if (baseRev > 0 && currentRev > 0 && baseRev < currentRev) {
       return res.status(409).json({
         error: "stale_data",
-        message: "Данные устарели. Обновите таблицу и повторите действие.",
+        message: "Данные устарели. Сервер вернул свежий снимок — наложите свои правки и повторите.",
         data: currentPayload,
         rev: currentRev
       });
@@ -3115,12 +3120,28 @@ app.put("/api/data", authMiddleware, async (req, res) => {
           COALESCE(app_state.payload->'smsInviteLog', '[]'::jsonb),
           true
         ),
-         updated_at = NOW()
-       RETURNING updated_at`,
-      [JSON.stringify(mergedData)]
+         updated_at = NOW(),
+         revision = app_state.revision + 1
+       WHERE app_state.id = 1
+         AND ($2::BIGINT = 0 OR app_state.revision = $2::BIGINT)
+       RETURNING revision`,
+      [JSON.stringify(mergedData), baseRev]
     );
-    const savedRev = savedRows[0]?.updated_at ? Date.parse(savedRows[0].updated_at) : Date.now();
-    return res.json({ ok: true, rev: Number.isFinite(savedRev) ? savedRev : Date.now() });
+    if (!savedRows.length) {
+      const { rows: latestRows } = await pool.query("SELECT payload, revision FROM app_state WHERE id = 1");
+      const latestPayload = latestRows[0]?.payload && typeof latestRows[0].payload === "object"
+        ? latestRows[0].payload
+        : {};
+      const latestRev = Number(latestRows[0]?.revision) || 0;
+      return res.status(409).json({
+        error: "stale_data",
+        message: "Данные изменились между чтением и записью — повторите с актуальной базой.",
+        data: latestPayload,
+        rev: latestRev
+      });
+    }
+    const savedRev = Number(savedRows[0]?.revision) || 0;
+    return res.json({ ok: true, rev: savedRev });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: "Ошибка сохранения" });

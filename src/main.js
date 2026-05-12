@@ -118,6 +118,7 @@ import {
 } from "./constants/storage-keys.js";
 import { openLoginSupportModal } from "./ui/login-support-modal.js";
 import { startLoginMotionCanvas, stopLoginMotionCanvas } from "./ui/login-motion-canvas.js";
+import { cloneSnapshot, mergePayloadOnConflict } from "./sync/snapshot-merge.js";
 import { getSessionUserDisplayName, saveSessionPhone, getSessionPhone } from "./auth/session-storage.js";
 
 const loginForm = document.getElementById("loginForm");
@@ -607,6 +608,11 @@ let serverPushInFlight = false;
 let pendingRemoteTasksRerender = false;
 let initialRemoteBundleLoaded = false;
 let serverDataRevision = 0;
+/** Снимок payload'а, известного нам как «последний согласованный с сервером».
+ *  Обновляется при каждом успешном pull и после успешного push.
+ *  Используется как baseline в 3-way merge при ответе 409 Conflict.
+ */
+let lastServerSnapshot = null;
 let authExpiredNoticeShown = false;
 let bootLoaderCloseTimer = null;
 let employeeChatIdAutoRefreshTimer = null;
@@ -700,34 +706,77 @@ async function pushAppToServer() {
       return;
     }
     if (r.status === 409) {
-      const j = await r.json().catch(() => null);
-      const rev = Number(j?.rev) || 0;
-      if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
-      const retry = await fetch("/api/data", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getAuthToken()}`
-        },
-        body: JSON.stringify({ data, baseRev: serverDataRevision })
-      });
-      if (retry.ok) {
-        const retryJson = await retry.json().catch(() => null);
-        const retryRev = Number(retryJson?.rev) || 0;
-        if (Number.isFinite(retryRev) && retryRev > 0) serverDataRevision = retryRev;
-        hasUnsyncedLocalChanges = false;
-      }
+      await reconcileAndRetryPush(data, r);
       return;
     }
     if (r.ok) {
       const j = await r.json().catch(() => null);
       const rev = Number(j?.rev) || 0;
       if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
+      lastServerSnapshot = cloneSnapshot(data);
       hasUnsyncedLocalChanges = false;
     }
   } finally {
     serverPushInFlight = false;
   }
+}
+
+/**
+ * При 409 Conflict: берём свежий снимок сервера, 3-way merge с нашими локальными
+ * правками относительно baseline (последнего успешно синхронизированного состояния)
+ * и пишем результат с новой baseRev. Если на стороне сервера снова что-то поменялось
+ * между нашим первым PUT и retry — повторяем ещё, до 3 попыток.
+ *
+ * Возвращает true, если итоговый PUT прошёл.
+ */
+async function reconcileAndRetryPush(localData, initialConflictResponse) {
+  let response = initialConflictResponse;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const conflictJson = await response.json().catch(() => null);
+    const serverData = conflictJson?.data && typeof conflictJson.data === "object" ? conflictJson.data : {};
+    const serverRev = Number(conflictJson?.rev) || 0;
+    const baseline = lastServerSnapshot || serverData;
+    const { merged, conflicts } = mergePayloadOnConflict({
+      baseline,
+      local: localData,
+      server: serverData
+    });
+    if (Number.isFinite(serverRev) && serverRev > 0) serverDataRevision = serverRev;
+    if (conflicts > 0) {
+      console.info(`[sync] разрешено конфликтов параллельных правок: ${conflicts}`);
+      pulseTurboLoader();
+    }
+    const retry = await fetch("/api/data", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({ data: merged, baseRev: serverDataRevision })
+    });
+    if (retry.status === 401) {
+      handleServerAuthExpired();
+      return false;
+    }
+    if (retry.ok) {
+      const retryJson = await retry.json().catch(() => null);
+      const retryRev = Number(retryJson?.rev) || 0;
+      if (Number.isFinite(retryRev) && retryRev > 0) serverDataRevision = retryRev;
+      // Применяем результат локально, чтобы UI отразил вмерженные чужие правки
+      applyServerBundle(merged, { rerender: true });
+      lastServerSnapshot = cloneSnapshot(merged);
+      hasUnsyncedLocalChanges = false;
+      return true;
+    }
+    if (retry.status !== 409) {
+      return false;
+    }
+    // Снова конфликт — берём свежий ответ и повторяем merge
+    response = retry;
+    localData = merged;
+  }
+  console.warn("[sync] не удалось применить локальные изменения после 3 попыток merge");
+  return false;
 }
 
 /** Немедленная синхронизация с сервером (без debounce), например перед регистрацией Telegram webhook. */
@@ -759,33 +808,13 @@ async function pushAppToServerImmediate() {
       return false;
     }
     if (r.status === 409) {
-      const j = await r.json().catch(() => null);
-      const rev = Number(j?.rev) || 0;
-      if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
-      const retry = await fetch("/api/data", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getAuthToken()}`
-        },
-        body: JSON.stringify({ data, baseRev: serverDataRevision })
-      });
-      if (retry.status === 401) {
-        handleServerAuthExpired();
-        return false;
-      }
-      if (retry.ok) {
-        const retryJson = await retry.json().catch(() => null);
-        const retryRev = Number(retryJson?.rev) || 0;
-        if (Number.isFinite(retryRev) && retryRev > 0) serverDataRevision = retryRev;
-        hasUnsyncedLocalChanges = false;
-      }
-      return retry.ok;
+      return await reconcileAndRetryPush(data, r);
     }
     if (r.ok) {
       const j = await r.json().catch(() => null);
       const rev = Number(j?.rev) || 0;
       if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
+      lastServerSnapshot = cloneSnapshot(data);
       hasUnsyncedLocalChanges = false;
     }
     return r.ok;
@@ -1264,6 +1293,7 @@ async function pullRemoteAppState(options = {}) {
   applyServerBundle(json.data, { rerender });
   const rev = Number(json?.rev) || 0;
   if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
+  lastServerSnapshot = cloneSnapshot(json?.data);
   initialRemoteBundleLoaded = true;
 }
 
