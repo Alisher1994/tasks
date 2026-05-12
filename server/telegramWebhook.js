@@ -3077,6 +3077,31 @@ async function handleMessage(msg, pool, token) {
     return;
   }
 
+  // Команды для восстановления быстрой клавиатуры, если она пропала.
+  // Telegram-клиенты иногда скрывают reply-keyboard или она сбрасывается
+  // другими ботами/действиями — теперь её можно вернуть командой.
+  if (/^\/(menu|меню|keyboard|клавиатура)(?:@\w+)?(?:\s|$)/i.test(text)
+    || text === "Меню"
+    || text === "Главное меню") {
+    const payloadForMenu = await loadPayload(pool);
+    const employeesForMenu = getEmployeesSection(payloadForMenu);
+    const empForMenu = findEmployeeByChatId(employeesForMenu, chatKey);
+    if (!empForMenu) {
+      await tg(token, "sendMessage", {
+        chat_id: chatId,
+        text: "Сначала подключитесь к боту: отправьте /start или поделитесь номером.",
+        reply_markup: contactShareKeyboard()
+      });
+      return;
+    }
+    await tg(token, "sendMessage", {
+      chat_id: chatId,
+      text: "Главное меню. Используйте кнопки ниже.",
+      reply_markup: quickUserKeyboard()
+    });
+    return;
+  }
+
   if (text === "Мои задачи") {
     const payload = await loadPayload(pool);
     const myRows = getMyTasksForChat(payload, chatId);
@@ -3149,6 +3174,17 @@ async function handleMessage(msg, pool, token) {
       await tg(token, "sendMessage", {
         chat_id: chatId,
         text: "Отправка фото по задачам отключена. Используйте комментарий и файлы в веб-интерфейсе."
+      });
+      return;
+    }
+    if (emp && text) {
+      // Подключённый пользователь прислал текст без активной сессии и без совпадения
+      // со встроенными командами. Вернём клавиатуру с подсказкой — а то она у
+      // некоторых пользователей пропадает после долгого простоя или сторонних действий.
+      await tg(token, "sendMessage", {
+        chat_id: chatId,
+        text: "Используйте кнопки ниже:\n• «Мои задачи» — список ваших задач по объектам.\n• «Просроченные задачи» — задачи с просрочкой.\nИли наберите /menu чтобы снова показать меню.",
+        reply_markup: quickUserKeyboard()
       });
     }
     return;
