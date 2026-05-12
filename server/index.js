@@ -2657,6 +2657,74 @@ app.post("/api/tasks/reassign/decision", authMiddleware, requireAdmin, async (re
   }
 });
 
+/**
+ * Подтверждение/отклонение запроса на закрытие задачи администратором из веба.
+ * Полностью повторяет логику бот-handler-а ad|y / ad|n: на approve — статус → Закрыт,
+ * на reject — статус возвращается на previousStatus (или В процессе), telegramCloseRequests
+ * entry удаляется. Если есть подключённый бот — исполнитель получает уведомление в Telegram.
+ */
+app.post("/api/tasks/close/decision", authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const taskId = String(req.body?.taskId || "").trim();
+    const decision = String(req.body?.decision || "").trim().toLowerCase();
+    if (!taskId) return res.status(400).json({ ok: false, error: "taskId обязателен" });
+    if (!["approve", "reject"].includes(decision)) {
+      return res.status(400).json({ ok: false, error: "decision должен быть approve/reject" });
+    }
+    const { rows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
+    const payload = rows[0]?.payload && typeof rows[0].payload === "object"
+      ? JSON.parse(JSON.stringify(rows[0].payload))
+      : {};
+    const tasks = getTaskRows(payload);
+    const taskRow = tasks.find((r) => String(r?.[TASK_NUMBER_COL] || "").trim() === taskId);
+    if (!taskRow) return res.status(404).json({ ok: false, error: "Задача не найдена" });
+    const closeRequests = payload.telegramCloseRequests || {};
+    const closeReq = closeRequests[taskId];
+    if (!closeReq) return res.status(404).json({ ok: false, error: "Запрос на закрытие не найден" });
+
+    const actorName = String(req.user?.name || "").trim() || "Администратор";
+    const nowIso = new Date().toISOString();
+    const token = String(payload?.displaySettings?.telegramBotToken || "").trim();
+    const requesterChat = String(closeReq.chatId || "").trim();
+
+    if (decision === "approve") {
+      taskRow[TASK_STATUS_COL] = "Закрыт";
+      const tz = String(payload?.displaySettings?.serverTimezone || "").trim() || "UTC";
+      try {
+        taskRow[TASK_CLOSED_DATE_COL] = new Intl.DateTimeFormat("ru-RU", {
+          timeZone: tz,
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric"
+        }).format(new Date());
+      } catch (_) {
+        taskRow[TASK_CLOSED_DATE_COL] = new Date().toISOString().split("T")[0];
+      }
+      appendTaskHistory(payload, taskId, actorName, `Веб: подтверждено закрытие задачи (${actorName}, ${nowIso})`);
+      delete payload.telegramCloseRequests[taskId];
+      if (token && requesterChat) {
+        await tgSendMessage(token, requesterChat, `✅ Задача №${taskId}: закрытие подтверждено (${actorName}).`);
+      }
+    } else {
+      const prevStatus = String(closeReq.previousStatus || "В процессе").trim() || "В процессе";
+      if (String(taskRow[TASK_STATUS_COL] || "").trim() === "Проверка") {
+        taskRow[TASK_STATUS_COL] = prevStatus;
+      }
+      appendTaskHistory(payload, taskId, actorName, `Веб: отклонён запрос на закрытие, статус → «${prevStatus}»`);
+      delete payload.telegramCloseRequests[taskId];
+      if (token && requesterChat) {
+        await tgSendMessage(token, requesterChat, `❌ Задача №${taskId}: запрос на закрытие отклонён администратором (${actorName}). Статус возвращён в «${prevStatus}».`);
+      }
+    }
+
+    await saveAppPayload(payload);
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Ошибка обработки решения по закрытию" });
+  }
+});
+
 app.post("/api/telegram/chat-clear/request", authMiddleware, requireAdmin, async (req, res) => {
   try {
     const employeeId = String(req.body?.employeeId || "").trim();

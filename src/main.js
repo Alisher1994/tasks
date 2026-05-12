@@ -19743,12 +19743,12 @@ function openTaskDetailsModal(section, row, rowIndex) {
     `).join("")
     : '<span class="close-approver-empty">Нет активных заявок на переназначение.</span>';
   const isTaskClosed = normalizeTaskStatusValue(String(row[TASK_COLUMNS.status] || "")) === "Закрыт";
-  const reassignHtml = `${reassignListHtml}
-    <div class="task-reassign-request-actions">
-      ${isTaskClosed
-        ? '<span class="close-approver-empty">Задача закрыта — переназначение и редактирование заморожены. Сначала смените статус.</span>'
-        : `<button type="button" class="secondary task-reassign-open-form-btn" data-task-id="${escapeHtmlAttr(taskId)}">Запросить переназначение</button>`}
-    </div>`;
+  const reassignHtml = isTaskClosed
+    ? ""
+    : `${reassignListHtml}
+        <div class="task-reassign-request-actions">
+          <button type="button" class="secondary task-reassign-open-form-btn" data-task-id="${escapeHtmlAttr(taskId)}">Запросить переназначение</button>
+        </div>`;
   const modal = document.createElement("div");
   modal.className = "details-modal-overlay";
   modal.tabIndex = -1;
@@ -19775,14 +19775,24 @@ function openTaskDetailsModal(section, row, rowIndex) {
       </div>
       <div class="task-card-panel" data-task-panel="main">
         ${statusStepper}
+        ${normalizeTaskStatusValue(String(row[TASK_COLUMNS.status] || "")) === "Проверка" ? `
+        <div class="close-approvers-box close-approvers-box--review">
+          <div class="close-approvers-title">Запрос на закрытие — ожидает решения</div>
+          <p class="close-approver-empty" style="margin:6px 0;">Исполнитель попросил закрыть задачу. Проверьте прикреплённые файлы во вкладке «Файлы»${attachmentsDraft.length > 0 ? ` (${attachmentsDraft.length})` : ""} и подтвердите или отклоните закрытие.</p>
+          ${currentAuthRole === "admin" ? `
+          <div class="task-close-decision-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+            <button type="button" class="primary task-close-approve-btn" data-task-id="${escapeHtmlAttr(taskId)}">Подтвердить закрытие</button>
+            <button type="button" class="secondary task-close-reject-btn" data-task-id="${escapeHtmlAttr(taskId)}">Отклонить</button>
+          </div>` : `<p class="close-approver-empty">Ожидайте решения администратора.</p>`}
+        </div>` : ""}
         <div class="close-approvers-box">
           <div class="close-approvers-title">Кто согласует закрытие</div>
           <div class="close-approvers-list">${closeApproversHtml}</div>
         </div>
-        <div class="close-approvers-box">
+        ${isTaskClosed ? "" : `<div class="close-approvers-box">
           <div class="close-approvers-title">Заявки на переназначение</div>
           <div class="close-approvers-list">${reassignHtml}</div>
-        </div>
+        </div>`}
         <div class="details-grid">${details}</div>
       </div>
       <div class="task-card-panel task-card-panel--hidden" data-task-panel="files" role="tabpanel">
@@ -19876,6 +19886,53 @@ function openTaskDetailsModal(section, row, rowIndex) {
         }
       });
     });
+  });
+
+  // Подтверждение/отклонение закрытия задачи администратором (для status === "Проверка").
+  const sendCloseDecision = async (btn, decision) => {
+    const tid = String(btn.getAttribute("data-task-id") || taskId || "").trim();
+    if (!tid) return;
+    btn.disabled = true;
+    const prevText = btn.textContent;
+    btn.textContent = decision === "approve" ? "Подтверждаю..." : "Отклоняю...";
+    try {
+      const r = await fetch("/api/tasks/close/decision", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getAuthToken()}`
+        },
+        body: JSON.stringify({ taskId: tid, decision })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.ok) {
+        btn.disabled = false;
+        btn.textContent = prevText;
+        showStatusDialog({
+          title: "Ошибка",
+          message: String(j?.error || `HTTP ${r.status}`),
+          type: "error"
+        });
+        return;
+      }
+      modal.remove();
+      await pullRemoteAppState({ rerender: true });
+      renderTablePreserveScroll();
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = prevText;
+      showStatusDialog({
+        title: "Ошибка сети",
+        message: String(e?.message || e),
+        type: "error"
+      });
+    }
+  };
+  modal.querySelectorAll(".task-close-approve-btn").forEach((btn) => {
+    btn.addEventListener("click", () => sendCloseDecision(btn, "approve"));
+  });
+  modal.querySelectorAll(".task-close-reject-btn").forEach((btn) => {
+    btn.addEventListener("click", () => sendCloseDecision(btn, "reject"));
   });
 
   let activeMediaTarget = null;
@@ -22570,6 +22627,18 @@ function openCreateTaskModal(section) {
 
     saveSectionsData();
     renderTablePreserveScroll();
+
+    // Дожидаемся подтверждения сервера, прежде чем закрыть форму. Иначе при
+    // быстром F5 / закрытии вкладки в окно debounce (1.2 сек) push может не
+    // успеть, а на следующем pull новая задача затрётся серверным снимком.
+    // Если push провалился — оставляем форму открытой и показываем ошибку.
+    if (isHostedRuntime() && getAuthToken()) {
+      const saved = await pushAppToServerImmediate();
+      if (!saved) {
+        setError("Не удалось сохранить задачу на сервер. Проверьте подключение и попробуйте снова.");
+        return;
+      }
+    }
     close();
 
     if (shouldSendTelegram || shouldSendSms) {
