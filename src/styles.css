@@ -3306,9 +3306,18 @@ tr:nth-child(even) td {
   flex: 0 0 13px;
 }
 
-.task-priority-arrow {
+.task-priority-icon {
+  width: 13px;
+  height: 13px;
   margin-right: 5px;
-  font-weight: 700;
+  vertical-align: -2px;
+}
+
+.task-read-icon {
+  width: 13px;
+  height: 13px;
+  margin-right: 5px;
+  vertical-align: -2px;
 }
 
 .task-person-badge {

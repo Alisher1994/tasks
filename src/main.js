@@ -13639,17 +13639,23 @@ function renderTaskPriorityCell(value) {
   const raw = String(value || "").trim();
   const priority = raw || "—";
   const key = priority.toLowerCase();
-  let arrow = "→";
-  if (key.includes("крит")) arrow = "⏫";
-  else if (key.includes("выс")) arrow = "↑";
-  else if (key.includes("низ")) arrow = "↓";
-  return `<span class="priority-text priority-${slugify(priority)}"><span class="task-priority-arrow">${escapeHtmlText(arrow)}</span>${escapeHtmlText(priority)}</span>`;
+  let icon = "arrow-right";
+  if (key.includes("крит")) icon = "chevrons-up";
+  else if (key.includes("выс")) icon = "arrow-up";
+  else if (key.includes("низ")) icon = "arrow-down";
+  else if (key.includes("сред")) icon = "arrow-right";
+  return `<span class="priority-text priority-${slugify(priority)}"><i data-lucide="${icon}" class="lucide-icon task-priority-icon" aria-hidden="true"></i>${escapeHtmlText(priority)}</span>`;
 }
 
 function renderTaskDateCell(value, { formatStored = false } = {}) {
   const raw = String(value || "").trim();
   const shown = raw ? (formatStored ? formatStoredDateForDisplay(raw) : raw) : "—";
   return `<span class="task-cell-inline-label"><i data-lucide="calendar-days" class="lucide-icon" aria-hidden="true"></i><span>${escapeHtmlText(shown)}</span></span>`;
+}
+
+function renderTaskReadStateCell(isRead, statusText, whenText) {
+  const icon = isRead ? "eye" : "eye-off";
+  return `<span class="task-read-state ${isRead ? "is-read" : "is-unread"}"><i data-lucide="${icon}" class="lucide-icon task-read-icon" aria-hidden="true"></i>${escapeHtmlText(statusText)}</span><br><span class="task-read-time">${escapeHtmlText(whenText)}</span>`;
 }
 
 function renderTaskPeopleCell(value, employeeNameSet = null) {
@@ -13686,9 +13692,9 @@ function renderTaskAccordionReadonlyCell(taskRow, colIndex, assigneeName, assign
   if (colIndex === TASK_COLUMNS.readState) {
     const readAt = String(assigneeState?.readAt || "").trim();
     if (readAt) {
-      return `<span class="task-read-state is-read">Прочитано</span><br><span class="task-read-time">${escapeHtmlText(readAt)}</span>`;
+      return renderTaskReadStateCell(true, "Прочитано", readAt);
     }
-    return `<span class="task-read-state is-unread">Не прочитано</span><br><span class="task-read-time">—</span>`;
+    return renderTaskReadStateCell(false, "Не прочитано", "—");
   }
   if (isMediaColumn(colIndex)) {
     const items = getMediaItems(parentValue);
@@ -13698,13 +13704,13 @@ function renderTaskAccordionReadonlyCell(taskRow, colIndex, assigneeName, assign
     return renderTaskPriorityCell(parentValue);
   }
   if (colIndex === TASK_COLUMNS.closedDate && assigneeState?.closedAt) {
-    return escapeHtmlText(String(assigneeState.closedAt));
+    return renderTaskDateCell(assigneeState.closedAt);
   }
   if (colIndex === TASK_COLUMNS.dueDate) {
     const subDue = getTaskSubtaskDueDate(taskRow, assigneeName);
     const shown = subDue ? formatStoredDateForDisplay(subDue) : "—";
-    if (!taskId || !assigneeName) return escapeHtmlText(shown);
-    return `<span class="task-sub-due-edit" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(assigneeName)}" title="Сменить срок подзадачи">${escapeHtmlText(shown)}</span>`;
+    if (!taskId || !assigneeName) return renderTaskDateCell(shown);
+    return `<span class="task-sub-due-edit" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(assigneeName)}" title="Сменить срок подзадачи">${renderTaskDateCell(shown)}</span>`;
   }
   if (
     colIndex === TASK_COLUMNS.addedDate
@@ -13898,10 +13904,10 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
   }
   if (colIndex === TASK_COLUMNS.readState) {
     const rs = getTaskReadStatePartsForRow(row);
-    return `<span class="task-read-state ${rs.isRead ? "is-read" : "is-unread"}">${escapeHtmlText(rs.statusText)}</span><br><span class="task-read-time">${escapeHtmlText(rs.whenText)}</span>`;
+    return renderTaskReadStateCell(rs.isRead, rs.statusText, rs.whenText);
   }
   if (colIndex === TASK_COLUMNS.lastSentAt) {
-    return String(value || "").trim() || "—";
+    return renderTaskDateCell(String(value || "").trim() || "—");
   }
 
   if (colIndex === TASK_COLUMNS.number) {
@@ -14331,29 +14337,30 @@ function getRowHighlightClass(section, row) {
 }
 
 function renderDueDateCell(dateValue) {
+  const wrap = (mainText, metaHtml = "") => `<div class="due-cell"><span class="task-cell-inline-label"><i data-lucide="calendar-days" class="lucide-icon" aria-hidden="true"></i><span>${escapeHtmlText(mainText)}</span></span>${metaHtml}</div>`;
   if (!dateValue) {
-    return '<div class="due-cell"><span>-</span></div>';
+    return wrap("—");
   }
 
   const dueParts = parseRuDateStringToParts(dateValue);
   if (!dueParts) {
-    return `<div class="due-cell"><span>${dateValue}</span></div>`;
+    return wrap(String(dateValue));
   }
 
   const todayParts = getCalendarDatePartsInTimeZone(new Date(), getServerTimezone());
   if (!todayParts) {
     const shown = formatStoredDateForDisplay(String(dateValue));
-    return `<div class="due-cell"><span>${shown}</span></div>`;
+    return wrap(shown);
   }
 
   const diffDays = calendarDiffDays(todayParts, dueParts);
   const shown = formatStoredDateForDisplay(String(dateValue));
 
   if (diffDays >= 0) {
-    return `<div class="due-cell"><span>${shown}</span><small class="due-ok">Осталось ${diffDays} дн.</small></div>`;
+    return wrap(shown, `<small class="due-ok">Осталось ${diffDays} дн.</small>`);
   }
 
-  return `<div class="due-cell"><span>${shown}</span><small class="due-late">Просрочено ${Math.abs(diffDays)} дн.</small></div>`;
+  return wrap(shown, `<small class="due-late">Просрочено ${Math.abs(diffDays)} дн.</small>`);
 }
 
 function slugify(value) {
