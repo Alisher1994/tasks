@@ -3293,6 +3293,51 @@ tr:nth-child(even) td {
   cursor: text;
 }
 
+.task-cell-inline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-cell-inline-label .lucide-icon {
+  width: 13px;
+  height: 13px;
+  color: #5a6c86;
+  flex: 0 0 13px;
+}
+
+.task-priority-arrow {
+  margin-right: 5px;
+  font-weight: 700;
+}
+
+.task-person-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: inherit;
+}
+
+.task-person-badge .lucide-icon {
+  width: 12px;
+  height: 12px;
+  color: #6a7b95;
+  flex: 0 0 12px;
+}
+
+.task-person-badge.task-person--missing {
+  color: #c62828;
+  font-weight: 600;
+}
+
+.task-person-badge.task-person--missing .lucide-icon {
+  color: #c62828;
+}
+
+.task-person-sep {
+  color: #7a879b;
+}
+
 .readonly-cell {
   cursor: default;
   user-select: none;

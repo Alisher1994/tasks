@@ -13631,8 +13631,37 @@ function getTaskDisplayStatus(taskRow) {
 }
 
 function renderTaskTitleCell(taskRow, rowIndex) {
-  const text = escapeHtmlText(String(taskRow?.[TASK_COLUMNS.task] || ""));
-  return text;
+  const text = escapeHtmlText(String(taskRow?.[TASK_COLUMNS.task] || "").trim() || "—");
+  return `<span class="task-cell-inline-label"><i data-lucide="list-checks" class="lucide-icon" aria-hidden="true"></i><span>${text}</span></span>`;
+}
+
+function renderTaskPriorityCell(value) {
+  const raw = String(value || "").trim();
+  const priority = raw || "—";
+  const key = priority.toLowerCase();
+  let arrow = "→";
+  if (key.includes("крит")) arrow = "⏫";
+  else if (key.includes("выс")) arrow = "↑";
+  else if (key.includes("низ")) arrow = "↓";
+  return `<span class="priority-text priority-${slugify(priority)}"><span class="task-priority-arrow">${escapeHtmlText(arrow)}</span>${escapeHtmlText(priority)}</span>`;
+}
+
+function renderTaskDateCell(value, { formatStored = false } = {}) {
+  const raw = String(value || "").trim();
+  const shown = raw ? (formatStored ? formatStoredDateForDisplay(raw) : raw) : "—";
+  return `<span class="task-cell-inline-label"><i data-lucide="calendar-days" class="lucide-icon" aria-hidden="true"></i><span>${escapeHtmlText(shown)}</span></span>`;
+}
+
+function renderTaskPeopleCell(value, employeeNameSet = null) {
+  const names = parseTaskAssigneeNames(value);
+  if (!names.length) return "—";
+  const known = employeeNameSet || getEmployeeNameSet();
+  return names
+    .map((name) => {
+      const missingClass = hasSystemEmployeeName(name, known) ? "" : " task-person--missing";
+      return `<span class="task-person-badge${missingClass}"><i data-lucide="user-round" class="lucide-icon" aria-hidden="true"></i><span>${escapeHtmlText(name)}</span></span>`;
+    })
+    .join('<span class="task-person-sep">, </span>');
 }
 
 function renderTaskAccordionReadonlyCell(taskRow, colIndex, assigneeName, assigneeState, subId) {
@@ -13642,7 +13671,7 @@ function renderTaskAccordionReadonlyCell(taskRow, colIndex, assigneeName, assign
     return escapeHtmlText(subId);
   }
   if (colIndex === TASK_COLUMNS.assignedResponsible) {
-    const shown = escapeHtmlText(assigneeName || "—");
+    const shown = renderTaskPeopleCell(assigneeName);
     if (!taskId || !assigneeName) return shown;
     return `<span class="task-sub-assignee-edit" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee-old="${escapeHtmlAttr(assigneeName)}" title="Сменить ответственного в подзадаче">${shown}</span>`;
   }
@@ -13666,8 +13695,7 @@ function renderTaskAccordionReadonlyCell(taskRow, colIndex, assigneeName, assign
     return escapeHtmlText(items.length ? `Фото: ${items.length}` : "—");
   }
   if (colIndex === TASK_COLUMNS.priority) {
-    const p = String(parentValue || "").trim();
-    return `<span class="priority-text priority-${slugify(p)}">${escapeHtmlText(p || "—")}</span>`;
+    return renderTaskPriorityCell(parentValue);
   }
   if (colIndex === TASK_COLUMNS.closedDate && assigneeState?.closedAt) {
     return escapeHtmlText(String(assigneeState.closedAt));
@@ -13685,6 +13713,9 @@ function renderTaskAccordionReadonlyCell(taskRow, colIndex, assigneeName, assign
     || colIndex === TASK_COLUMNS.createdBy
     || colIndex === TASK_COLUMNS.createdAt
   ) {
+    if (colIndex === TASK_COLUMNS.addedDate || colIndex === TASK_COLUMNS.closedDate) {
+      return renderTaskDateCell(parentValue, { formatStored: true });
+    }
     return escapeHtmlText(String(parentValue || "").trim() || "—");
   }
   return escapeHtmlText(String(parentValue ?? "").trim() || "—");
@@ -13893,20 +13924,25 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
   }
 
   if (colIndex === TASK_COLUMNS.priority) {
-    return `<span class="priority-text priority-${slugify(value)}">${value}</span>`;
+    return renderTaskPriorityCell(value);
   }
 
   if (colIndex === TASK_COLUMNS.assignedResponsible) {
     const status = String(getTaskDisplayStatus(row) || "").trim().toLowerCase();
     const fio = String(value || "").trim();
+    const renderedPeople = renderTaskPeopleCell(fio);
     if (status === "передано" && fio) {
-      return `<s>${escapeHtmlText(fio)}</s>`;
+      return `<s>${renderedPeople}</s>`;
     }
+    return renderedPeople;
+  }
+
+  if (colIndex === TASK_COLUMNS.responsible) {
+    return renderTaskPeopleCell(value);
   }
 
   if (colIndex === TASK_COLUMNS.addedDate || colIndex === TASK_COLUMNS.closedDate) {
-    if (value == null || value === "") return "";
-    return formatStoredDateForDisplay(String(value));
+    return renderTaskDateCell(value, { formatStored: true });
   }
 
   if (colIndex === TASK_COLUMNS.dueDate) {
