@@ -5865,6 +5865,31 @@ function detachTasksChunksObserver() {
   }
 }
 
+function getTaskColumnIconName(columnIndex) {
+  if (columnIndex === TASK_COLUMNS.createdBy || columnIndex === TASK_COLUMNS.responsible || columnIndex === TASK_COLUMNS.assignedResponsible) {
+    return "user-round";
+  }
+  if (columnIndex === TASK_COLUMNS.createdAt || columnIndex === TASK_COLUMNS.dueDate || columnIndex === TASK_COLUMNS.closedDate) {
+    return "calendar-days";
+  }
+  return "info";
+}
+
+function renderColumnHeaderTitle(sectionId, columnIndex, title) {
+  const safeTitle = escapeHtmlText(String(title || ""));
+  if (sectionId !== "tasks") {
+    return `<span class="table-th-title">${safeTitle}</span>`;
+  }
+  const icon = getTaskColumnIconName(columnIndex);
+  return `<span class="table-th-title table-th-title--with-icon"><i data-lucide="${icon}" class="lucide-icon" aria-hidden="true"></i><span>${safeTitle}</span></span>`;
+}
+
+function renderTaskDetailLabel(columnIndex, label) {
+  const safeLabel = escapeHtmlText(String(label || ""));
+  const icon = getTaskColumnIconName(columnIndex);
+  return `<span class="detail-label detail-label--with-icon"><i data-lucide="${icon}" class="lucide-icon" aria-hidden="true"></i><span>${safeLabel}</span></span>`;
+}
+
 function renderTable() {
   detachTasksChunksObserver();
   destroyReportCharts();
@@ -6080,13 +6105,13 @@ function renderTable() {
     const sortClass = sortDir ? ` is-${sortDir}` : "";
     const titleHtml = sortable
       ? `<button type="button" class="table-sort-btn${sortClass}" data-sort-col-index="${columnIndex}">
-          <span class="table-th-title">${escapeHtmlText(column)}</span>
+          ${renderColumnHeaderTitle(section.id, columnIndex, column)}
           <span class="table-sort-indicator" aria-hidden="true">
             <span class="table-sort-up">▲</span>
             <span class="table-sort-down">▼</span>
           </span>
         </button>`
-      : `<span class="table-th-title">${escapeHtmlText(column)}</span>`;
+      : renderColumnHeaderTitle(section.id, columnIndex, column);
     return `<th class="${firstVisibleClass} ${numberClass} ${rolesNumberClass} ${rolesFirstVisibleClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass}">${titleHtml}</th>`;
   }).join("");
   const orderHeaderRow = showHeaderNumbers
@@ -13232,7 +13257,7 @@ function renderTasksSplitLayout(section, options) {
     const mediaClass = isMediaColumn(columnIndex) ? "media-col" : "";
     const objectPhotoClass = section.id === "objects" && columnIndex === OBJECT_COLUMNS.photo ? "object-photo-col" : "";
     return `<th class="${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass}">
-      <span class="table-th-title">${escapeHtmlText(column)}</span>
+      ${renderColumnHeaderTitle(section.id, columnIndex, column)}
     </th>`;
   }).join("");
   const leftOrderHeaderCells = leftHasOrderRow
@@ -13251,7 +13276,7 @@ function renderTasksSplitLayout(section, options) {
         ${hideSelectionControls ? "" : `<th class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}"${checkboxHeadRowspan}>
           <input type="checkbox" id="selectAllRows" ${isAllFilteredSelected ? "checked" : ""} />
         </th>`}
-        ${idVisible ? `<th class="number-col"${dataHeadRowspan}><span class="table-th-title">${escapeHtmlText(section.columns[TASK_COLUMNS.number] || "ID")}</span></th>` : ""}
+        ${idVisible ? `<th class="number-col"${dataHeadRowspan}>${renderColumnHeaderTitle(section.id, TASK_COLUMNS.number, section.columns[TASK_COLUMNS.number] || "ID")}</th>` : ""}
       </tr>
       ${leftOrderHeaderCells}
     </thead>
@@ -19795,7 +19820,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
     .map((column, index) => {
       if (hiddenDetailColumns.has(index)) return "";
       const value = index === TASK_COLUMNS.status ? getTaskDisplayStatus(row) : (row[index] || "-");
-      return `<div class="detail-item"><span class="detail-label">${column}</span><span class="detail-value">${value}</span></div>`;
+      return `<div class="detail-item">${renderTaskDetailLabel(index, column)}<span class="detail-value">${value}</span></div>`;
     })
     .join("");
 

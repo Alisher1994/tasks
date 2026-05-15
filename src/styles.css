@@ -2405,6 +2405,18 @@ th {
   min-height: 19px;
 }
 
+.table-th-title--with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.table-th-title--with-icon .lucide-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.1;
+}
+
 .table-sort-btn {
   width: 100%;
   display: inline-flex;
@@ -5672,6 +5684,18 @@ button.task-card-tab.is-active {
 .detail-label {
   font-size: 12px;
   color: #6a7685;
+}
+
+.detail-label--with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail-label--with-icon .lucide-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.1;
 }
 
 .detail-value {
