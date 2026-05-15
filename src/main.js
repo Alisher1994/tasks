@@ -19811,12 +19811,9 @@ function openTaskDetailsModal(section, row, rowIndex) {
     `).join("")
     : '<span class="close-approver-empty">Нет активных заявок на переназначение.</span>';
   const isTaskClosed = normalizeTaskStatusValue(String(row[TASK_COLUMNS.status] || "")) === "Закрыт";
-  const reassignHtml = isTaskClosed
+  const reassignActionHtml = isTaskClosed
     ? ""
-    : `${reassignListHtml}
-        <div class="task-reassign-request-actions">
-          <button type="button" class="secondary task-reassign-open-form-btn" data-task-id="${escapeHtmlAttr(taskId)}">Запросить переназначение</button>
-        </div>`;
+    : `<button type="button" class="secondary task-reassign-open-form-btn" data-task-id="${escapeHtmlAttr(taskId)}">Запросить переназначение</button>`;
   const modal = document.createElement("div");
   modal.className = "details-modal-overlay";
   modal.tabIndex = -1;
@@ -19857,9 +19854,12 @@ function openTaskDetailsModal(section, row, rowIndex) {
           <div class="close-approvers-title">Кто согласует закрытие</div>
           <div class="close-approvers-list">${closeApproversHtml}</div>
         </div>
-        ${isTaskClosed ? "" : `<div class="close-approvers-box">
-          <div class="close-approvers-title">Заявки на переназначение</div>
-          <div class="close-approvers-list">${reassignHtml}</div>
+        ${isTaskClosed ? "" : `<div class="close-approvers-box close-approvers-box--reassign">
+          <div class="close-approvers-head">
+            <div class="close-approvers-title">Заявки на переназначение</div>
+            ${reassignActionHtml}
+          </div>
+          <div class="close-approvers-list">${reassignListHtml}</div>
         </div>`}
         <div class="details-grid">${details}</div>
       </div>

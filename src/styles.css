@@ -5566,10 +5566,35 @@ button.task-card-tab.is-active {
   margin-bottom: 6px;
 }
 
+.close-approvers-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.close-approvers-head .close-approvers-title {
+  margin-bottom: 0;
+}
+
+.close-approvers-box--reassign .task-reassign-open-form-btn {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 .close-approvers-list {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.close-approvers-box--reassign .close-approvers-list {
+  display: block;
+}
+
+.close-approvers-box--reassign .close-approver-empty {
+  display: block;
 }
 
 .close-approver-chip {
