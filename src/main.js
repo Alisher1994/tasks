@@ -866,16 +866,21 @@ async function pushAppToServerImmediate() {
   }
 }
 
-function mergeBotManagedTaskFieldsIntoLocalRow(localRow, remoteRow) {
+function mergeBotManagedTaskFieldsIntoLocalRow(localRow, remoteRow, options = {}) {
   if (!Array.isArray(localRow) || !Array.isArray(remoteRow)) return false;
+  const includeStatus = options.includeStatus !== false;
   let changed = false;
 
-  // Статус и комментарий сотрудника приходят из Telegram и должны иметь приоритет над устаревшей локальной копией.
-  const remoteStatus = normalizeTaskStatusValue(remoteRow[TASK_COLUMNS.status]);
-  const localStatus = normalizeTaskStatusValue(localRow[TASK_COLUMNS.status]);
-  if (String(remoteStatus || "") !== String(localStatus || "")) {
-    localRow[TASK_COLUMNS.status] = remoteStatus;
-    changed = true;
+  // В обычном pull статус из Telegram имеет приоритет.
+  // Но в pre-push merge (см. mergeTaskReadStateFromServer) статус не перетираем,
+  // чтобы ручная смена статуса в вебе не откатывалась на старый серверный снимок.
+  if (includeStatus) {
+    const remoteStatus = normalizeTaskStatusValue(remoteRow[TASK_COLUMNS.status]);
+    const localStatus = normalizeTaskStatusValue(localRow[TASK_COLUMNS.status]);
+    if (String(remoteStatus || "") !== String(localStatus || "")) {
+      localRow[TASK_COLUMNS.status] = remoteStatus;
+      changed = true;
+    }
   }
 
   const syncTextField = (colIndex) => {
@@ -1031,7 +1036,7 @@ async function mergeTaskReadStateFromServer(localPayload) {
       if (!id) return;
       const remoteRow = remoteById.get(id);
       if (!remoteRow) return;
-      mergeBotManagedTaskFieldsIntoLocalRow(row, remoteRow);
+      mergeBotManagedTaskFieldsIntoLocalRow(row, remoteRow, { includeStatus: false });
     });
     if (remotePayload?.taskMultiState && typeof remotePayload.taskMultiState === "object" && !Array.isArray(remotePayload.taskMultiState)) {
       localPayload.taskMultiState = mergeTaskMultiStatePreferRemotePreserveLocal(
