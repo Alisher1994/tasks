@@ -19,6 +19,7 @@ import { runGoogleSheetsSync, startGoogleSheetsAutoSync } from "./googleSheetsSy
 import { runMigrations } from "./migrate.js";
 import { validateAppPayload } from "./validatePayload.js";
 import { attachRealtimeHub, broadcastStateChanged, getRealtimeConnectionCount } from "./realtimeHub.js";
+import { ensureMediaStorageDir, validateMediaUpload } from "./mediaUpload.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, "..");
@@ -85,7 +86,6 @@ const SMS_DEFAULT_INVITE_TEMPLATE =
   "Здравствуйте, [ФИО]. Пожалуйста, пройдите регистрацию в Telegram-боте [Бот] по ссылке: [Ссылка_бота]. После регистрации вы будете получать задачи от руководителей.";
 const SMS_DEFAULT_TASK_TEMPLATE =
   "У вас есть задача №[ID_задачи]: [Название_задачи]. Для подробностей перейдите в Telegram-бот [Бот]: [Ссылка_бота].";
-const MEDIA_UPLOAD_MAX_BYTES = 18 * 1024 * 1024;
 let overdueDigestTickInFlight = false;
 let overdueDigestTimer = null;
 
@@ -1905,57 +1905,6 @@ async function requireAdmin(req, res, next) {
   next();
 }
 
-async function ensureMediaStorageDir() {
-  await fsp.mkdir(MEDIA_STORAGE_PATH, { recursive: true });
-}
-
-function mimeToExt(mime) {
-  const m = String(mime || "").toLowerCase();
-  if (m === "image/jpeg") return "jpg";
-  if (m === "image/png") return "png";
-  if (m === "image/webp") return "webp";
-  if (m === "image/gif") return "gif";
-  if (m === "image/bmp") return "bmp";
-  if (m === "video/mp4") return "mp4";
-  if (m === "video/webm") return "webm";
-  if (m === "video/ogg") return "ogv";
-  if (m === "video/quicktime") return "mov";
-  if (m === "video/x-m4v") return "m4v";
-  if (m === "application/pdf") return "pdf";
-  return "bin";
-}
-
-function extFromFileName(fileName) {
-  const src = String(fileName || "").trim();
-  if (!src) return "";
-  const clean = src.replace(/[?#].*$/, "");
-  const dot = clean.lastIndexOf(".");
-  if (dot <= 0 || dot >= clean.length - 1) return "";
-  const ext = clean.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (!ext) return "";
-  const allow = new Set([
-    "jpg", "jpeg", "png", "webp", "gif", "bmp",
-    "mp4", "webm", "ogv", "mov", "m4v",
-    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-    "txt", "csv", "zip", "rar", "7z"
-  ]);
-  return allow.has(ext) ? ext : "";
-}
-
-function parseDataUrl(dataUrl) {
-  const m = /^data:([^;]+);base64,(.+)$/s.exec(String(dataUrl || "").trim());
-  if (!m) return null;
-  return { mime: String(m[1] || "").trim(), base64: String(m[2] || "").trim() };
-}
-
-function decodeUploadBase64(base64) {
-  const compact = String(base64 || "").replace(/\s+/g, "");
-  if (!compact || !/^[A-Za-z0-9+/]+={0,2}$/.test(compact) || compact.length % 4 !== 0) {
-    return null;
-  }
-  return Buffer.from(compact, "base64");
-}
-
 /** Базовый HTTPS-URL приложения для setWebhook (без завершающего /). */
 function getPublicBaseUrl(req) {
   const envUrl = String(process.env.PUBLIC_APP_URL || "").trim().replace(/\/$/, "");
@@ -3124,40 +3073,23 @@ app.post("/api/google-sheets/sync", authMiddleware, requireAdmin, async (_req, r
 
 app.post("/api/media/upload", authMiddleware, async (req, res) => {
   try {
-    await ensureMediaStorageDir();
+    await ensureMediaStorageDir(MEDIA_STORAGE_PATH);
     const dataUrl = String(req.body?.dataUrl || "").trim();
     const sourceFileName = String(req.body?.fileName || "").trim();
-    const parsed = parseDataUrl(dataUrl);
-    if (!parsed) {
-      return res.status(400).json({ error: "Неверный формат файла (ожидается data URL)." });
+    const upload = validateMediaUpload({ dataUrl, fileName: sourceFileName });
+    if (!upload.ok) {
+      return res.status(upload.status || 400).json({ error: upload.error || "Некорректный файл." });
     }
-    if (String(parsed.mime || "").toLowerCase() === "image/svg+xml") {
-      return res.status(415).json({ error: "SVG-файлы не принимаются по соображениям безопасности." });
-    }
-    if (parsed.base64.length > Math.ceil(MEDIA_UPLOAD_MAX_BYTES * 4 / 3) + 4) {
-      return res.status(413).json({ error: "Файл слишком большой (максимум ~18MB)." });
-    }
-    const buf = decodeUploadBase64(parsed.base64);
-    if (!buf) {
-      return res.status(400).json({ error: "Файл повреждён или не является корректным base64." });
-    }
-    if (buf.length > MEDIA_UPLOAD_MAX_BYTES) {
-      return res.status(413).json({ error: "Файл слишком большой (максимум ~18MB)." });
-    }
-    const ext = extFromFileName(sourceFileName) || mimeToExt(parsed.mime);
-    if (!ext || ext === "bin") {
-      return res.status(415).json({ error: "Тип файла не поддерживается." });
-    }
-    const fileName = `${Date.now()}-${randomBytes(6).toString("hex")}.${ext}`;
+    const fileName = `${Date.now()}-${randomBytes(6).toString("hex")}.${upload.ext}`;
     const absPath = path.join(MEDIA_STORAGE_PATH, fileName);
-    await fsp.writeFile(absPath, buf);
+    await fsp.writeFile(absPath, upload.buf);
     const base = getPublicBaseUrl(req);
     const url = `${base}/media/${encodeURIComponent(fileName)}`;
     return res.json({
       ok: true,
       url,
       fileName,
-      mime: parsed.mime
+      mime: upload.mime
     });
   } catch (e) {
     console.error(e);
@@ -3452,7 +3384,7 @@ async function main() {
   if (JWT_SECRET === "change-me-in-production") {
     console.warn("Задайте JWT_SECRET в переменных окружения перед production.");
   }
-  await ensureMediaStorageDir();
+  await ensureMediaStorageDir(MEDIA_STORAGE_PATH);
   console.log(`Папка медиа: ${MEDIA_STORAGE_PATH}`);
 
   const httpServer = createHttpServer(app);
