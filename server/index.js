@@ -1914,7 +1914,6 @@ function mimeToExt(mime) {
   if (m === "image/png") return "png";
   if (m === "image/webp") return "webp";
   if (m === "image/gif") return "gif";
-  if (m === "image/svg+xml") return "svg";
   if (m === "image/bmp") return "bmp";
   if (m === "video/mp4") return "mp4";
   if (m === "video/webm") return "webm";
@@ -1934,7 +1933,7 @@ function extFromFileName(fileName) {
   const ext = clean.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]/g, "");
   if (!ext) return "";
   const allow = new Set([
-    "jpg", "jpeg", "png", "webp", "gif", "svg", "bmp",
+    "jpg", "jpeg", "png", "webp", "gif", "bmp",
     "mp4", "webm", "ogv", "mov", "m4v",
     "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
     "txt", "csv", "zip", "rar", "7z"
@@ -2263,7 +2262,7 @@ app.post("/api/telegram/webhook", express.json(), async (req, res) => {
 });
 
 /** После сохранения токена в приложении: зарегистрировать webhook на этом домене. */
-app.post("/api/telegram/set-webhook", authMiddleware, async (req, res) => {
+app.post("/api/telegram/set-webhook", authMiddleware, requireAdmin, async (req, res) => {
   try {
     const fromBody = String(req.body?.publicBaseUrl || "").trim().replace(/\/$/, "");
     const base = fromBody || getPublicBaseUrl(req);
@@ -2283,7 +2282,7 @@ app.post("/api/telegram/set-webhook", authMiddleware, async (req, res) => {
   }
 });
 
-app.post("/api/employees/refresh-chat-ids", authMiddleware, async (_req, res) => {
+app.post("/api/employees/refresh-chat-ids", authMiddleware, requireAdmin, async (_req, res) => {
   try {
     const { rows } = await pool.query("SELECT payload FROM app_state WHERE id = 1");
     const payload = rows[0]?.payload && typeof rows[0].payload === "object"
@@ -2298,7 +2297,7 @@ app.post("/api/employees/refresh-chat-ids", authMiddleware, async (_req, res) =>
   }
 });
 
-app.post("/api/telegram/send-photo-proxy", authMiddleware, async (req, res) => {
+app.post("/api/telegram/send-photo-proxy", authMiddleware, requireAdmin, async (req, res) => {
   try {
     const chatId = String(req.body?.chatId || "").trim();
     const token = String(req.body?.token || "").trim();
@@ -2353,7 +2352,7 @@ app.post("/api/telegram/send-photo-proxy", authMiddleware, async (req, res) => {
   }
 });
 
-app.post("/api/telegram/send-media-group-proxy", authMiddleware, async (req, res) => {
+app.post("/api/telegram/send-media-group-proxy", authMiddleware, requireAdmin, async (req, res) => {
   try {
     const chatId = String(req.body?.chatId || "").trim();
     const token = String(req.body?.token || "").trim();
@@ -3098,7 +3097,7 @@ app.get("/api/sms/invite/history", authMiddleware, requireAdmin, async (_req, re
   }
 });
 
-app.post("/api/google-sheets/sync", authMiddleware, async (_req, res) => {
+app.post("/api/google-sheets/sync", authMiddleware, requireAdmin, async (_req, res) => {
   try {
     const result = await runGoogleSheetsSync(pool, { mode: "manual" });
     if (!result.ok && result.busy) {
@@ -3122,6 +3121,9 @@ app.post("/api/media/upload", authMiddleware, async (req, res) => {
     const parsed = parseDataUrl(dataUrl);
     if (!parsed) {
       return res.status(400).json({ error: "Неверный формат файла (ожидается data URL)." });
+    }
+    if (String(parsed.mime || "").toLowerCase() === "image/svg+xml") {
+      return res.status(415).json({ error: "SVG-файлы не принимаются по соображениям безопасности." });
     }
     if (parsed.base64.length > 24 * 1024 * 1024) {
       return res.status(413).json({ error: "Файл слишком большой (максимум ~18MB)." });
