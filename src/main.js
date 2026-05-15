@@ -14325,8 +14325,10 @@ function getRowHighlightClass(section, row) {
   }
   const status = getTaskDisplayStatus(row);
 
-  if (displaySettings.highlightClosed && status === "Закрыт") {
-    return "row-highlight-closed";
+  if (displaySettings.highlightClosed) {
+    if (status === "Закрыт") return "row-highlight-closed";
+    if (status === "Проверка") return "row-highlight-review";
+    if (status === "В процессе") return "row-highlight-progress";
   }
 
   if (displaySettings.highlightNeedDecision && status === STATUS_DECISION) {

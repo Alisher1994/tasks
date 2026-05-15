@@ -3123,6 +3123,14 @@ tr:nth-child(even) td {
   background: var(--closed-highlight-surface) !important;
 }
 
+.row-highlight-review td {
+  background: #eef5ff !important;
+}
+
+.row-highlight-progress td {
+  background: #fff7e8 !important;
+}
+
 .row-highlight-need-decision td {
   background: #fff1f1 !important;
 }
@@ -3132,6 +3140,20 @@ tr:nth-child(even) td {
 .row-highlight-closed .number-col,
 .row-highlight-closed .actions-col {
   background: var(--closed-highlight-edge) !important;
+}
+
+.row-highlight-review .checkbox-col,
+.row-highlight-review .first-visible-col,
+.row-highlight-review .number-col,
+.row-highlight-review .actions-col {
+  background: #e2edff !important;
+}
+
+.row-highlight-progress .checkbox-col,
+.row-highlight-progress .first-visible-col,
+.row-highlight-progress .number-col,
+.row-highlight-progress .actions-col {
+  background: #ffefd1 !important;
 }
 
 .row-highlight-need-decision .checkbox-col,
