@@ -482,6 +482,20 @@ button:hover {
   background: #7b8795;
 }
 
+.tasks-full-vis-select-all-btn,
+.tasks-full-vis-clear-btn {
+  color: #3e4095 !important;
+  background: #fff !important;
+  border-color: #d6dced !important;
+}
+
+.tasks-full-vis-select-all-btn:hover,
+.tasks-full-vis-clear-btn:hover {
+  color: #fff !important;
+  background: #3e4095 !important;
+  border-color: #3e4095 !important;
+}
+
 .error {
   color: #b22222;
   margin: 4px 0 0;
