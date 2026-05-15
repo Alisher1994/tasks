@@ -9148,6 +9148,44 @@ body.shared-report-mode .sidebar {
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
+.tasks-full-visibility-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tasks-full-vis-letter-group {
+  min-width: 0;
+}
+
+.tasks-full-vis-letter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 7px;
+  color: #3e4095;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.tasks-full-vis-letter::after {
+  content: "";
+  height: 1px;
+  flex: 1 1 auto;
+  background: #d8deef;
+}
+
+.tasks-full-visibility-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 4px 12px;
+}
+
+.tasks-full-vis-role-option {
+  margin: 0;
+}
+
 .tasks-list-settings-compact {
   display: flex;
   flex-direction: column;

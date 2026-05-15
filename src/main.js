@@ -17955,7 +17955,7 @@ function renderOtherSettingsPanel() {
                   <button type="button" class="tasks-full-vis-clear-btn" style="font-size:12px;padding:4px 10px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;border-radius:4px;">Снять все</button>
                 </div>
               </div>
-              <div class="tasks-full-visibility-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 12px;">
+              <div class="tasks-full-visibility-groups">
                 ${(() => {
                   const allRoles = getUniqueValues(getSectionById("roles")?.rows || [], 1)
                     .map((r) => String(r || "").trim())
@@ -17966,13 +17966,26 @@ function renderOtherSettingsPanel() {
                       ? displaySettings.tasksFullVisibilityPositions.map((s) => String(s).trim())
                       : []
                   );
-                  return allRoles
-                    .map((r) => {
-                      const isOn = selected.has(r);
-                      return `<label class="settings-option settings-option--compact" style="margin:0;">
-                        <input class="tasks-full-vis-role-checkbox" type="checkbox" data-role="${escapeHtmlAttr(r)}" ${isOn ? "checked" : ""} />
-                        <span>${escapeHtmlText(r)}</span>
-                      </label>`;
+                  const groups = new Map();
+                  allRoles.forEach((role) => {
+                    const first = String(role || "").trim().charAt(0).toLocaleUpperCase("ru-RU") || "#";
+                    const letter = /[A-ZА-ЯЁ]/u.test(first) ? first : "#";
+                    if (!groups.has(letter)) groups.set(letter, []);
+                    groups.get(letter).push(role);
+                  });
+                  return Array.from(groups.entries())
+                    .map(([letter, roles]) => {
+                      const items = roles.map((r) => {
+                        const isOn = selected.has(r);
+                        return `<label class="settings-option settings-option--compact tasks-full-vis-role-option">
+                          <input class="tasks-full-vis-role-checkbox" type="checkbox" data-role="${escapeHtmlAttr(r)}" ${isOn ? "checked" : ""} />
+                          <span>${escapeHtmlText(r)}</span>
+                        </label>`;
+                      }).join("");
+                      return `<section class="tasks-full-vis-letter-group" aria-label="${escapeHtmlAttr(`Должности на букву ${letter}`)}">
+                        <div class="tasks-full-vis-letter">${escapeHtmlText(letter)}</div>
+                        <div class="tasks-full-visibility-grid">${items}</div>
+                      </section>`;
                     })
                     .join("");
                 })()}
