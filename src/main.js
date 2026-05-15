@@ -19650,7 +19650,7 @@ function openReassignRequestModal({ taskId, currentAssignees = [], afterCreate }
       return byDep !== 0 ? byDep : a.fullName.localeCompare(b.fullName, "ru");
     });
   const optionsHtml = employeeOptions
-    .map((emp) => `<option value="${escapeHtmlAttr(emp.fullName)}">${escapeHtmlText(emp.fullName)}${emp.department ? ` — ${escapeHtmlText(emp.department)}` : ""}</option>`)
+    .map((emp) => `<option value="${escapeHtmlAttr(emp.fullName)}" label="${escapeHtmlAttr(emp.department ? `${emp.fullName} — ${emp.department}` : emp.fullName)}"></option>`)
     .join("");
 
   const overlay = document.createElement("div");
@@ -19669,10 +19669,19 @@ function openReassignRequestModal({ taskId, currentAssignees = [], afterCreate }
         </div>
         <div class="reassign-form-row">
           <label for="reassignTarget">Кому передать</label>
-          <select id="reassignTarget" name="toEmployeeName" required>
-            <option value="">— выберите сотрудника —</option>
+          <input
+            id="reassignTarget"
+            name="toEmployeeName"
+            type="text"
+            class="reassign-target-input"
+            list="reassignTargetList"
+            placeholder="Начните вводить ФИО или отдел..."
+            autocomplete="off"
+            required
+          />
+          <datalist id="reassignTargetList">
             ${optionsHtml}
-          </select>
+          </datalist>
         </div>
         <div class="reassign-form-row">
           <span class="close-approver-empty">Текущий исполнитель: ${escapeHtmlText(currentAssignees.join(", ") || "—")}</span>
@@ -19721,11 +19730,15 @@ function openReassignRequestModal({ taskId, currentAssignees = [], afterCreate }
       showError("Выберите сотрудника-получателя.");
       return;
     }
-    const targetEmp = employeeOptions.find((e) => e.fullName === toEmployeeName);
+    const targetEmp = employeeOptions.find((e) => e.fullName.toLowerCase() === toEmployeeName.toLowerCase());
+    if (!targetEmp) {
+      showError("Выберите сотрудника из списка (через поиск).");
+      return;
+    }
     submitBtn?.setAttribute("disabled", "disabled");
     const result = await requestTaskReassignment({
       taskId,
-      toEmployeeName,
+      toEmployeeName: targetEmp.fullName,
       reasonText,
       reasonType,
       departmentName: targetEmp?.department || ""
