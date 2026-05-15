@@ -85,6 +85,7 @@ const SMS_DEFAULT_INVITE_TEMPLATE =
   "Здравствуйте, [ФИО]. Пожалуйста, пройдите регистрацию в Telegram-боте [Бот] по ссылке: [Ссылка_бота]. После регистрации вы будете получать задачи от руководителей.";
 const SMS_DEFAULT_TASK_TEMPLATE =
   "У вас есть задача №[ID_задачи]: [Название_задачи]. Для подробностей перейдите в Telegram-бот [Бот]: [Ссылка_бота].";
+const MEDIA_UPLOAD_MAX_BYTES = 18 * 1024 * 1024;
 let overdueDigestTickInFlight = false;
 let overdueDigestTimer = null;
 
@@ -1947,6 +1948,14 @@ function parseDataUrl(dataUrl) {
   return { mime: String(m[1] || "").trim(), base64: String(m[2] || "").trim() };
 }
 
+function decodeUploadBase64(base64) {
+  const compact = String(base64 || "").replace(/\s+/g, "");
+  if (!compact || !/^[A-Za-z0-9+/]+={0,2}$/.test(compact) || compact.length % 4 !== 0) {
+    return null;
+  }
+  return Buffer.from(compact, "base64");
+}
+
 /** Базовый HTTPS-URL приложения для setWebhook (без завершающего /). */
 function getPublicBaseUrl(req) {
   const envUrl = String(process.env.PUBLIC_APP_URL || "").trim().replace(/\/$/, "");
@@ -3125,13 +3134,22 @@ app.post("/api/media/upload", authMiddleware, async (req, res) => {
     if (String(parsed.mime || "").toLowerCase() === "image/svg+xml") {
       return res.status(415).json({ error: "SVG-файлы не принимаются по соображениям безопасности." });
     }
-    if (parsed.base64.length > 24 * 1024 * 1024) {
+    if (parsed.base64.length > Math.ceil(MEDIA_UPLOAD_MAX_BYTES * 4 / 3) + 4) {
+      return res.status(413).json({ error: "Файл слишком большой (максимум ~18MB)." });
+    }
+    const buf = decodeUploadBase64(parsed.base64);
+    if (!buf) {
+      return res.status(400).json({ error: "Файл повреждён или не является корректным base64." });
+    }
+    if (buf.length > MEDIA_UPLOAD_MAX_BYTES) {
       return res.status(413).json({ error: "Файл слишком большой (максимум ~18MB)." });
     }
     const ext = extFromFileName(sourceFileName) || mimeToExt(parsed.mime);
+    if (!ext || ext === "bin") {
+      return res.status(415).json({ error: "Тип файла не поддерживается." });
+    }
     const fileName = `${Date.now()}-${randomBytes(6).toString("hex")}.${ext}`;
     const absPath = path.join(MEDIA_STORAGE_PATH, fileName);
-    const buf = Buffer.from(parsed.base64, "base64");
     await fsp.writeFile(absPath, buf);
     const base = getPublicBaseUrl(req);
     const url = `${base}/media/${encodeURIComponent(fileName)}`;
