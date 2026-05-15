@@ -79,9 +79,11 @@ export function flagEmojiFromIso2(iso2) {
 }
 
 export function flagSvgUrlByIso(iso2) {
-  const code = String(iso2 || "").trim().toLowerCase();
-  if (!/^[a-z]{2}$/.test(code)) return "";
-  return `https://flagcdn.com/${code}.svg`;
+  const code = String(iso2 || "").trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(code)) return "";
+  const emoji = flagEmojiFromIso2(code);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="14" viewBox="0 0 18 14"><rect width="18" height="14" rx="2" fill="#eef3f9"/><text x="9" y="10.2" text-anchor="middle" font-size="10">${emoji}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
 export function globeSvgDataUrl() {

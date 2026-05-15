@@ -23838,7 +23838,11 @@ loginForm.addEventListener("submit", async (event) => {
         const userName = String(me?.displayName || j.displayName || "").trim() || "Пользователь";
         saveSession(userName);
         saveSessionPhone(phone);
-        await pullRemoteAppState();
+        try {
+          await pullRemoteAppState();
+        } catch (_) {
+          // Ошибки сети не должны блокировать успешный вход в локальный state.
+        }
         showLoginGreeting(userName, () => {
           showApp(userName);
           scheduleServerSync();
@@ -23998,6 +24002,7 @@ if (initialShareIdBoot) {
     const savedUser = restoreSession();
     const hasToken = Boolean(getAuthToken());
     let userName = String(savedUser || "").trim();
+    let sessionIsValid = Boolean(savedUser && hasToken);
     if (savedUser && hasToken && isHostedRuntime()) {
       try {
         const me = await refreshAuthMeProfile();
@@ -24006,16 +24011,19 @@ if (initialShareIdBoot) {
           saveSession(userName);
         }
         await pullRemoteAppState();
-      } catch (_) {
-        /* noop */
+      } catch (_error) {
+        // Если токен невалиден/просрочен, не поднимаем приложение:
+        // остаёмся на форме входа без циклов запросов /api/data.
+        sessionIsValid = Boolean(getAuthToken());
       }
     }
-    if (savedUser && hasToken) {
+    if (sessionIsValid) {
       showApp(userName || savedUser);
       if (getAuthToken() && isHostedRuntime()) {
         scheduleServerSync();
       }
     } else {
+      clearSession();
       showLogin();
     }
   })();
