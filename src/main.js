@@ -6431,9 +6431,6 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
         : "Очистить чат с ботом";
     return `
       <div class="action-buttons">
-        <button type="button" class="icon-action-btn copy-employee-msg-btn" title="Скопировать сообщение сотруднику" data-row-index="${rowIndex}">
-          <i data-lucide="copy" class="lucide-icon" aria-hidden="true"></i>
-        </button>
         <button type="button" class="icon-action-btn send-employee-sms-btn" title="${escapeHtmlAttr(smsTitle)}" data-row-index="${rowIndex}" ${smsDisabledAttr}>
           <i data-lucide="message-square" class="lucide-icon" aria-hidden="true"></i>
         </button>
@@ -11790,24 +11787,6 @@ function getEmployeeByPhone(phoneValue) {
   return employeesSection.rows.find((row) => normalizeUzPhone(row[4]) === normalized) || null;
 }
 
-function maskEmployeePhoneForMessage(phoneRaw) {
-  const normalized = normalizeUzPhone(phoneRaw);
-  const digits = normalized.replace(/\D/g, "");
-  if (!digits) return "—";
-  const head = digits.slice(0, 2);
-  return `${head}${"*".repeat(Math.max(0, digits.length - 2))}`;
-}
-
-function buildEmployeeOnboardingMessage(row) {
-  const botUsername = String(displaySettings.telegramBotUsername || "").trim();
-  const bot = botUsername ? `@${botUsername}` : "не задан";
-  const fio = String(row[EMPLOYEE_COLUMNS.fullName] || "").trim() || "—";
-  const phoneMasked = maskEmployeePhoneForMessage(row[EMPLOYEE_COLUMNS.phone]);
-  const pass = normalizeUzPhone(row[EMPLOYEE_COLUMNS.phone]).replace(/\D/g, "").slice(-4) || "****";
-  const site = String(location.origin || "").trim() || "—";
-  return [`Бот: ${bot}`, `Сайт: ${site}`, `ФИО: ${fio}`, `Ваш номер: ${phoneMasked}`, `Пароль: ${pass}`].join("\n");
-}
-
 function parseEmployeesCell(value) {
   return String(value || "")
     .split(",")
@@ -14470,7 +14449,6 @@ function attachTableActionHandlers(section, filteredEntries) {
   const deleteTrashButtons = Array.from(document.querySelectorAll(".delete-trash-row-btn"));
   const sendButtons = Array.from(document.querySelectorAll(".send-row-btn"));
   const sendTaskSmsButtons = Array.from(document.querySelectorAll(".send-row-sms-btn"));
-  const copyEmployeeMsgButtons = Array.from(document.querySelectorAll(".copy-employee-msg-btn"));
   const sendEmployeeSmsButtons = Array.from(document.querySelectorAll(".send-employee-sms-btn"));
   const clearEmployeeChatButtons = Array.from(document.querySelectorAll(".clear-employee-chat-btn"));
   const deleteButtons = Array.from(document.querySelectorAll(".delete-row-btn"));
@@ -14554,30 +14532,6 @@ function attachTableActionHandlers(section, filteredEntries) {
           button.title = `Отправлено: ${rowTitle}`;
         }
       });
-    });
-  });
-
-  copyEmployeeMsgButtons.forEach((button) => {
-    button.addEventListener("click", async () => {
-      if (section.id !== "employees") return;
-      const rowIndex = Number(button.dataset.rowIndex);
-      const row = section.rows[rowIndex];
-      if (!row) return;
-      const text = buildEmployeeOnboardingMessage(row);
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch (_) {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        ta.remove();
-      }
-      button.title = "Скопировано";
-      setTimeout(() => {
-        button.title = "Скопировать сообщение сотруднику";
-      }, 1200);
     });
   });
 
@@ -17972,9 +17926,10 @@ function renderOtherSettingsPanel() {
                      value="${Number(displaySettings.archiveAfterDays) || 0}"
                      style="width:80px;margin-left:8px;" />
             </label>
+            <button type="button" class="archive-save-btn" style="display:none;margin-top:8px;padding:6px 16px;cursor:pointer;border:1px solid #4a4ab8;background:#5b5bd6;color:#fff;border-radius:4px;font-weight:600;">Сохранить</button>
             <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-              <button type="button" class="archive-open-btn" style="padding:6px 14px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;border-radius:4px;">Открыть архив</button>
-              <button type="button" class="archive-run-now-btn" style="padding:6px 14px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;border-radius:4px;">Архивировать закрытые сейчас</button>
+              <button type="button" class="archive-open-btn" style="padding:6px 14px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;color:#333;border-radius:4px;">Открыть архив</button>
+              <button type="button" class="archive-run-now-btn" style="padding:6px 14px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;color:#333;border-radius:4px;">Архивировать закрытые сейчас</button>
             </div>
             <div style="font-size:12px;color:#666;margin-top:6px;">Архив хранится отдельно и не замедляет систему. Задачи не удаляются — их можно вернуть.</div>
           </div>
@@ -18830,15 +18785,47 @@ function attachOtherSettingsHandlers() {
     });
   });
 
-  // Архив: порог авто-архивации.
+  // Архив: порог авто-архивации. Кнопка «Сохранить» появляется при изменении
+  // значения и исчезает после успешной записи на сервер.
   const archiveDaysInput = document.querySelector(".archive-after-days-input");
-  archiveDaysInput?.addEventListener("change", () => {
-    let n = Number.parseInt(String(archiveDaysInput.value), 10);
-    if (!Number.isFinite(n) || n < 0) n = 0;
-    archiveDaysInput.value = String(n);
-    displaySettings.archiveAfterDays = n;
-    saveDisplaySettings();
-  });
+  const archiveSaveBtn = document.querySelector(".archive-save-btn");
+  if (archiveDaysInput && archiveSaveBtn) {
+    const showArchiveSave = () => {
+      archiveSaveBtn.style.display = "";
+      archiveSaveBtn.textContent = "Сохранить";
+      archiveSaveBtn.removeAttribute("disabled");
+    };
+    archiveDaysInput.addEventListener("input", showArchiveSave);
+    archiveDaysInput.addEventListener("change", showArchiveSave);
+    archiveSaveBtn.addEventListener("click", async () => {
+      let n = Number.parseInt(String(archiveDaysInput.value), 10);
+      if (!Number.isFinite(n) || n < 0) n = 0;
+      archiveDaysInput.value = String(n);
+      displaySettings.archiveAfterDays = n;
+      archiveSaveBtn.setAttribute("disabled", "true");
+      archiveSaveBtn.textContent = "Сохранение...";
+      saveDisplaySettings();
+      let ok = true;
+      if (isHostedRuntime() && getAuthToken()) {
+        try {
+          ok = (await pushAppToServerImmediate()) !== false;
+        } catch (_) {
+          ok = false;
+        }
+      }
+      if (ok) {
+        archiveSaveBtn.style.display = "none";
+      } else {
+        archiveSaveBtn.textContent = "Повторить сохранение";
+        archiveSaveBtn.removeAttribute("disabled");
+        showStatusDialog({
+          title: "Не сохранено",
+          message: "Не удалось отправить значение на сервер. Попробуйте ещё раз.",
+          type: "error"
+        });
+      }
+    });
+  }
   // Архив: открыть окно архива.
   document.querySelector(".archive-open-btn")?.addEventListener("click", () => {
     openArchiveModal();
@@ -23112,7 +23099,7 @@ function openArchiveModal() {
         <div style="font-size:12px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:480px;">${escapeHtmlText(it.title || "")}</div>
       </div>
       <button type="button" class="archive-restore-btn" data-archive-restore="${escapeHtmlAttr(it.taskId)}"
-              style="font-size:12px;padding:4px 10px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;border-radius:4px;white-space:nowrap;">Вернуть</button>
+              style="font-size:12px;padding:4px 10px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;color:#333;border-radius:4px;white-space:nowrap;">Вернуть</button>
     </div>`;
 
   async function loadPage(reset) {
@@ -23136,7 +23123,7 @@ function openArchiveModal() {
       }
       offset += items.length;
       moreEl.innerHTML = offset < total
-        ? `<button type="button" class="archive-more-btn" style="padding:6px 14px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;border-radius:4px;">Показать ещё (${total - offset})</button>`
+        ? `<button type="button" class="archive-more-btn" style="padding:6px 14px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;color:#333;border-radius:4px;">Показать ещё (${total - offset})</button>`
         : (total ? `<span style="font-size:12px;color:#999;">Всего: ${total}</span>` : "");
     } catch (e) {
       listEl.innerHTML = `<div style="padding:12px;color:#c00;">Ошибка загрузки архива</div>`;
