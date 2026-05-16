@@ -7,3 +7,5 @@ node_modules/
 desktop.ini
 dist/
 .claude/
+
+package-lock.json
