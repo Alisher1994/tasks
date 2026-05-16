@@ -101,6 +101,7 @@ import {
   DISPLAY_SETTINGS_KEY,
   DATA_STORAGE_KEY,
   OBJECT_PHOTO_THUMBS_STORAGE_KEY,
+  EMPLOYEE_AVATARS_STORAGE_KEY,
   TRASH_STORAGE_KEY,
   TASK_HISTORY_STORAGE_KEY,
   TASK_MULTI_STATE_STORAGE_KEY,
@@ -610,7 +611,8 @@ function buildAppPayload() {
     taskAttachments: JSON.parse(JSON.stringify(taskAttachmentsByTaskId)),
     reportShares: loadReportShares(),
     reportChartOrder: loadReportChartOrder(),
-    reportPhaseLayout: loadReportPhaseGroupLayout()
+    reportPhaseLayout: loadReportPhaseGroupLayout(),
+    employeeAvatars: JSON.parse(JSON.stringify(employeeAvatars))
   };
 }
 
@@ -1389,6 +1391,14 @@ function applyServerBundle(data, options = {}) {
       /* noop */
     }
   }
+  if (data.employeeAvatars && typeof data.employeeAvatars === "object") {
+    try {
+      localStorage.setItem(EMPLOYEE_AVATARS_STORAGE_KEY, JSON.stringify(data.employeeAvatars));
+      restoreEmployeeAvatars();
+    } catch (_) {
+      /* noop */
+    }
+  }
   if (data.taskHistory && typeof data.taskHistory === "object") {
     try {
       localStorage.setItem(TASK_HISTORY_STORAGE_KEY, JSON.stringify(data.taskHistory));
@@ -1609,9 +1619,9 @@ function renderSidebarAccountInfo() {
   const department = String(row?.[EMPLOYEE_COLUMNS.department] || "").trim() || "—";
   sidebarAccountInfo.innerHTML = `
     <div class="sidebar-account-label">Текущий аккаунт</div>
-    <div style="display:flex;align-items:center;gap:10px;">
-      ${avatarHtml(fullName, { size: 38 })}
-      <div style="min-width:0;">
+    <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+      ${renderAvatar(fullName, 38)}
+      <div style="flex:1;min-width:0;overflow:hidden;">
         <div class="sidebar-account-name" title="${escapeHtmlAttr(fullName)}">${escapeHtmlText(fullName)}</div>
         <div class="sidebar-account-meta" title="${escapeHtmlAttr(position)}">${escapeHtmlText(position)}</div>
         <div class="sidebar-account-meta" title="${escapeHtmlAttr(department)}">${escapeHtmlText(department)}</div>
@@ -4126,6 +4136,42 @@ const mediaPreviewStore = {};
 /** Превью фото объекта: ключ obj-ph-{id строки объекта} */
 const objectPhotoPreviewStore = {};
 const trashBySection = {};
+
+/** Аватары сотрудников: { нормализованное_ФИО: url }. В payload едет только URL. */
+let employeeAvatars = {};
+function restoreEmployeeAvatars() {
+  try {
+    const raw = localStorage.getItem(EMPLOYEE_AVATARS_STORAGE_KEY);
+    const p = raw ? JSON.parse(raw) : {};
+    employeeAvatars = p && typeof p === "object" && !Array.isArray(p) ? p : {};
+  } catch (_) {
+    employeeAvatars = {};
+  }
+}
+function saveEmployeeAvatars() {
+  try {
+    localStorage.setItem(EMPLOYEE_AVATARS_STORAGE_KEY, JSON.stringify(employeeAvatars));
+  } catch (_) {
+    /* noop */
+  }
+  scheduleServerSync();
+}
+function getEmployeeAvatarUrl(name) {
+  const key = normalizePersonName(name);
+  if (!key) return "";
+  return String(employeeAvatars[key] || "");
+}
+function setEmployeeAvatarUrl(name, url) {
+  const key = normalizePersonName(name);
+  if (!key) return;
+  if (url) employeeAvatars[key] = String(url);
+  else delete employeeAvatars[key];
+  saveEmployeeAvatars();
+}
+/** Обёртка над avatarHtml: подставляет фото сотрудника, если оно загружено. */
+function renderAvatar(name, size) {
+  return avatarHtml(name, { size: size || 18, photoUrl: getEmployeeAvatarUrl(name) });
+}
 /** Экземпляры Chart.js на экране «Отчёт» */
 let reportChartInstances = [];
 /** null = выбраны все статусы */
@@ -9092,7 +9138,7 @@ function renderResponsibleStatusTable(rsRows) {
   const body = rsRows
     .map((row) => {
       const cells = cols.map((c) => `<td class="report-matrix-num">${row.counts[c] || 0}</td>`).join("");
-      return `<tr><td><span style="display:inline-flex;align-items:center;gap:6px;">${avatarHtml(row.name, { size: 18 })}<span>${escapeHtmlText(row.name)}</span></span></td>${cells}<td class="report-matrix-num"><strong>${row.total}</strong></td></tr>`;
+      return `<tr><td><span style="display:inline-flex;align-items:center;gap:6px;">${renderAvatar(row.name, 18)}<span>${escapeHtmlText(row.name)}</span></span></td>${cells}<td class="report-matrix-num"><strong>${row.total}</strong></td></tr>`;
     })
     .join("");
   return `
@@ -13709,7 +13755,7 @@ function renderTaskPeopleCell(value, employeeNameSet = null) {
   return names
     .map((name) => {
       const missingClass = hasSystemEmployeeName(name, known) ? "" : " task-person--missing";
-      return `<span class="task-person-badge${missingClass}">${avatarHtml(name, { size: 18 })}<span style="margin-left:5px;">${escapeHtmlText(name)}</span></span>`;
+      return `<span class="task-person-badge${missingClass}">${renderAvatar(name, 18)}<span style="margin-left:5px;">${escapeHtmlText(name)}</span></span>`;
     })
     .join('<span class="task-person-sep">, </span>');
 }
@@ -13936,7 +13982,13 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
   if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.fullName) {
     const nm = String(value || "").trim();
     if (!nm) return value;
-    return `<span style="display:inline-flex;align-items:center;gap:6px;">${avatarHtml(nm, { size: 20 })}<span>${escapeHtmlText(nm)}</span></span>`;
+    const hasPhoto = Boolean(getEmployeeAvatarUrl(nm));
+    const removeBtn = hasPhoto
+      ? `<button type="button" class="employee-avatar-remove" data-employee-avatar-remove="${escapeHtmlAttr(nm)}" title="Удалить фото" style="border:none;background:none;color:#b00;cursor:pointer;font-size:13px;line-height:1;padding:0 2px;">×</button>`
+      : "";
+    return `<span style="display:inline-flex;align-items:center;gap:6px;">`
+      + `<button type="button" class="employee-avatar-btn" data-employee-avatar="${escapeHtmlAttr(nm)}" title="${hasPhoto ? "Заменить фото" : "Загрузить фото"}" style="padding:0;border:none;background:none;cursor:pointer;line-height:0;">${renderAvatar(nm, 24)}</button>`
+      + `<span>${escapeHtmlText(nm)}</span>${removeBtn}</span>`;
   }
   if (section.id === "smsHistory") {
     if (colIndex === SMS_HISTORY_COLUMNS.gatewayResponse) {
@@ -14342,6 +14394,48 @@ function attachObjectPhotoHandlers(section) {
       delete objectPhotoPreviewStore[pkey];
       saveObjectPhotoThumbsToStorage();
       saveSectionsData();
+      renderTablePreserveScroll();
+    });
+  });
+
+  document.querySelectorAll(".employee-avatar-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const nm = btn.getAttribute("data-employee-avatar") || "";
+      if (!nm) return;
+      if (!isHostedRuntime() || !getAuthToken()) {
+        showStatusDialog({
+          title: "Недоступно",
+          message: "Загрузка фото работает только при подключении к серверу.",
+          type: "error"
+        });
+        return;
+      }
+      pickFile(async (file) => {
+        if (!file) return;
+        if (!file.type.startsWith("image/")) {
+          window.alert("Выберите файл изображения (JPEG, PNG, WebP и т.д.).");
+          return;
+        }
+        const url = await uploadTaskMediaToServer(file).catch((err) => {
+          window.alert(`Не удалось загрузить фото: ${String(err?.message || err)}`);
+          return null;
+        });
+        if (!url) return;
+        setEmployeeAvatarUrl(nm, url);
+        renderTablePreserveScroll();
+      }, "image/*");
+    });
+  });
+
+  document.querySelectorAll(".employee-avatar-remove").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const nm = btn.getAttribute("data-employee-avatar-remove") || "";
+      if (!nm) return;
+      setEmployeeAvatarUrl(nm, "");
       renderTablePreserveScroll();
     });
   });
@@ -24329,6 +24423,7 @@ restoreCellCommentsStore();
 cleanupPendingImportedTaskIds({ save: false });
 applyObjectsSeedIfNeeded();
 loadObjectPhotoThumbsFromStorage();
+restoreEmployeeAvatars();
 ensureSystemRoles();
 ensureSystemDepartments();
 const responsibleCatalogCleaned = syncEmployeesDerivedFields();

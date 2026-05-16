@@ -27,3 +27,7 @@ export const REPORT_SYSTEM_CHART_VISIBILITY_STORAGE_KEY = "mbc_report_system_cha
 export const REPORT_CUSTOM_CHARTS_STORAGE_KEY = "mbc_report_custom_charts";
 
 export const OBJECTS_SEED_VERSION_KEY = "mbc_objects_seed_version";
+
+/** Аватары сотрудников: { нормализованное_ФИО: url }. Хранится только URL
+ *  (картинка на сервере через /api/media/upload — payload не раздувается). */
+export const EMPLOYEE_AVATARS_STORAGE_KEY = "mbc_employee_avatars";

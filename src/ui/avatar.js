@@ -42,16 +42,19 @@ function initialsOf(name) {
 /**
  * HTML миниатюрной аватарки.
  * @param {string} name полное имя
- * @param {{ size?: number }} [opts] размер кружка в px (по умолчанию 18)
- * @returns {string} безопасный HTML (имя экранируется)
+ * @param {{ size?: number, photoUrl?: string }} [opts] размер кружка в px
+ *        (по умолчанию 18); photoUrl — загруженное фото (если нет, рисуем инициалы)
+ * @returns {string} безопасный HTML (имя/URL экранируются)
  */
 export function avatarHtml(name, opts = {}) {
   const size = Number(opts.size) > 0 ? Math.floor(Number(opts.size)) : 18;
   const clean = String(name || "").trim();
+  const photoUrl = String(opts.photoUrl || "").trim();
   const initials = initialsOf(clean);
   const bg = clean ? PALETTE[hashString(clean) % PALETTE.length] : "#9aa3ad";
   const fontSize = Math.max(8, Math.round(size * 0.42));
   const style = [
+    `position:relative`,
     `display:inline-flex`,
     `align-items:center`,
     `justify-content:center`,
@@ -68,5 +71,11 @@ export function avatarHtml(name, opts = {}) {
     `user-select:none`,
     `overflow:hidden`
   ].join(";");
-  return `<span class="mbc-avatar" title="${escapeAttr(clean)}" aria-hidden="true" style="${style}">${escapeAttr(initials)}</span>`;
+  // Инициалы лежат фоном; если есть фото — оно сверху. Не загрузилось → onerror
+  // скрывает <img>, под ним остаются инициалы (graceful fallback).
+  const imgStyle = "position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%;";
+  const img = photoUrl
+    ? `<img src="${escapeAttr(photoUrl)}" alt="" style="${imgStyle}" onerror="this.style.display='none'" />`
+    : "";
+  return `<span class="mbc-avatar" title="${escapeAttr(clean)}" aria-hidden="true" style="${style}">${escapeAttr(initials)}${img}</span>`;
 }
