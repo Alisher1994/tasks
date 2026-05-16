@@ -6,7 +6,8 @@ import {
   formatDatePartsStorage,
   calendarDiffDays,
   parseRuDate,
-  getCalendarDatePartsInTimeZone
+  getCalendarDatePartsInTimeZone,
+  parseRuDateTimeToMs
 } from "./utils/date.js";
 import { iconSvg, withIcon, withLucideIcon, initLucideIcons } from "./ui/icons.js";
 import { copyTextToClipboard } from "./utils/clipboard.js";
@@ -1350,6 +1351,7 @@ async function pullRemoteAppState(options = {}) {
   if (Number.isFinite(rev) && rev > 0) serverDataRevision = rev;
   lastServerSnapshot = cloneSnapshot(json?.data);
   initialRemoteBundleLoaded = true;
+  maybeAutoArchive();
 }
 
 function applyServerBundle(data, options = {}) {
@@ -1692,6 +1694,19 @@ function appendTaskHistoryEntry(taskId, actionText) {
   const who = getSessionUserDisplayName();
   const action = String(actionText || "").trim();
   if (!action) return;
+  // Для закрытых задач историю больше не пишем — это главный источник
+  // безграничного роста payload (история накапливается по всем задачам навсегда).
+  // Исключение: события про файлы/медиа, чтобы к закрытой задаче можно было
+  // дописать вложения и это осталось в логе.
+  const isFileAction = /файл|медиа/i.test(action);
+  if (!isFileAction) {
+    const taskRow = (getSectionById("tasks")?.rows || []).find(
+      (row) => String(row?.[TASK_COLUMNS.number] ?? "").trim() === id
+    );
+    if (taskRow && normalizeTaskStatusValue(taskRow[TASK_COLUMNS.status]) === "Закрыт") {
+      return;
+    }
+  }
   const store = loadTaskHistoryStore();
   if (!store[id]) store[id] = [];
   store[id].unshift({ t: Date.now(), who, action });
@@ -4158,6 +4173,8 @@ let displaySettings = {
   highlightClosed: false,
   highlightNeedDecision: false,
   hideClosedTasks: false,
+  /** Через сколько дней после закрытия задача авто-уходит в архив. 0 = выкл (только вручную). */
+  archiveAfterDays: 0,
   /**
    * Ограничивать видимость задач для не-админов:
    *   - выключено: все видят все задачи (поведение до 2026-05-12)
@@ -12880,6 +12897,15 @@ function getFilteredRows(section, sectionFilters) {
   });
 }
 
+/**
+ * Глобальное короткое уведомление. Раньше showToast() вызывался в 5 местах,
+ * но функции не существовало (ReferenceError). Делегируем в существующий
+ * showStatusDialog, чтобы не плодить ещё один механизм уведомлений.
+ */
+function showToast(message, type = "info") {
+  showStatusDialog({ message: String(message ?? ""), type });
+}
+
 function parseEmployeeLastActivityMs(value) {
   const raw = String(value || "").trim();
   if (!raw || raw === "—") return 0;
@@ -17278,18 +17304,10 @@ function openReportFilterPickerModal(title, allLabel, items, currentValue, onApp
   });
 
   search?.addEventListener("input", () => renderOptions(search.value));
+  // Фильтр отчёта — не ячейка задачи, истории здесь нет (раньше тут был
+  // ошибочный копипаст с historyCtx, который всегда падал ReferenceError).
   clearBtn?.addEventListener("click", () => {
-    const newVal = "";
-    if (historyCtx?.taskId && typeof historyCtx.getOld === "function") {
-      const oldVal = historyCtx.getOld();
-      if (String(oldVal ?? "") !== "") {
-        appendTaskHistoryEntry(
-          historyCtx.taskId,
-          `${historyCtx.columnLabel}: «${shortenHistorySnippet(oldVal)}» → «—»`
-        );
-      }
-    }
-    onApply?.(newVal);
+    onApply?.("");
     saveSectionsData();
     overlay.remove();
     renderTablePreserveScroll();
@@ -17931,6 +17949,20 @@ function renderOtherSettingsPanel() {
               <input class="other-settings-checkbox" type="checkbox" data-setting="highlightClosed" ${displaySettings.highlightClosed ? "checked" : ""} />
               <span>Закрыт: светло-зеленый фон</span>
             </label>
+          </div>
+          <div class="other-settings-block">
+            <h4>Архив закрытых задач</h4>
+            <label class="settings-option settings-option--compact" title="0 = авто-архив выключен (только вручную). Иначе: закрытая задача уходит в архив через столько дней после закрытия.">
+              <span>Авто-архив через (дней после закрытия):</span>
+              <input type="number" min="0" step="1" class="archive-after-days-input"
+                     value="${Number(displaySettings.archiveAfterDays) || 0}"
+                     style="width:80px;margin-left:8px;" />
+            </label>
+            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="archive-open-btn" style="padding:6px 14px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;border-radius:4px;">Открыть архив</button>
+              <button type="button" class="archive-run-now-btn" style="padding:6px 14px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;border-radius:4px;">Архивировать закрытые сейчас</button>
+            </div>
+            <div style="font-size:12px;color:#666;margin-top:6px;">Архив хранится отдельно и не замедляет систему. Задачи не удаляются — их можно вернуть.</div>
           </div>
           <div class="other-settings-block other-settings-block--tasks-list">
             <h4>Список задач</h4>
@@ -18782,6 +18814,41 @@ function attachOtherSettingsHandlers() {
       displaySettings.tasksFullVisibilityPositions = Array.from(current).sort((a, b) => a.localeCompare(b, "ru"));
       saveDisplaySettings();
     });
+  });
+
+  // Архив: порог авто-архивации.
+  const archiveDaysInput = document.querySelector(".archive-after-days-input");
+  archiveDaysInput?.addEventListener("change", () => {
+    let n = Number.parseInt(String(archiveDaysInput.value), 10);
+    if (!Number.isFinite(n) || n < 0) n = 0;
+    archiveDaysInput.value = String(n);
+    displaySettings.archiveAfterDays = n;
+    saveDisplaySettings();
+  });
+  // Архив: открыть окно архива.
+  document.querySelector(".archive-open-btn")?.addEventListener("click", () => {
+    openArchiveModal();
+  });
+  // Архив: ручной запуск архивации всех закрытых задач.
+  document.querySelector(".archive-run-now-btn")?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    if (!(btn instanceof HTMLElement)) return;
+    btn.setAttribute("disabled", "true");
+    const prevText = btn.textContent;
+    btn.textContent = "Архивирую...";
+    try {
+      const res = await runArchivePass({ manual: true });
+      showStatusDialog({
+        title: res.error ? "Архивация: ошибка" : "Архивация завершена",
+        message: res.error
+          ? String(res.error)
+          : `В архив перенесено задач: ${res.archived}.` + (res.archived >= 200 ? " Нажмите ещё раз, чтобы продолжить (обрабатывается пачками)." : ""),
+        type: res.error ? "error" : "success"
+      });
+    } finally {
+      btn.textContent = prevText;
+      btn.removeAttribute("disabled");
+    }
   });
 
   // Кнопка "Выбрать все" — отмечает все доступные должности.
@@ -22813,6 +22880,296 @@ function getTodayRuDate() {
     return formatDatePartsStorage(date.getDate(), date.getMonth() + 1, date.getFullYear());
   }
   return formatDatePartsStorage(parts.day, parts.month, parts.year);
+}
+
+// ===== Архив закрытых задач =====
+// Закрытые задачи старше порога перекладываются в отдельное серверное
+// хранилище (/api/archive) и убираются из живого payload, чтобы он не рос
+// бесконечно. Данные не удаляются — их видно во вкладке «Архив» и можно вернуть.
+const ARCHIVE_BATCH_SIZE = 200;
+const AUTO_ARCHIVE_MIN_INTERVAL_MS = 30 * 60 * 1000;
+let archivePassInFlight = false;
+let lastAutoArchiveAt = 0;
+
+/** Порог авто-архивации в днях. 0 (или меньше) = авто-архив выключен (только вручную). */
+function getArchiveAfterDays() {
+  const n = Number(displaySettings.archiveAfterDays);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+function todayDateParts() {
+  const d = new Date();
+  return { day: d.getDate(), month: d.getMonth() + 1, year: d.getFullYear() };
+}
+
+/** Самодостаточный снимок задачи для архива (карточку можно открыть без живого состояния). */
+function buildArchiveBundle(taskSection, row) {
+  const taskId = String(row[TASK_COLUMNS.number] ?? "").trim();
+  const histStore = loadTaskHistoryStore();
+  return {
+    taskId,
+    object: String(row[TASK_COLUMNS.object] ?? ""),
+    status: String(row[TASK_COLUMNS.status] ?? ""),
+    closedDate: String(row[TASK_COLUMNS.closedDate] ?? ""),
+    title: String(row[TASK_COLUMNS.task] ?? "").slice(0, 300),
+    data: {
+      v: 1,
+      row: Array.isArray(row) ? row.slice() : row,
+      columns: Array.isArray(taskSection.columns) ? taskSection.columns.slice() : [],
+      history: Array.isArray(histStore[taskId]) ? histStore[taskId] : [],
+      attachments: Array.isArray(taskAttachmentsByTaskId[taskId]) ? taskAttachmentsByTaskId[taskId] : [],
+      closeMeta: taskCloseMeta ? taskCloseMeta[taskId] : undefined,
+      multiState: taskMultiState ? taskMultiState[taskId] : undefined
+    }
+  };
+}
+
+/**
+ * Один проход архивации.
+ * @param {{ manual?: boolean }} opts manual=true — архивировать все закрытые
+ *        задачи независимо от возраста (для кнопки «Архивировать сейчас»).
+ * @returns {Promise<{archived:number, error?:string}>}
+ */
+async function runArchivePass(opts = {}) {
+  const manual = Boolean(opts.manual);
+  if (archivePassInFlight) return { archived: 0 };
+  if (!isHostedRuntime() || !getAuthToken()) return { archived: 0 };
+  if (hasUnsyncedLocalChanges || serverPushInFlight) return { archived: 0 };
+  const days = getArchiveAfterDays();
+  if (!manual && days <= 0) return { archived: 0 };
+
+  const section = getSectionById("tasks");
+  if (!section || !Array.isArray(section.rows)) return { archived: 0 };
+
+  const threshold = manual ? 0 : days;
+  const today = todayDateParts();
+  const eligible = [];
+  for (const row of section.rows) {
+    if (normalizeTaskStatusValue(row[TASK_COLUMNS.status]) !== "Закрыт") continue;
+    const cp = parseRuDateStringToParts(row[TASK_COLUMNS.closedDate]);
+    let age = 0;
+    if (cp) {
+      age = calendarDiffDays(cp, today);
+    } else if (!manual) {
+      continue; // нет даты закрытия — авто не трогаем; вручную — можно
+    }
+    if (age < threshold) continue;
+    eligible.push(row);
+    if (eligible.length >= ARCHIVE_BATCH_SIZE) break;
+  }
+  if (!eligible.length) return { archived: 0 };
+
+  archivePassInFlight = true;
+  try {
+    const tasks = eligible.map((row) => buildArchiveBundle(section, row));
+    const r = await fetch("/api/archive", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({ tasks })
+    });
+    if (!r.ok) {
+      return { archived: 0, error: `Сервер вернул ${r.status}` };
+    }
+    const j = await r.json().catch(() => ({}));
+    const archivedSet = new Set((Array.isArray(j.archived) ? j.archived : []).map((x) => String(x)));
+    if (!archivedSet.size) return { archived: 0 };
+
+    // Убираем из живого состояния ТОЛЬКО реально заархивированные задачи.
+    section.rows = section.rows.filter(
+      (row) => !archivedSet.has(String(row[TASK_COLUMNS.number] ?? "").trim())
+    );
+    // Чистим связанные локальные хранилища (их снимок уже уехал в архив).
+    const histStore = loadTaskHistoryStore();
+    let histChanged = false;
+    archivedSet.forEach((id) => {
+      if (histStore[id]) {
+        delete histStore[id];
+        histChanged = true;
+      }
+      if (taskAttachmentsByTaskId[id]) delete taskAttachmentsByTaskId[id];
+    });
+    if (histChanged) saveTaskHistoryStore(histStore);
+    try {
+      saveTaskAttachmentsData({ skipServerSync: true });
+    } catch (_) {
+      /* noop */
+    }
+    saveSectionsData(); // запушит уменьшенный payload (без архивных задач)
+    return { archived: archivedSet.size };
+  } catch (e) {
+    return { archived: 0, error: e?.message || "Ошибка сети" };
+  } finally {
+    archivePassInFlight = false;
+  }
+}
+
+/** Вернуть задачу из архива в живое состояние. */
+async function restoreTaskFromArchive(taskId) {
+  const id = String(taskId || "").trim();
+  if (!id) return { ok: false, error: "Пустой taskId" };
+  try {
+    const r = await fetch(`/api/archive/${encodeURIComponent(id)}/restore`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${getAuthToken()}` }
+    });
+    if (!r.ok) return { ok: false, error: `Сервер вернул ${r.status}` };
+    const j = await r.json().catch(() => ({}));
+    const data = j?.data;
+    if (!data || !Array.isArray(data.row)) return { ok: false, error: "Пустые данные архива" };
+    const section = getSectionById("tasks");
+    if (!section || !Array.isArray(section.rows)) return { ok: false, error: "Нет секции задач" };
+    const exists = section.rows.some(
+      (row) => String(row[TASK_COLUMNS.number] ?? "").trim() === id
+    );
+    if (!exists) section.rows.push(data.row.slice());
+    if (Array.isArray(data.history) && data.history.length) {
+      const hist = loadTaskHistoryStore();
+      hist[id] = data.history;
+      saveTaskHistoryStore(hist);
+    }
+    if (Array.isArray(data.attachments) && data.attachments.length) {
+      taskAttachmentsByTaskId[id] = data.attachments;
+      try {
+        saveTaskAttachmentsData({ skipServerSync: true });
+      } catch (_) {
+        /* noop */
+      }
+    }
+    saveSectionsData();
+    if (typeof renderTablePreserveScroll === "function") renderTablePreserveScroll();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || "Ошибка сети" };
+  }
+}
+
+/** Модальное окно архива: ленивый список + поиск + просмотр + возврат. */
+function openArchiveModal() {
+  if (!isHostedRuntime() || !getAuthToken()) {
+    showStatusDialog({
+      title: "Архив недоступен",
+      message: "Архив работает только при подключении к серверу.",
+      type: "error"
+    });
+    return;
+  }
+  const PAGE = 50;
+  let offset = 0;
+  let total = 0;
+  let q = "";
+  let loading = false;
+
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal" style="max-width:720px;width:92vw;">
+      <h4>Архив закрытых задач</h4>
+      <input type="text" class="responsible-modal-search archive-search" placeholder="Поиск по ID, объекту, названию..." />
+      <div class="archive-list responsible-modal-list" style="max-height:52vh;overflow:auto;"></div>
+      <div class="archive-more" style="text-align:center;margin:8px 0;"></div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary archive-close-btn">Закрыть</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const listEl = overlay.querySelector(".archive-list");
+  const moreEl = overlay.querySelector(".archive-more");
+  const searchEl = overlay.querySelector(".archive-search");
+
+  const rowHtml = (it) => `
+    <div class="archive-item" data-archive-id="${escapeHtmlAttr(it.taskId)}"
+         style="display:flex;justify-content:space-between;gap:10px;padding:8px;border-bottom:1px solid #eee;cursor:pointer;">
+      <div style="min-width:0;">
+        <div style="font-weight:600;">#${escapeHtmlText(it.taskId)} — ${escapeHtmlText(it.object || "—")}</div>
+        <div style="font-size:12px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:480px;">${escapeHtmlText(it.title || "")}</div>
+      </div>
+      <button type="button" class="archive-restore-btn" data-archive-restore="${escapeHtmlAttr(it.taskId)}"
+              style="font-size:12px;padding:4px 10px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;border-radius:4px;white-space:nowrap;">Вернуть</button>
+    </div>`;
+
+  async function loadPage(reset) {
+    if (loading) return;
+    loading = true;
+    if (reset) {
+      offset = 0;
+      listEl.innerHTML = `<div style="padding:12px;color:#666;">Загрузка...</div>`;
+    }
+    try {
+      const url = `/api/archive?limit=${PAGE}&offset=${offset}&q=${encodeURIComponent(q)}`;
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+      const j = await r.json().catch(() => ({}));
+      const items = Array.isArray(j.items) ? j.items : [];
+      total = Number(j.total) || 0;
+      if (reset) listEl.innerHTML = "";
+      if (!items.length && offset === 0) {
+        listEl.innerHTML = `<div style="padding:12px;color:#666;">Архив пуст.</div>`;
+      } else {
+        listEl.insertAdjacentHTML("beforeend", items.map(rowHtml).join(""));
+      }
+      offset += items.length;
+      moreEl.innerHTML = offset < total
+        ? `<button type="button" class="archive-more-btn" style="padding:6px 14px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;border-radius:4px;">Показать ещё (${total - offset})</button>`
+        : (total ? `<span style="font-size:12px;color:#999;">Всего: ${total}</span>` : "");
+    } catch (e) {
+      listEl.innerHTML = `<div style="padding:12px;color:#c00;">Ошибка загрузки архива</div>`;
+    } finally {
+      loading = false;
+    }
+  }
+
+  let searchTimer = null;
+  searchEl?.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      q = String(searchEl.value || "").trim();
+      loadPage(true);
+    }, 300);
+  });
+  overlay.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.classList.contains("archive-close-btn") || target === overlay) {
+      overlay.remove();
+      return;
+    }
+    if (target.classList.contains("archive-more-btn")) {
+      loadPage(false);
+      return;
+    }
+    const restoreId = target.getAttribute("data-archive-restore");
+    if (restoreId) {
+      event.stopPropagation();
+      target.textContent = "...";
+      target.setAttribute("disabled", "true");
+      const res = await restoreTaskFromArchive(restoreId);
+      if (res.ok) {
+        const item = target.closest(".archive-item");
+        if (item) item.remove();
+      } else {
+        target.textContent = "Вернуть";
+        target.removeAttribute("disabled");
+        showStatusDialog({
+          title: "Не удалось вернуть",
+          message: res.error || "Ошибка",
+          type: "error"
+        });
+      }
+    }
+  });
+  loadPage(true);
+}
+
+/** Фоновый авто-запуск архивации: с троттлингом, тихо, без UI. */
+function maybeAutoArchive() {
+  if (getArchiveAfterDays() <= 0) return;
+  const now = Date.now();
+  if (now - lastAutoArchiveAt < AUTO_ARCHIVE_MIN_INTERVAL_MS) return;
+  lastAutoArchiveAt = now;
+  runArchivePass({ manual: false }).catch(() => {});
 }
 
 function saveSectionsData() {

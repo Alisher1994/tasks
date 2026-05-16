@@ -49,3 +49,22 @@ export function getCalendarDatePartsInTimeZone(date, timeZone) {
     return null;
   }
 }
+
+/**
+ * Разбор даты-времени в русском формате «ДД.ММ.ГГГГ[ ЧЧ:ММ[:СС]]» в ms.
+ * @returns {number} ms либо NaN, если не удалось разобрать.
+ */
+export function parseRuDateTimeToMs(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return NaN;
+  const m = raw.match(/(\d{1,2}\.\d{1,2}\.\d{2,4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return NaN;
+  const parts = parseRuDateStringToParts(m[1]);
+  if (!parts) return NaN;
+  const hh = m[2] != null ? Number(m[2]) : 0;
+  const mm = m[3] != null ? Number(m[3]) : 0;
+  const ss = m[4] != null ? Number(m[4]) : 0;
+  if (hh > 23 || mm > 59 || ss > 59) return NaN;
+  const ms = new Date(parts.year, parts.month - 1, parts.day, hh, mm, ss).getTime();
+  return Number.isFinite(ms) ? ms : NaN;
+}

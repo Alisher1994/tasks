@@ -29,6 +29,7 @@ import { registerAdminUserRoutes } from "./adminUserRoutes.js";
 import { createAuthSupport } from "./authSupport.js";
 import { registerAuthRoutes } from "./authRoutes.js";
 import { registerSmsRoutes } from "./smsRoutes.js";
+import { registerArchiveRoutes } from "./archiveRoutes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, "..");
@@ -2327,6 +2328,7 @@ app.put("/api/data", authMiddleware, async (req, res) => {
 
 registerShareRoutes(app, { pool, authMiddleware });
 registerAdminUserRoutes(app, { pool, authMiddleware, requireAdmin, normalizePhone });
+registerArchiveRoutes(app, { pool, authMiddleware });
 
 app.use(express.static(staticRoot, { index: false }));
 
