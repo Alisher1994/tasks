@@ -10,6 +10,7 @@ import {
   parseRuDateTimeToMs
 } from "./utils/date.js";
 import { iconSvg, withIcon, withLucideIcon, initLucideIcons } from "./ui/icons.js";
+import { avatarHtml } from "./ui/avatar.js";
 import { copyTextToClipboard } from "./utils/clipboard.js";
 import { isHostedRuntime } from "./utils/runtime.js";
 import {
@@ -1608,9 +1609,14 @@ function renderSidebarAccountInfo() {
   const department = String(row?.[EMPLOYEE_COLUMNS.department] || "").trim() || "—";
   sidebarAccountInfo.innerHTML = `
     <div class="sidebar-account-label">Текущий аккаунт</div>
-    <div class="sidebar-account-name" title="${escapeHtmlAttr(fullName)}">${escapeHtmlText(fullName)}</div>
-    <div class="sidebar-account-meta" title="${escapeHtmlAttr(position)}">${escapeHtmlText(position)}</div>
-    <div class="sidebar-account-meta" title="${escapeHtmlAttr(department)}">${escapeHtmlText(department)}</div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      ${avatarHtml(fullName, { size: 38 })}
+      <div style="min-width:0;">
+        <div class="sidebar-account-name" title="${escapeHtmlAttr(fullName)}">${escapeHtmlText(fullName)}</div>
+        <div class="sidebar-account-meta" title="${escapeHtmlAttr(position)}">${escapeHtmlText(position)}</div>
+        <div class="sidebar-account-meta" title="${escapeHtmlAttr(department)}">${escapeHtmlText(department)}</div>
+      </div>
+    </div>
   `;
 }
 
@@ -9089,7 +9095,7 @@ function renderResponsibleStatusTable(rsRows) {
   const body = rsRows
     .map((row) => {
       const cells = cols.map((c) => `<td class="report-matrix-num">${row.counts[c] || 0}</td>`).join("");
-      return `<tr><td>${escapeHtmlText(row.name)}</td>${cells}<td class="report-matrix-num"><strong>${row.total}</strong></td></tr>`;
+      return `<tr><td><span style="display:inline-flex;align-items:center;gap:6px;">${avatarHtml(row.name, { size: 18 })}<span>${escapeHtmlText(row.name)}</span></span></td>${cells}<td class="report-matrix-num"><strong>${row.total}</strong></td></tr>`;
     })
     .join("");
   return `
@@ -12784,6 +12790,7 @@ function renderFilters(section, sectionFilters, isOpen) {
   const sectionValues = getUniqueValues(section.rows, TASK_COLUMNS.phaseSection);
   const subsectionValues = getUniqueValues(section.rows, TASK_COLUMNS.phaseSubsection);
   const delayReasonValues = getUniqueValues(section.rows, TASK_COLUMNS.delayReason);
+  const authorValues = getUniqueValues(section.rows, TASK_COLUMNS.responsible);
   const readValues = ["Прочитано", "Не прочитано"];
 
   return `
@@ -12794,6 +12801,7 @@ function renderFilters(section, sectionFilters, isOpen) {
       </label>
       ${renderSelectFilter("filterStatus", "Статус", statusValues, sectionFilters.status || "")}
       ${renderSelectFilter("filterResponsible", "Ответственный", responsibleValues, sectionFilters.responsible || "")}
+      ${renderSelectFilter("filterAuthor", "Постановщик", authorValues, sectionFilters.author || "")}
       ${renderSelectFilter("filterObject", "Объект", objectValues, sectionFilters.object || "")}
       ${renderSelectFilter("filterPhase", "Фаза", phaseValues, sectionFilters.phase || "")}
       ${renderSelectFilter("filterSection", "Раздел", sectionValues, sectionFilters.section || "")}
@@ -12885,6 +12893,7 @@ function getFilteredRows(section, sectionFilters) {
 
     const statusMatch = !sectionFilters.status || row[TASK_COLUMNS.status] === sectionFilters.status;
     const responsibleMatch = !sectionFilters.responsible || row[TASK_COLUMNS.assignedResponsible] === sectionFilters.responsible;
+    const authorMatch = !sectionFilters.author || row[TASK_COLUMNS.responsible] === sectionFilters.author;
     const objectMatch = !sectionFilters.object || row[TASK_COLUMNS.object] === sectionFilters.object;
     const phaseMatch = !sectionFilters.phase || row[TASK_COLUMNS.phase] === sectionFilters.phase;
     const sectionMatch = !sectionFilters.section || row[TASK_COLUMNS.phaseSection] === sectionFilters.section;
@@ -12893,7 +12902,7 @@ function getFilteredRows(section, sectionFilters) {
     const readStateLabel = getTaskReadStatePartsForRow(row).statusText;
     const readStateMatch = !sectionFilters.readState || readStateLabel.startsWith(sectionFilters.readState);
 
-    return statusMatch && responsibleMatch && objectMatch && phaseMatch && sectionMatch && subsectionMatch && delayReasonMatch && readStateMatch;
+    return statusMatch && responsibleMatch && authorMatch && objectMatch && phaseMatch && sectionMatch && subsectionMatch && delayReasonMatch && readStateMatch;
   });
 }
 
@@ -13721,7 +13730,7 @@ function renderTaskPeopleCell(value, employeeNameSet = null) {
   return names
     .map((name) => {
       const missingClass = hasSystemEmployeeName(name, known) ? "" : " task-person--missing";
-      return `<span class="task-person-badge${missingClass}"><i data-lucide="user-round" class="lucide-icon" aria-hidden="true"></i><span>${escapeHtmlText(name)}</span></span>`;
+      return `<span class="task-person-badge${missingClass}">${avatarHtml(name, { size: 18 })}<span style="margin-left:5px;">${escapeHtmlText(name)}</span></span>`;
     })
     .join('<span class="task-person-sep">, </span>');
 }
@@ -13944,6 +13953,11 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
         <span class="employee-admin-toggle-text">${checked ? "Админ" : "Пользователь"}</span>
       </label>
     `;
+  }
+  if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.fullName) {
+    const nm = String(value || "").trim();
+    if (!nm) return value;
+    return `<span style="display:inline-flex;align-items:center;gap:6px;">${avatarHtml(nm, { size: 20 })}<span>${escapeHtmlText(nm)}</span></span>`;
   }
   if (section.id === "smsHistory") {
     if (colIndex === SMS_HISTORY_COLUMNS.gatewayResponse) {
@@ -21807,6 +21821,7 @@ function attachFilterHandlers(section) {
   const resetButton = document.getElementById("filterResetBtn");
   const statusSelect = document.getElementById("filterStatus");
   const responsibleSelect = document.getElementById("filterResponsible");
+  const authorSelect = document.getElementById("filterAuthor");
   const objectSelect = document.getElementById("filterObject");
   const phaseSelect = document.getElementById("filterPhase");
   const sectionSelect = document.getElementById("filterSection");
@@ -21851,6 +21866,15 @@ function attachFilterHandlers(section) {
     responsibleSelect.addEventListener("change", () => {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.responsible = responsibleSelect.value;
+      bumpTasksPagingReset();
+      renderTablePreserveScroll();
+    });
+  }
+
+  if (authorSelect) {
+    authorSelect.addEventListener("change", () => {
+      const sectionFilters = ensureSectionFilters();
+      sectionFilters.author = authorSelect.value;
       bumpTasksPagingReset();
       renderTablePreserveScroll();
     });
