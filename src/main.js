@@ -6657,9 +6657,15 @@ const REPORT_CHART_COLORS = [
 ];
 
 function parseHtmlDateValue(s) {
-  const t = String(s || "").trim();
+  const t = String(s || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .replace(/^[\s"'`“”‘’«»„]+/g, "")
+    .replace(/[\s"'`“”‘’«»„]+$/g, "")
+    .trim();
   if (!t) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+  const m = /(\d{4})-(\d{2})-(\d{2})/.exec(t);
   if (!m) return null;
   const year = Number(m[1]);
   const month = Number(m[2]);
@@ -13178,6 +13184,10 @@ function getVisibleColumnIndexes(section) {
   const visibility = visibleColumnsBySection[section.id];
   const order = columnOrderBySection[section.id];
   return order.filter((index) => {
+    if (
+      section.id === "tasks"
+      && (Number(index) === TASK_COLUMNS.mediaBefore || Number(index) === TASK_COLUMNS.mediaAfter)
+    ) return false;
     if (section.id === "employees" && Number(index) === EMPLOYEE_COLUMNS.chatId) return false;
     return visibility[index] !== false;
   });
@@ -13223,6 +13233,10 @@ function ensureColumnDisplayState(section) {
   });
   if (section.id === "employees" && EMPLOYEE_COLUMNS.chatId < size) {
     visibility[EMPLOYEE_COLUMNS.chatId] = false;
+  }
+  if (section.id === "tasks") {
+    if (TASK_COLUMNS.mediaBefore < size) visibility[TASK_COLUMNS.mediaBefore] = false;
+    if (TASK_COLUMNS.mediaAfter < size) visibility[TASK_COLUMNS.mediaAfter] = false;
   }
 
   if (!Array.isArray(columnOrderBySection[section.id])) {
@@ -14563,7 +14577,7 @@ function getRowHighlightClass(section, row) {
 }
 
 function renderDueDateCell(dateValue) {
-  const wrap = (mainText, metaHtml = "") => `<div class="due-cell"><span class="task-cell-inline-label"><i data-lucide="calendar-days" class="lucide-icon" aria-hidden="true"></i><span>${escapeHtmlText(mainText)}</span></span>${metaHtml}</div>`;
+  const wrap = (mainText, metaHtml = "", ringHtml = "") => `<div class="due-cell"><span class="task-cell-inline-label"><i data-lucide="calendar-days" class="lucide-icon" aria-hidden="true"></i><span>${escapeHtmlText(mainText)}</span></span><div class="due-cell-meta-row">${metaHtml}${ringHtml}</div></div>`;
   if (!dateValue) {
     return wrap("—");
   }
@@ -14581,12 +14595,23 @@ function renderDueDateCell(dateValue) {
 
   const diffDays = calendarDiffDays(todayParts, dueParts);
   const shown = formatStoredDateForDisplay(String(dateValue));
+  const absDays = Math.abs(diffDays);
+  const ringLabel = `${diffDays >= 0 ? "+" : "-"}${absDays}`;
+  const ringTitle = diffDays >= 0 ? `Осталось ${diffDays} дн.` : `Просрочено ${absDays} дн.`;
+  const horizonDays = 30;
+  const progress = diffDays >= 0
+    ? Math.max(0, Math.min(1, (horizonDays - diffDays) / horizonDays))
+    : 1;
+  const ringColor = diffDays >= 0 ? "#7fba3a" : "#d94a4a";
+  const trackColor = "#d9e2ef";
+  const ringStyle = `--due-ring-progress:${progress};--due-ring-color:${ringColor};--due-ring-track:${trackColor};`;
+  const ringHtml = `<span class="due-ring ${diffDays < 0 ? "due-ring--late" : "due-ring--left"}" style="${ringStyle}" title="${escapeHtmlAttr(ringTitle)}">${escapeHtmlText(ringLabel)}</span>`;
 
   if (diffDays >= 0) {
-    return wrap(shown, `<small class="due-ok">Осталось ${diffDays} дн.</small>`);
+    return wrap(shown, `<small class="due-ok">Осталось ${diffDays} дн.</small>`, ringHtml);
   }
 
-  return wrap(shown, `<small class="due-late">Просрочено ${Math.abs(diffDays)} дн.</small>`);
+  return wrap(shown, `<small class="due-late">Просрочено ${absDays} дн.</small>`, ringHtml);
 }
 
 function slugify(value) {
@@ -21803,7 +21828,11 @@ function openTableSettingsModal(section) {
   const renderList = () => {
     if (!listEl) return;
     listEl.innerHTML = draftOrder
-      .filter((colIndex) => !(section.id === "employees" && Number(colIndex) === EMPLOYEE_COLUMNS.chatId))
+      .filter((colIndex) => {
+        if (section.id === "employees" && Number(colIndex) === EMPLOYEE_COLUMNS.chatId) return false;
+        if (section.id === "tasks" && (Number(colIndex) === TASK_COLUMNS.mediaBefore || Number(colIndex) === TASK_COLUMNS.mediaAfter)) return false;
+        return true;
+      })
       .map((colIndex, position) => {
         const title = String(section.columns[colIndex] || `Колонка ${colIndex + 1}`);
         const checked = draftVisibility[colIndex] !== false;
