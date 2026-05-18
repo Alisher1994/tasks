@@ -23448,11 +23448,39 @@ function openCreateTaskModal(section) {
       cancelBtn.disabled = isSaving;
     }
   };
+  const isTaskCreateFormDirty = () => {
+    const title = String(titleInput?.value || "").trim();
+    const objectName = String(objectInput?.value || "").trim();
+    const assignee = normalizePersonName(assigneeInput?.value || "");
+    const responsible = normalizePersonName(responsibleInput?.value || "");
+    const phase = String(phaseInput?.value || "").trim();
+    const phaseSection = String(phaseSectionInput?.value || "").trim();
+    const phaseSubsection = String(phaseSubsectionInput?.value || "").trim();
+    const note = String(noteInput?.value || "").trim();
+    const dueRaw = String(dueDateInput?.value || "").trim();
+    const priority = normalizeTaskPriorityValue(String(priorityInput?.value || "Средний"));
+    const sendTg = Boolean(sendTelegramInput?.checked);
+    const sendSms = Boolean(sendSmsInput?.checked);
+    return Boolean(
+      title
+      || objectName
+      || assignee
+      || phase
+      || phaseSection
+      || phaseSubsection
+      || note
+      || dueRaw
+      || (responsible && responsible !== defaultResponsible)
+      || (priority && priority !== "Средний")
+      || !sendTg
+      || sendSms
+    );
+  };
   const tryCloseModal = () => {
     if (isSaving) return;
-    if (createdDraftRow && !createdDraftRowPersisted) {
+    if ((createdDraftRow && !createdDraftRowPersisted) || isTaskCreateFormDirty()) {
       confirmAction({
-        message: "Задача ещё не сохранена на сервер. При закрытии она не добавится. Закрыть?",
+        message: "Изменения не сохранены. При закрытии задача не добавится. Закрыть?",
         confirmLabel: "Закрыть",
         onConfirm: () => {
           removeDraftRowIfExists();
