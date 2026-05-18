@@ -13980,19 +13980,7 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
   }
   if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.adminAccess) {
     const checked = isEmployeeAdminAccessEnabled(value);
-    return `
-      <label class="employee-admin-toggle" title="Доступ к настройкам">
-        <input
-          type="checkbox"
-          class="employee-admin-toggle-input"
-          data-row-index="${escapeHtmlAttr(String(rowIndexForPhoto))}"
-          ${checked ? "checked" : ""}
-          ${currentAuthRole !== "admin" ? "disabled" : ""}
-        />
-        <span class="employee-admin-toggle-ui" aria-hidden="true"></span>
-        <span class="employee-admin-toggle-text">${checked ? "Админ" : "Пользователь"}</span>
-      </label>
-    `;
+    return `<span class="employee-admin-role ${checked ? "employee-admin-role--admin" : "employee-admin-role--user"}">${checked ? "Админ" : "Пользователь"}</span>`;
   }
   if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.fullName) {
     const nm = String(value || "").trim();

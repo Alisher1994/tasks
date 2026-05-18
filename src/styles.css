@@ -5042,6 +5042,17 @@ body.app-booting .app-boot-loader {
   color: #1f2937;
 }
 
+.employee-admin-role {
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.employee-admin-role--admin {
+  color: #2f2f90;
+}
+
 .date-modal-input {
   width: 100%;
 }
