@@ -5349,6 +5349,10 @@ function renderSectionHeaderIconButtons(section) {
           <button type="button" class="header-more-menu-item" id="sendOverdueTasksBtn" title="Отправить просроченные">
             ${withLucideIcon("bell-ring", "Просроченные")}
           </button>` : ""}
+          ${section.id === "tasks" ? `
+          <button type="button" class="header-more-menu-item" id="openTaskRouteMapBtn" title="Маршрут задачи">
+            ${withLucideIcon("route", "Маршрут задачи")}
+          </button>` : ""}
           ${section.id === "employees" ? `
           <button type="button" class="header-more-menu-item import-employees-btn" id="openEmployeeImportModalBtn" title="Импорт сотрудников">
             ${withLucideIcon("file-up", "Импорт сотрудников")}
@@ -12086,6 +12090,28 @@ function getTaskAttachmentItems(taskId, { create = false } = {}) {
   return normalized;
 }
 
+function getTaskAttachmentItemsForDisplay(taskId) {
+  const id = String(taskId || "").trim();
+  if (!id) return [];
+  const baseItems = getTaskAttachmentItems(id, { create: false });
+  if (parseReassignChildTaskId(id)) return baseItems;
+  const merged = [...baseItems];
+  const keys = Object.keys(taskAttachmentsByTaskId || {});
+  keys.forEach((key) => {
+    const parsed = parseReassignChildTaskId(key);
+    if (!parsed || parsed.baseTaskId !== id) return;
+    const childItems = getTaskAttachmentItems(key, { create: false });
+    childItems.forEach((item) => merged.push(item));
+  });
+  const seen = new Set();
+  return merged.filter((item) => {
+    const sig = `${String(item?.id || "").trim()}|${String(item?.stored || "").trim()}|${String(item?.addedAt || "").trim()}`;
+    if (seen.has(sig)) return false;
+    seen.add(sig);
+    return true;
+  });
+}
+
 function cleanupTaskMultiStateForRow(taskRow) {
   const taskId = getTaskIdForMultiState(taskRow);
   if (!taskId) return;
@@ -12144,7 +12170,9 @@ function cleanupTaskAttachmentsStore() {
     existingTaskIds.add(id);
   });
   Object.keys(taskAttachmentsByTaskId).forEach((taskId) => {
-    if (!existingTaskIds.has(taskId)) {
+    const parsed = parseReassignChildTaskId(taskId);
+    const keepByBase = parsed && existingTaskIds.has(parsed.baseTaskId);
+    if (!existingTaskIds.has(taskId) && !keepByBase) {
       delete taskAttachmentsByTaskId[taskId];
       return;
     }
@@ -13652,7 +13680,16 @@ function renderTasksSplitLayout(section, options) {
         mainBodyRows.push(`
           <tr class="${reassignRowClass}" data-split-row-key="${reassignKey}">
             ${reassignMainCells}
-            <td class="actions-col">—</td>
+            <td class="actions-col">
+              <div class="action-buttons">
+                <button type="button" class="icon-action-btn task-sub-view-btn" title="Просмотр задачи" data-task-id="${escapeHtmlAttr(String(row[TASK_COLUMNS.number] || "").trim())}" data-assignee="${escapeHtmlAttr(from)}">
+                  <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
+                </button>
+                ${currentAuthRole === "admin" ? `<button type="button" class="icon-action-btn task-sub-send-btn" title="Отправить подзадачу" data-task-id="${escapeHtmlAttr(String(row[TASK_COLUMNS.number] || "").trim())}" data-assignee="${escapeHtmlAttr(from)}">
+                  <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
+                </button>` : ""}
+              </div>
+            </td>
           </tr>
         `);
       });
@@ -14091,7 +14128,16 @@ function renderTaskReassignRows(taskRow, visibleColumnIndexes, isTrashView = fal
       <tr class="${reassignRowClass}">
         <td class="checkbox-col"><input type="checkbox" disabled aria-label="Переназначение ${escapeHtmlAttr(subId)}" /></td>
         ${cells}
-        <td class="actions-col">—</td>
+        <td class="actions-col task-accordion-actions-col">
+          <div class="action-buttons">
+            <button type="button" class="icon-action-btn task-sub-view-btn" title="Просмотр задачи" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(from)}">
+              <i data-lucide="eye" class="lucide-icon" aria-hidden="true"></i>
+            </button>
+            ${currentAuthRole === "admin" ? `<button type="button" class="icon-action-btn task-sub-send-btn" title="Отправить подзадачу" data-task-id="${escapeHtmlAttr(taskId)}" data-assignee="${escapeHtmlAttr(from)}">
+              <i data-lucide="send" class="lucide-icon" aria-hidden="true"></i>
+            </button>` : ""}
+          </div>
+        </td>
       </tr>
     `;
   }).join("");
@@ -17757,6 +17803,51 @@ function fromInputDate(value) {
   return `${day}.${month}.${year}`;
 }
 
+function openTaskRouteMapModal() {
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal" style="max-width:980px;width:94vw;">
+      <h3>${withIcon("route", "Маршрут задачи (схема)")}</h3>
+      <div class="table-settings-dnd-list" style="max-height:70vh;overflow:auto;display:grid;gap:10px;">
+        <div class="other-settings-block">
+          <h4>1. Базовый маршрут</h4>
+          <p class="other-settings-hint">Новый → В процессе → Запрос закрытия (Проверка) → Решение администратора.</p>
+          <p class="other-settings-hint">approve → Закрыт, reject → возврат в предыдущий статус (обычно В процессе).</p>
+        </div>
+        <div class="other-settings-block">
+          <h4>2. Переназначение</h4>
+          <p class="other-settings-hint">Исполнитель создаёт заявку: тип <strong>Ошибочная задача</strong> или <strong>Делегирование задачи</strong> → выбор отдела → выбор сотрудника.</p>
+          <p class="other-settings-hint">Администратор подтверждает/отклоняет заявку. При подтверждении задача помечается как <strong>Передано</strong>.</p>
+        </div>
+        <div class="other-settings-block">
+          <h4>3. Просрочка и причина отставания</h4>
+          <p class="other-settings-hint">Причина отставания доступна только после просрочки плановой даты.</p>
+          <p class="other-settings-hint">Ветви: внешний фактор (сохраняем причину), внутренний фактор (сохраняем причину + запускаем делегирование), принять на себя (без переназначения).</p>
+        </div>
+        <div class="other-settings-block">
+          <h4>4. Несколько исполнителей</h4>
+          <p class="other-settings-hint">По каждому исполнителю ведётся отдельный статус. Итоговый статус задачи агрегируется: когда все закрыли — задача Закрыт, иначе остаётся в работе/передаче.</p>
+        </div>
+        <div class="other-settings-block">
+          <h4>Тестовые точки</h4>
+          <p class="other-settings-hint">Проверьте отдельно: approve/reject закрытия, approve/reject переназначения, просрочка с тремя факторами, и задачу с несколькими исполнителями.</p>
+        </div>
+      </div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary task-route-map-close-btn">Закрыть</button>
+      </div>
+    </div>
+  `;
+  const close = () => overlay.remove();
+  overlay.querySelector(".task-route-map-close-btn")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  document.body.appendChild(overlay);
+  initLucideIcons();
+}
+
 function attachHeaderActionHandlers(section, filteredEntries) {
   attachHeaderMoreActionsMenu();
   const refreshSectionBtn = document.getElementById("refreshSectionBtn");
@@ -17766,6 +17857,7 @@ function attachHeaderActionHandlers(section, filteredEntries) {
   const openCatalogImportModalBtn = document.getElementById("openCatalogImportModalBtn");
   const googleSheetsSyncTasksBtn = document.getElementById("googleSheetsSyncTasksBtn");
   const sendOverdueTasksBtn = document.getElementById("sendOverdueTasksBtn");
+  const openTaskRouteMapBtn = document.getElementById("openTaskRouteMapBtn");
   const openTaskImportModalBtn = document.getElementById("openTaskImportModalBtn");
   const addRowBtn = document.getElementById("addRowBtn");
   const toggleFiltersBtn = document.getElementById("toggleFiltersBtn");
@@ -17816,6 +17908,11 @@ function attachHeaderActionHandlers(section, filteredEntries) {
         sendOverdueTasksBtn.disabled = false;
         sendOverdueTasksBtn.dataset.busy = "0";
       }
+    });
+  }
+  if (openTaskRouteMapBtn && section.id === "tasks") {
+    openTaskRouteMapBtn.addEventListener("click", () => {
+      openTaskRouteMapModal();
     });
   }
 
@@ -20181,7 +20278,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
     after: getMediaItems(row[TASK_COLUMNS.mediaAfter]),
     preview: {}
   };
-  const attachmentsDraft = getTaskAttachmentItems(taskId).map((item) => ({ ...item }));
+  const attachmentsDraft = getTaskAttachmentItemsForDisplay(taskId).map((item) => ({ ...item }));
   let isDirty = false;
   let filesUploadInFlight = 0;
 

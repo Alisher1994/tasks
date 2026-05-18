@@ -3393,6 +3393,9 @@ async function handleMessage(msg, pool, token) {
         return;
       }
       appendTaskAttachmentEntry(payload, taskId, attachment);
+      if (baseTaskId && baseTaskId !== taskId) {
+        appendTaskAttachmentEntry(payload, baseTaskId, attachment);
+      }
       attachedNames.push(attachment.name || "(без имени)");
       sess.attachedNames = attachedNames;
       if (!payload.telegramSessions) payload.telegramSessions = {};
