@@ -314,6 +314,7 @@ function mainKeyboard(taskNumber, row, appTimeZone = "UTC") {
 function quickUserKeyboard() {
   return {
     keyboard: [[{ text: "Мои задачи" }, { text: "Просроченные задачи" }]],
+    is_persistent: true,
     resize_keyboard: true
   };
 }
@@ -1637,6 +1638,14 @@ function findEmployeeByPhone(employees, phoneRaw) {
   return null;
 }
 
+function findEmployeeByPhoneBindingKey(employees, phoneKeyRaw) {
+  const want = normalizePhoneBindingKey(phoneKeyRaw);
+  if (!want) return null;
+  const rows = employees?.rows || [];
+  const hits = rows.filter((row) => normalizePhoneBindingKey(row?.[EMPLOYEE_COLUMNS.phone]) === want);
+  return hits.length === 1 ? hits[0] : null;
+}
+
 function findEmployeeByStartParam(employees, startParam) {
   const raw = String(startParam || "").trim();
   if (!raw) return null;
@@ -1726,6 +1735,36 @@ async function bindEmployeeToChat({ employees, employee, chatId, from, pool, pay
     text: "Доступны быстрые кнопки: «Мои задачи» и «Просроченные задачи».",
     reply_markup: quickUserKeyboard()
   });
+}
+
+async function restoreEmployeeBindingFromPhoneMap({ payload, employees, chatId, pool }) {
+  const chatKey = String(chatId || "").trim();
+  if (!chatKey || !payload || !employees?.rows?.length) return null;
+  const map = payload.telegramPhoneChatBindings && typeof payload.telegramPhoneChatBindings === "object"
+    ? payload.telegramPhoneChatBindings
+    : null;
+  if (!map) return null;
+  let matchedPhoneKey = "";
+  for (const [phoneKey, mappedChat] of Object.entries(map)) {
+    if (String(mappedChat || "").trim() !== chatKey) continue;
+    matchedPhoneKey = String(phoneKey || "").trim();
+    if (matchedPhoneKey) break;
+  }
+  if (!matchedPhoneKey) return null;
+
+  const employee = findEmployeeByPhoneBindingKey(employees, matchedPhoneKey);
+  if (!employee) return null;
+  if (String(employee[EMPLOYEE_COLUMNS.chatId] || "").trim() === chatKey
+    && String(employee[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен") {
+    return employee;
+  }
+
+  clearChatIdFromOtherEmployees(employees, chatKey, employee);
+  employee[EMPLOYEE_COLUMNS.chatId] = chatKey;
+  employee[EMPLOYEE_COLUMNS.telegram] = "Подключен";
+  employee[EMPLOYEE_COLUMNS.activity] = "Активен";
+  await savePayload(pool, payload);
+  return employee;
 }
 
 function contactShareKeyboard() {
@@ -3147,6 +3186,10 @@ async function handleMessage(msg, pool, token) {
 
   if (text === "Мои задачи") {
     const payload = await loadPayload(pool);
+    const employees = getEmployeesSection(payload);
+    if (!findEmployeeByChatId(employees, chatKey)) {
+      await restoreEmployeeBindingFromPhoneMap({ payload, employees, chatId, pool });
+    }
     const myRows = getMyTasksForChat(payload, chatId);
     const objects = getMyTaskObjects(myRows);
     if (!objects.length) {
@@ -3172,6 +3215,10 @@ async function handleMessage(msg, pool, token) {
 
   if (text === "Просроченные задачи") {
     const payload = await loadPayload(pool);
+    const employees = getEmployeesSection(payload);
+    if (!findEmployeeByChatId(employees, chatKey)) {
+      await restoreEmployeeBindingFromPhoneMap({ payload, employees, chatId, pool });
+    }
     const appTz = resolveAppTimeZone(payload);
     const overdueRows = getOverdueRowsForChat(payload, chatId, appTz);
     await tg(token, "sendMessage", {
@@ -3183,6 +3230,10 @@ async function handleMessage(msg, pool, token) {
   }
 
   const payload = await loadPayload(pool);
+  const employeesForRestore = getEmployeesSection(payload);
+  if (!findEmployeeByChatId(employeesForRestore, chatKey)) {
+    await restoreEmployeeBindingFromPhoneMap({ payload, employees: employeesForRestore, chatId, pool });
+  }
   let sess = payload.telegramSessions?.[chatKey];
 
   if ((!sess || !sess.taskId) && (text || hasPhoto || hasImageDocument)) {
