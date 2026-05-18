@@ -4888,6 +4888,11 @@ body.app-booting .app-boot-loader {
   border-color: #fed7aa;
 }
 
+.reminder-item--review {
+  background: #f8fafd;
+  border-color: #dce4ee;
+}
+
 .reminder-item--decision {
   background: #fef2f2;
   border-color: #fecaca;
