@@ -2593,6 +2593,7 @@ th.checkbox-col {
   z-index: 3;
   background: #f9fbfd;
   isolation: isolate;
+  overflow: visible;
 }
 
 th.actions-col {
@@ -3077,6 +3078,7 @@ tbody td.first-visible-col {
 
 .employee-actions {
   position: relative;
+  z-index: 2000;
 }
 
 .employee-actions-menu {
@@ -3089,7 +3091,7 @@ tbody td.first-visible-col {
   background: #fff;
   box-shadow: 0 8px 20px rgba(12, 24, 36, 0.14);
   padding: 6px;
-  z-index: 100;
+  z-index: 12000;
   display: flex;
   flex-direction: column;
   gap: 4px;

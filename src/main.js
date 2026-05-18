@@ -13991,12 +13991,9 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
     const nm = String(value || "").trim();
     if (!nm) return value;
     const hasPhoto = Boolean(getEmployeeAvatarUrl(nm));
-    const removeBtn = hasPhoto
-      ? `<button type="button" class="employee-avatar-remove" data-employee-avatar-remove="${escapeHtmlAttr(nm)}" title="Удалить фото" style="border:none;background:none;color:#b00;cursor:pointer;font-size:13px;line-height:1;padding:0 2px;">×</button>`
-      : "";
     return `<span style="display:inline-flex;align-items:center;gap:6px;">`
       + `<button type="button" class="employee-avatar-btn" data-employee-avatar="${escapeHtmlAttr(nm)}" title="${hasPhoto ? "Заменить фото" : "Загрузить фото"}" style="padding:0;border:none;background:none;cursor:pointer;line-height:0;">${renderAvatar(nm, 24)}</button>`
-      + `<span>${escapeHtmlText(nm)}</span>${removeBtn}</span>`;
+      + `<span>${escapeHtmlText(nm)}</span></span>`;
   }
   if (section.id === "smsHistory") {
     if (colIndex === SMS_HISTORY_COLUMNS.gatewayResponse) {
@@ -14437,16 +14434,6 @@ function attachObjectPhotoHandlers(section) {
     });
   });
 
-  document.querySelectorAll(".employee-avatar-remove").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const nm = btn.getAttribute("data-employee-avatar-remove") || "";
-      if (!nm) return;
-      setEmployeeAvatarUrl(nm, "");
-      renderTablePreserveScroll();
-    });
-  });
 }
 
 function pickFile(onPick, accept) {
