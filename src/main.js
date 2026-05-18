@@ -828,7 +828,7 @@ async function pushAppToServerImmediate() {
   if (!isHostedRuntime() || !getAuthToken()) return false;
   if (!initialRemoteBundleLoaded) {
     try {
-      await pullRemoteAppState({ rerender: false });
+      await pullRemoteAppState({ rerender: false, allowDuringOverlay: true });
     } catch (_) {
       return false;
     }
@@ -1330,8 +1330,9 @@ async function flushTelegramBotTokenToServer(options = {}) {
 
 async function pullRemoteAppState(options = {}) {
   const rerender = Boolean(options.rerender);
+  const allowDuringOverlay = Boolean(options.allowDuringOverlay);
   if (!isHostedRuntime() || !getAuthToken()) return;
-  if (hasActiveTaskUiOverlay()) return;
+  if (hasActiveTaskUiOverlay() && !allowDuringOverlay) return;
   // Никогда не тянем серверный снимок поверх несинхронизированных локальных правок.
   // Иначе случается race: пользователь кликает чекбокс → запускается debounced push →
   // сервер успевает обработать предыдущий push (или другой клиент пушит) → broadcast →
@@ -17803,6 +17804,34 @@ function fromInputDate(value) {
   return `${day}.${month}.${year}`;
 }
 
+let mermaidLoadPromise = null;
+async function ensureMermaidLoaded() {
+  if (window.mermaid && typeof window.mermaid.initialize === "function") return window.mermaid;
+  if (!mermaidLoadPromise) {
+    mermaidLoadPromise = new Promise((resolve, reject) => {
+      const existing = document.querySelector('script[data-mermaid-runtime="1"]');
+      if (existing) {
+        existing.addEventListener("load", () => resolve(window.mermaid), { once: true });
+        existing.addEventListener("error", () => reject(new Error("mermaid-load-failed")), { once: true });
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
+      script.async = true;
+      script.defer = true;
+      script.dataset.mermaidRuntime = "1";
+      script.onload = () => resolve(window.mermaid);
+      script.onerror = () => reject(new Error("mermaid-load-failed"));
+      document.head.appendChild(script);
+    });
+  }
+  const lib = await mermaidLoadPromise;
+  if (!lib || typeof lib.initialize !== "function") {
+    throw new Error("mermaid-not-available");
+  }
+  return lib;
+}
+
 function openTaskRouteMapModal() {
   const overlay = document.createElement("div");
   overlay.className = "responsible-modal-overlay";
@@ -17811,27 +17840,9 @@ function openTaskRouteMapModal() {
       <h3>${withIcon("route", "Маршрут задачи (схема)")}</h3>
       <div class="table-settings-dnd-list" style="max-height:70vh;overflow:auto;display:grid;gap:10px;">
         <div class="other-settings-block">
-          <h4>1. Базовый маршрут</h4>
-          <p class="other-settings-hint">Новый → В процессе → Запрос закрытия (Проверка) → Решение администратора.</p>
-          <p class="other-settings-hint">approve → Закрыт, reject → возврат в предыдущий статус (обычно В процессе).</p>
-        </div>
-        <div class="other-settings-block">
-          <h4>2. Переназначение</h4>
-          <p class="other-settings-hint">Исполнитель создаёт заявку: тип <strong>Ошибочная задача</strong> или <strong>Делегирование задачи</strong> → выбор отдела → выбор сотрудника.</p>
-          <p class="other-settings-hint">Администратор подтверждает/отклоняет заявку. При подтверждении задача помечается как <strong>Передано</strong>.</p>
-        </div>
-        <div class="other-settings-block">
-          <h4>3. Просрочка и причина отставания</h4>
-          <p class="other-settings-hint">Причина отставания доступна только после просрочки плановой даты.</p>
-          <p class="other-settings-hint">Ветви: внешний фактор (сохраняем причину), внутренний фактор (сохраняем причину + запускаем делегирование), принять на себя (без переназначения).</p>
-        </div>
-        <div class="other-settings-block">
-          <h4>4. Несколько исполнителей</h4>
-          <p class="other-settings-hint">По каждому исполнителю ведётся отдельный статус. Итоговый статус задачи агрегируется: когда все закрыли — задача Закрыт, иначе остаётся в работе/передаче.</p>
-        </div>
-        <div class="other-settings-block">
-          <h4>Тестовые точки</h4>
-          <p class="other-settings-hint">Проверьте отдельно: approve/reject закрытия, approve/reject переназначения, просрочка с тремя факторами, и задачу с несколькими исполнителями.</p>
+          <div id="taskRouteMapMermaidWrap" style="overflow:auto;">
+            <div class="other-settings-hint">Загрузка схемы...</div>
+          </div>
         </div>
       </div>
       <div class="responsible-modal-actions">
@@ -17846,6 +17857,55 @@ function openTaskRouteMapModal() {
   });
   document.body.appendChild(overlay);
   initLucideIcons();
+  const renderDiagram = async () => {
+    const wrap = overlay.querySelector("#taskRouteMapMermaidWrap");
+    if (!(wrap instanceof HTMLElement)) return;
+    const def = `
+flowchart TD
+    A[Создание задачи] --> B[Новый]
+    B --> C[В процессе]
+    C --> D[Запрос закрытия]
+    D --> E[Проверка]
+    E --> F{Решение админа}
+    F -->|approve| G[Закрыт]
+    F -->|reject| C
+    C --> H[Запрос переназначения]
+    H --> I{Тип}
+    I -->|Ошибочная| J[Отдел]
+    I -->|Делегирование| J
+    J --> K[Сотрудник]
+    K --> L{Решение админа}
+    L -->|approve| M[Передано]
+    L -->|reject| C
+    C --> N{Просрочка}
+    N -->|Да| O[Причина отставания]
+    O --> P{Фактор}
+    P -->|Внешний| Q[Сохранить причину]
+    P -->|Внутренний| R[Причина + делегирование]
+    P -->|Принять на себя| S[Без переназначения]
+    R --> J
+    A --> T{Несколько исполнителей}
+    T -->|Да| U[Статусы по каждому]
+    U --> V{Все закрыли?}
+    V -->|Да| G
+    V -->|Нет| C
+`;
+    try {
+      const mermaid = await ensureMermaidLoaded();
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "loose",
+        theme: "neutral",
+        flowchart: { curve: "basis", useMaxWidth: true }
+      });
+      const id = `task-route-map-${Date.now()}`;
+      const rendered = await mermaid.render(id, def);
+      wrap.innerHTML = rendered.svg || "";
+    } catch (_) {
+      wrap.innerHTML = `<div class="other-settings-hint">Не удалось загрузить Mermaid. Проверьте интернет-доступ к CDN.</div>`;
+    }
+  };
+  void renderDiagram();
 }
 
 function attachHeaderActionHandlers(section, filteredEntries) {
@@ -23361,8 +23421,48 @@ function openCreateTaskModal(section) {
   const sendTelegramInput = overlay.querySelector("#taskCreateSendTelegram");
   const sendSmsInput = overlay.querySelector("#taskCreateSendSms");
   const errorBox = overlay.querySelector("#taskCreateError");
+  const saveBtn = overlay.querySelector(".task-create-save");
+  const cancelBtn = overlay.querySelector(".task-create-cancel");
+  let isSaving = false;
+  let createdDraftRow = null;
+  let createdDraftRowPersisted = false;
 
   const close = () => overlay.remove();
+  const removeDraftRowIfExists = () => {
+    if (!createdDraftRow) return;
+    const idx = section.rows.indexOf(createdDraftRow);
+    if (idx >= 0) {
+      section.rows.splice(idx, 1);
+      saveSectionsData();
+      renderTablePreserveScroll();
+    }
+    createdDraftRow = null;
+    createdDraftRowPersisted = false;
+  };
+  const updateCreateButtonsState = () => {
+    if (saveBtn instanceof HTMLButtonElement) {
+      saveBtn.disabled = isSaving;
+      saveBtn.textContent = isSaving ? "Сохранение..." : "Сохранить";
+    }
+    if (cancelBtn instanceof HTMLButtonElement) {
+      cancelBtn.disabled = isSaving;
+    }
+  };
+  const tryCloseModal = () => {
+    if (isSaving) return;
+    if (createdDraftRow && !createdDraftRowPersisted) {
+      confirmAction({
+        message: "Задача ещё не сохранена на сервер. При закрытии она не добавится. Закрыть?",
+        confirmLabel: "Закрыть",
+        onConfirm: () => {
+          removeDraftRowIfExists();
+          close();
+        }
+      });
+      return;
+    }
+    close();
+  };
   const setError = (text = "") => {
     if (!(errorBox instanceof HTMLElement)) return;
     const msg = String(text || "").trim();
@@ -23586,6 +23686,7 @@ function openCreateTaskModal(section) {
   });
 
   const save = async () => {
+    if (isSaving) return;
     const title = String(titleInput?.value || "").trim();
     const objectName = String(objectInput?.value || "").trim();
     const assignee = normalizePersonName(assigneeInput?.value || "");
@@ -23607,9 +23708,24 @@ function openCreateTaskModal(section) {
       return;
     }
 
-    addEmptyRow(section);
-    markPendingAddedRow(section.id, section.rows.length - 1);
-    const row = section.rows[section.rows.length - 1];
+    isSaving = true;
+    updateCreateButtonsState();
+    setError("");
+
+    if (!createdDraftRow) {
+      addEmptyRow(section);
+      markPendingAddedRow(section.id, section.rows.length - 1);
+      createdDraftRow = section.rows[section.rows.length - 1];
+      createdDraftRowPersisted = false;
+    }
+    const row = createdDraftRow;
+    if (!Array.isArray(row)) {
+      isSaving = false;
+      updateCreateButtonsState();
+      setError("Не удалось подготовить задачу к сохранению. Попробуйте ещё раз.");
+      return;
+    }
+
     row[TASK_COLUMNS.task] = title;
     row[TASK_COLUMNS.object] = objectName;
     row[TASK_COLUMNS.assignedResponsible] = assignee;
@@ -23635,17 +23751,26 @@ function openCreateTaskModal(section) {
     saveSectionsData();
     renderTablePreserveScroll();
 
-    // Дожидаемся подтверждения сервера, прежде чем закрыть форму. Иначе при
-    // быстром F5 / закрытии вкладки в окно debounce (1.2 сек) push может не
-    // успеть, а на следующем pull новая задача затрётся серверным снимком.
-    // Если push провалился — оставляем форму открытой и показываем ошибку.
+    // Дожидаемся подтверждения сервера (с повторными попытками), прежде чем
+    // закрыть форму. Если не удалось — оставляем форму открытой без дублей.
     if (isHostedRuntime() && getAuthToken()) {
-      const saved = await pushAppToServerImmediate();
+      let saved = false;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        saved = await pushAppToServerImmediate();
+        if (saved) break;
+        await pullRemoteAppState({ rerender: false, allowDuringOverlay: true }).catch(() => {});
+        await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+      }
       if (!saved) {
         setError("Не удалось сохранить задачу на сервер. Проверьте подключение и попробуйте снова.");
+        isSaving = false;
+        updateCreateButtonsState();
         return;
       }
     }
+    createdDraftRowPersisted = true;
+    isSaving = false;
+    updateCreateButtonsState();
     close();
 
     if (shouldSendTelegram || shouldSendSms) {
@@ -23679,11 +23804,11 @@ function openCreateTaskModal(section) {
   };
 
   overlay.querySelector(".task-create-save")?.addEventListener("click", save);
-  overlay.querySelector(".task-create-cancel")?.addEventListener("click", close);
+  overlay.querySelector(".task-create-cancel")?.addEventListener("click", tryCloseModal);
   overlay.addEventListener("click", (event) => {
     const insideDropdown = event.target instanceof HTMLElement ? event.target.closest(".task-create-picker-wrap") : null;
     if (!insideDropdown) closeDropdowns();
-    if (event.target === overlay) close();
+    if (event.target === overlay) tryCloseModal();
   });
   titleInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -23691,6 +23816,7 @@ function openCreateTaskModal(section) {
       save();
     }
   });
+  updateCreateButtonsState();
   titleInput?.focus();
 }
 
