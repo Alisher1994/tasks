@@ -13044,7 +13044,15 @@ function isReadonlyColumn(section, colIndex) {
   }
   if (
     section.id === "employees"
-    && (colIndex === EMPLOYEE_COLUMNS.chatId || colIndex === EMPLOYEE_COLUMNS.activity || colIndex === EMPLOYEE_COLUMNS.adminAccess)
+    && (
+      colIndex === EMPLOYEE_COLUMNS.fullName
+      || colIndex === EMPLOYEE_COLUMNS.department
+      || colIndex === EMPLOYEE_COLUMNS.position
+      || colIndex === EMPLOYEE_COLUMNS.phone
+      || colIndex === EMPLOYEE_COLUMNS.chatId
+      || colIndex === EMPLOYEE_COLUMNS.activity
+      || colIndex === EMPLOYEE_COLUMNS.adminAccess
+    )
   ) {
     return true;
   }
