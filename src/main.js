@@ -14587,7 +14587,10 @@ function attachTableActionHandlers(section, filteredEntries) {
 
   if (section.id === "employees") {
     const closeAllEmployeeActionMenus = () => {
-      document.querySelectorAll(".employee-actions-menu").forEach((menu) => menu.classList.add("hidden"));
+      document.querySelectorAll(".employee-actions-menu").forEach((menu) => {
+        menu.classList.add("hidden");
+        menu.classList.remove("open-up");
+      });
       document.querySelectorAll(".employee-actions-more-btn").forEach((btn) => btn.setAttribute("aria-expanded", "false"));
     };
     employeeMoreActionButtons.forEach((button) => {
@@ -14601,6 +14604,13 @@ function attachTableActionHandlers(section, filteredEntries) {
         closeAllEmployeeActionMenus();
         if (willOpen) {
           menu.classList.remove("hidden");
+          menu.classList.remove("open-up");
+          const menuRect = menu.getBoundingClientRect();
+          const viewportBottom = window.innerHeight || document.documentElement.clientHeight || 0;
+          const notEnoughBottomSpace = menuRect.bottom > (viewportBottom - 8);
+          if (notEnoughBottomSpace) {
+            menu.classList.add("open-up");
+          }
           button.setAttribute("aria-expanded", "true");
         }
       });
