@@ -12257,8 +12257,19 @@ function normalizeTaskImportPriority(raw) {
   return "Средний";
 }
 
+function sanitizeImportedCellEdgeGarbage(raw) {
+  return String(raw ?? "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .replace(/^[\s"'`“”‘’«»„]+/g, "")
+    .replace(/[\s"'`“”‘’«»„]+$/g, "")
+    .trim();
+}
+
 function normalizeTaskImportDate(raw) {
-  const text = String(raw || "").trim();
+  const text = sanitizeImportedCellEdgeGarbage(raw);
   if (!text) return "";
   const ru = parseRuDateStringToParts(text);
   if (ru) return formatDatePartsStorage(ru.day, ru.month, ru.year);
@@ -12273,14 +12284,11 @@ function normalizeTaskImportDate(raw) {
       return formatDatePartsStorage(day, month, year);
     }
   }
-  return text;
+  return sanitizeImportedCellEdgeGarbage(text);
 }
 
 function normalizeTaskImportCellValue(raw) {
-  return String(raw ?? "")
-    .replace(/\r\n?/g, "\n")
-    .replace(/\u00a0/g, " ")
-    .trim();
+  return sanitizeImportedCellEdgeGarbage(raw);
 }
 
 function parseTabularText(rawText) {
