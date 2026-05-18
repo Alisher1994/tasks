@@ -3097,6 +3097,12 @@ tbody td.first-visible-col {
   gap: 4px;
 }
 
+/* Когда меню сотрудника открыто, поднимаем всю sticky-ячейку действий
+   над соседними sticky-слоями, иначе они могут перекрывать меню. */
+.table-card--employees td.actions-col:has(.employee-actions-menu:not(.hidden)) {
+  z-index: 13050;
+}
+
 .employee-actions-menu-item {
   width: 100%;
   border: none;
