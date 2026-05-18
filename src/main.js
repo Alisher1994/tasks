@@ -22236,6 +22236,16 @@ function openCreateEmployeeModal(section) {
     <div class="responsible-modal employee-create-modal" role="dialog" aria-modal="true" aria-label="Добавить сотрудника">
       <h4>Добавить сотрудника</h4>
       <div class="employee-create-grid">
+        <div class="employee-create-field employee-create-field--avatar">
+          <span>Фото сотрудника</span>
+          <div class="employee-create-avatar-wrap">
+            <button type="button" class="employee-create-avatar-preview" id="employeeCreateAvatarPreview" title="Загрузить фото"></button>
+            <div class="employee-create-avatar-actions">
+              <button type="button" class="secondary employee-create-avatar-upload" id="employeeCreateAvatarUpload">Загрузить фото</button>
+              <button type="button" class="secondary employee-create-avatar-remove hidden" id="employeeCreateAvatarRemove">Удалить фото</button>
+            </div>
+          </div>
+        </div>
         <label class="employee-create-field">
           <span>ФИО</span>
           <input id="employeeCreateFullName" type="text" class="cell-editor" placeholder="Введите ФИО" autocomplete="off" />
@@ -22283,8 +22293,12 @@ function openCreateEmployeeModal(section) {
   const departmentDropdown = overlay.querySelector("#employeeCreateDepartmentDropdown");
   const roleDropdown = overlay.querySelector("#employeeCreateRoleDropdown");
   const adminAccessCheckbox = overlay.querySelector("#employeeCreateAdminAccess");
+  const avatarPreview = overlay.querySelector("#employeeCreateAvatarPreview");
+  const avatarUploadBtn = overlay.querySelector("#employeeCreateAvatarUpload");
+  const avatarRemoveBtn = overlay.querySelector("#employeeCreateAvatarRemove");
   const errorBox = overlay.querySelector("#employeeCreateError");
   const cleanupFns = [];
+  let selectedAvatarUrl = "";
 
   const close = () => {
     while (cleanupFns.length) {
@@ -22302,6 +22316,18 @@ function openCreateEmployeeModal(section) {
     const msg = String(text || "").trim();
     errorBox.textContent = msg;
     errorBox.classList.toggle("hidden", !msg);
+  };
+  const renderCreateAvatarPreview = () => {
+    if (!(avatarPreview instanceof HTMLButtonElement)) return;
+    const shownName = normalizePersonName(fullNameInput?.value || "") || "Новый сотрудник";
+    avatarPreview.innerHTML = avatarHtml(shownName, { size: 64, photoUrl: selectedAvatarUrl });
+    avatarPreview.title = selectedAvatarUrl ? "Заменить фото" : "Загрузить фото";
+    if (avatarUploadBtn instanceof HTMLButtonElement) {
+      avatarUploadBtn.textContent = selectedAvatarUrl ? "Заменить фото" : "Загрузить фото";
+    }
+    if (avatarRemoveBtn instanceof HTMLElement) {
+      avatarRemoveBtn.classList.toggle("hidden", !selectedAvatarUrl);
+    }
   };
 
   if (phoneInputEl instanceof HTMLInputElement) {
@@ -22392,6 +22418,39 @@ function openCreateEmployeeModal(section) {
 
   attachInlinePicker(departmentInput, departmentPickerBtn, departmentDropdown, departmentOptions);
   attachInlinePicker(roleInput, rolePickerBtn, roleDropdown, roleOptions);
+  fullNameInput?.addEventListener("input", renderCreateAvatarPreview);
+  avatarUploadBtn?.addEventListener("click", () => {
+    if (!isHostedRuntime() || !getAuthToken()) {
+      showStatusDialog({
+        title: "Недоступно",
+        message: "Загрузка фото работает только при подключении к серверу.",
+        type: "error"
+      });
+      return;
+    }
+    pickFile(async (file) => {
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        window.alert("Выберите файл изображения (JPEG, PNG, WebP и т.д.).");
+        return;
+      }
+      const url = await uploadTaskMediaToServer(file).catch((err) => {
+        window.alert(`Не удалось загрузить фото: ${String(err?.message || err)}`);
+        return null;
+      });
+      if (!url) return;
+      selectedAvatarUrl = url;
+      renderCreateAvatarPreview();
+    }, "image/*");
+  });
+  avatarPreview?.addEventListener("click", () => {
+    avatarUploadBtn?.click();
+  });
+  avatarRemoveBtn?.addEventListener("click", () => {
+    selectedAvatarUrl = "";
+    renderCreateAvatarPreview();
+  });
+  renderCreateAvatarPreview();
 
   const save = async () => {
     const fullName = normalizePersonName(fullNameInput?.value || "");
@@ -22445,6 +22504,7 @@ function openCreateEmployeeModal(section) {
     row[EMPLOYEE_COLUMNS.chatId] = "";
     row[EMPLOYEE_COLUMNS.adminAccess] = toEmployeeAdminAccessStorageValue(adminAccess);
     applyEmployeeTelegramDerivedFields(row);
+    if (selectedAvatarUrl) setEmployeeAvatarUrl(fullName, selectedAvatarUrl);
 
     saveSectionsData();
     renderTablePreserveScroll();

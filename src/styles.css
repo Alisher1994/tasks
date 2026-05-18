@@ -4038,6 +4038,35 @@ tr:nth-child(even) td {
   height: 14px;
 }
 
+.employee-create-field--avatar {
+  grid-column: 1 / -1;
+}
+
+.employee-create-avatar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.employee-create-avatar-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 66px;
+  height: 66px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.employee-create-avatar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .employee-create-picker {
   position: relative;
 }
