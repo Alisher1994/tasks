@@ -15879,6 +15879,10 @@ function buildEditor(section, rowIndex, colIndex, currentValue) {
     return createSelectEditor(getUniqueValues(roles?.rows || [], 1), currentValue);
   }
 
+  if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.fullName) {
+    return createTextEditor(currentValue);
+  }
+
   if (section.id === "employees" && colIndex === EMPLOYEE_COLUMNS.telegram) {
     return createSelectEditor(EMPLOYEE_TELEGRAM_OPTIONS, currentValue);
   }
@@ -15925,6 +15929,15 @@ function createDateEditor(currentValue) {
   input.type = "date";
   input.className = "cell-editor";
   input.value = toInputDate(currentValue);
+  return input;
+}
+
+function createTextEditor(currentValue) {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "cell-editor";
+  input.autocomplete = "off";
+  input.value = String(currentValue || "");
   return input;
 }
 
