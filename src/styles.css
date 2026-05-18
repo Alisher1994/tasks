@@ -3075,6 +3075,62 @@ tbody td.first-visible-col {
   border-color: transparent;
 }
 
+.employee-actions {
+  position: relative;
+}
+
+.employee-actions-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 220px;
+  border: 1px solid #d3dbe7;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(12, 24, 36, 0.14);
+  padding: 6px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.employee-actions-menu-item {
+  width: 100%;
+  border: none;
+  border-radius: 8px;
+  background: #fff;
+  color: #22324a;
+  font-size: 13px;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.employee-actions-menu-item .icon-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.employee-actions-menu-item .lucide-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.employee-actions-menu-item:hover {
+  background: #f4f7fc;
+}
+
+.employee-actions-menu-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.employee-actions-menu-item--danger {
+  color: #b42318;
+}
+
 .icon-action-btn {
   width: 30px;
   height: 30px;

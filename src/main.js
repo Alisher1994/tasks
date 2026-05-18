@@ -6476,16 +6476,24 @@ function renderRowActions(sectionId, isTrashView, rowIndex, row) {
         ? "У сотрудника нет активного Telegram Chat ID"
         : "Очистить чат с ботом";
     return `
-      <div class="action-buttons">
-        <button type="button" class="icon-action-btn send-employee-sms-btn" title="${escapeHtmlAttr(smsTitle)}" data-row-index="${rowIndex}" ${smsDisabledAttr}>
-          <i data-lucide="message-square" class="lucide-icon" aria-hidden="true"></i>
+      <div class="action-buttons employee-actions">
+        <button type="button" class="icon-action-btn employee-actions-more-btn" title="Действия" aria-label="Действия" aria-expanded="false">
+          <i data-lucide="ellipsis" class="lucide-icon" aria-hidden="true"></i>
         </button>
-        <button type="button" class="icon-action-btn clear-employee-chat-btn" title="${escapeHtmlAttr(clearTitle)}" data-row-index="${rowIndex}" ${clearDisabledAttr}>
-          <i data-lucide="eraser" class="lucide-icon" aria-hidden="true"></i>
-        </button>
-        <button type="button" class="icon-action-btn danger-btn delete-row-btn" title="Удалить" data-row-index="${rowIndex}">
-          <i data-lucide="trash-2" class="lucide-icon" aria-hidden="true"></i>
-        </button>
+        <div class="employee-actions-menu hidden" role="menu">
+          <button type="button" class="employee-actions-menu-item edit-employee-btn" data-row-index="${rowIndex}" role="menuitem">
+            ${withLucideIcon("pencil", "Редактировать")}
+          </button>
+          <button type="button" class="employee-actions-menu-item send-employee-sms-btn" title="${escapeHtmlAttr(smsTitle)}" data-row-index="${rowIndex}" ${smsDisabledAttr} role="menuitem">
+            ${withLucideIcon("message-square", "Отправить SMS")}
+          </button>
+          <button type="button" class="employee-actions-menu-item clear-employee-chat-btn" title="${escapeHtmlAttr(clearTitle)}" data-row-index="${rowIndex}" ${clearDisabledAttr} role="menuitem">
+            ${withLucideIcon("eraser", "Очистить чат с ботом")}
+          </button>
+          <button type="button" class="employee-actions-menu-item employee-actions-menu-item--danger delete-row-btn" data-row-index="${rowIndex}" role="menuitem">
+            ${withLucideIcon("trash-2", "Удалить")}
+          </button>
+        </div>
       </div>
     `;
   }
@@ -14543,9 +14551,11 @@ function attachTableActionHandlers(section, filteredEntries) {
   const deleteTrashButtons = Array.from(document.querySelectorAll(".delete-trash-row-btn"));
   const sendButtons = Array.from(document.querySelectorAll(".send-row-btn"));
   const sendTaskSmsButtons = Array.from(document.querySelectorAll(".send-row-sms-btn"));
+  const editEmployeeButtons = Array.from(document.querySelectorAll(".edit-employee-btn"));
   const sendEmployeeSmsButtons = Array.from(document.querySelectorAll(".send-employee-sms-btn"));
   const clearEmployeeChatButtons = Array.from(document.querySelectorAll(".clear-employee-chat-btn"));
   const deleteButtons = Array.from(document.querySelectorAll(".delete-row-btn"));
+  const employeeMoreActionButtons = Array.from(document.querySelectorAll(".employee-actions-more-btn"));
   const bulkSendBtn = document.getElementById("bulkSendBtn");
   const bulkTaskSmsBtn = document.getElementById("bulkTaskSmsBtn");
   const bulkEmployeeSmsBtn = document.getElementById("bulkEmployeeSmsBtn");
@@ -14580,6 +14590,33 @@ function attachTableActionHandlers(section, filteredEntries) {
       renderTable();
     });
   });
+
+  if (section.id === "employees") {
+    const closeAllEmployeeActionMenus = () => {
+      document.querySelectorAll(".employee-actions-menu").forEach((menu) => menu.classList.add("hidden"));
+      document.querySelectorAll(".employee-actions-more-btn").forEach((btn) => btn.setAttribute("aria-expanded", "false"));
+    };
+    employeeMoreActionButtons.forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const wrap = button.closest(".employee-actions");
+        const menu = wrap?.querySelector(".employee-actions-menu");
+        if (!(menu instanceof HTMLElement)) return;
+        const willOpen = menu.classList.contains("hidden");
+        closeAllEmployeeActionMenus();
+        if (willOpen) {
+          menu.classList.remove("hidden");
+          button.setAttribute("aria-expanded", "true");
+        }
+      });
+    });
+    document.addEventListener("click", (event) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (!target || target.closest(".employee-actions")) return;
+      closeAllEmployeeActionMenus();
+    });
+  }
 
   viewButtons.forEach((button) => {
     button.addEventListener("click", () => {
@@ -14643,6 +14680,14 @@ function attachTableActionHandlers(section, filteredEntries) {
           void sendTaskSmsNotification(row, button);
         }
       });
+    });
+  });
+
+  editEmployeeButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      if (section.id !== "employees") return;
+      const rowIndex = Number(button.dataset.rowIndex);
+      openEditEmployeeModal(section, rowIndex);
     });
   });
 
@@ -22551,6 +22596,332 @@ function openCreateEmployeeModal(section) {
       event.preventDefault();
       void save();
     }
+  });
+  fullNameInput?.focus();
+}
+
+function openEditEmployeeModal(section, rowIndex) {
+  if (!section || section.id !== "employees") return;
+  const row = section.rows[rowIndex];
+  if (!row) return;
+  const departments = getUniqueValues(getSectionById("departments")?.rows || [], 1)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  const roles = getUniqueValues(getSectionById("roles")?.rows || [], 1)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  const initialName = normalizePersonName(row[EMPLOYEE_COLUMNS.fullName] || "");
+  const initialPhone = formatUzPhoneDisplay(row[EMPLOYEE_COLUMNS.phone] || DEFAULT_PHONE_PREFIX);
+  const initialDepartment = String(row[EMPLOYEE_COLUMNS.department] || "").trim();
+  const initialRole = String(row[EMPLOYEE_COLUMNS.position] || "").trim();
+  const initialTelegram = String(row[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен" ? "Подключен" : "Не подключен";
+  const initialChatId = String(row[EMPLOYEE_COLUMNS.chatId] || "").trim();
+  const initialActivity = String(row[EMPLOYEE_COLUMNS.activity] || "").trim();
+  const initialAdmin = isEmployeeAdminAccessEnabled(row[EMPLOYEE_COLUMNS.adminAccess]);
+  const initialAvatarUrl = getEmployeeAvatarUrl(initialName);
+
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal employee-create-modal" role="dialog" aria-modal="true" aria-label="Редактировать сотрудника">
+      <h4>Редактировать сотрудника</h4>
+      <div class="employee-create-grid">
+        <div class="employee-create-field employee-create-field--avatar">
+          <span>Фото сотрудника</span>
+          <div class="employee-create-avatar-wrap">
+            <button type="button" class="employee-create-avatar-preview" id="employeeEditAvatarPreview" title="Загрузить фото"></button>
+            <div class="employee-create-avatar-actions">
+              <button type="button" class="secondary employee-create-avatar-upload" id="employeeEditAvatarUpload">Загрузить фото</button>
+              <button type="button" class="secondary employee-create-avatar-remove hidden" id="employeeEditAvatarRemove">Удалить фото</button>
+            </div>
+          </div>
+        </div>
+        <label class="employee-create-field">
+          <span>ID</span>
+          <input id="employeeEditId" type="text" class="cell-editor" value="${escapeHtmlAttr(String(row[EMPLOYEE_COLUMNS.id] || ""))}" readonly />
+        </label>
+        <label class="employee-create-field">
+          <span>ФИО</span>
+          <input id="employeeEditFullName" type="text" class="cell-editor" value="${escapeHtmlAttr(initialName)}" autocomplete="off" />
+        </label>
+        <label class="employee-create-field">
+          <span>Телефон</span>
+          <input id="employeeEditPhone" type="tel" inputmode="tel" class="cell-editor" value="${escapeHtmlAttr(initialPhone)}" placeholder="+998..." autocomplete="off" />
+        </label>
+        <label class="employee-create-field">
+          <span>Отдел</span>
+          <div class="employee-create-picker">
+            <input id="employeeEditDepartment" type="text" class="cell-editor employee-create-picker-input" value="${escapeHtmlAttr(initialDepartment)}" placeholder="Начните вводить отдел..." autocomplete="off" />
+            <button type="button" class="employee-create-picker-btn" data-employee-edit-picker="department" aria-label="Выбрать отдел">▼</button>
+            <div id="employeeEditDepartmentDropdown" class="employee-create-dropdown hidden"></div>
+          </div>
+        </label>
+        <label class="employee-create-field">
+          <span>Должность</span>
+          <div class="employee-create-picker">
+            <input id="employeeEditRole" type="text" class="cell-editor employee-create-picker-input" value="${escapeHtmlAttr(initialRole)}" placeholder="Начните вводить должность..." autocomplete="off" />
+            <button type="button" class="employee-create-picker-btn" data-employee-edit-picker="role" aria-label="Выбрать должность">▼</button>
+            <div id="employeeEditRoleDropdown" class="employee-create-dropdown hidden"></div>
+          </div>
+        </label>
+        <label class="employee-create-field">
+          <span>Telegram</span>
+          <select id="employeeEditTelegram" class="cell-editor">
+            <option value="Не подключен" ${initialTelegram !== "Подключен" ? "selected" : ""}>Не подключен</option>
+            <option value="Подключен" ${initialTelegram === "Подключен" ? "selected" : ""}>Подключен</option>
+          </select>
+        </label>
+        <label class="employee-create-field">
+          <span>Chat ID</span>
+          <input id="employeeEditChatId" type="text" class="cell-editor" value="${escapeHtmlAttr(initialChatId)}" placeholder="Например: 123456789" autocomplete="off" />
+        </label>
+        <label class="employee-create-field">
+          <span>Последний вход</span>
+          <input id="employeeEditActivity" type="text" class="cell-editor" value="${escapeHtmlAttr(initialActivity)}" placeholder="например: 18.05.2026 08:21" autocomplete="off" />
+        </label>
+        <label class="employee-create-field employee-create-field--check">
+          <input id="employeeEditAdminAccess" type="checkbox" ${initialAdmin ? "checked" : ""} />
+          <span>Админ доступ</span>
+        </label>
+      </div>
+      <div class="employee-create-error hidden" id="employeeEditError"></div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary employee-edit-cancel">Отмена</button>
+        <button type="button" class="responsible-apply-btn employee-edit-save">Сохранить</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const fullNameInput = overlay.querySelector("#employeeEditFullName");
+  const phoneInputEl = overlay.querySelector("#employeeEditPhone");
+  const departmentInput = overlay.querySelector("#employeeEditDepartment");
+  const roleInput = overlay.querySelector("#employeeEditRole");
+  const departmentPickerBtn = overlay.querySelector('[data-employee-edit-picker="department"]');
+  const rolePickerBtn = overlay.querySelector('[data-employee-edit-picker="role"]');
+  const departmentDropdown = overlay.querySelector("#employeeEditDepartmentDropdown");
+  const roleDropdown = overlay.querySelector("#employeeEditRoleDropdown");
+  const telegramSelect = overlay.querySelector("#employeeEditTelegram");
+  const chatIdInput = overlay.querySelector("#employeeEditChatId");
+  const activityInput = overlay.querySelector("#employeeEditActivity");
+  const adminAccessCheckbox = overlay.querySelector("#employeeEditAdminAccess");
+  const avatarPreview = overlay.querySelector("#employeeEditAvatarPreview");
+  const avatarUploadBtn = overlay.querySelector("#employeeEditAvatarUpload");
+  const avatarRemoveBtn = overlay.querySelector("#employeeEditAvatarRemove");
+  const errorBox = overlay.querySelector("#employeeEditError");
+  const cleanupFns = [];
+  let selectedAvatarUrl = initialAvatarUrl;
+
+  const close = () => {
+    while (cleanupFns.length) {
+      const fn = cleanupFns.pop();
+      try {
+        fn?.();
+      } catch (_) {
+        // ignore cleanup error
+      }
+    }
+    overlay.remove();
+  };
+  const setError = (text = "") => {
+    if (!(errorBox instanceof HTMLElement)) return;
+    const msg = String(text || "").trim();
+    errorBox.textContent = msg;
+    errorBox.classList.toggle("hidden", !msg);
+  };
+  const renderAvatarPreview = () => {
+    if (!(avatarPreview instanceof HTMLButtonElement)) return;
+    const shownName = normalizePersonName(fullNameInput?.value || "") || "Сотрудник";
+    avatarPreview.innerHTML = avatarHtml(shownName, { size: 64, photoUrl: selectedAvatarUrl });
+    if (avatarUploadBtn instanceof HTMLButtonElement) {
+      avatarUploadBtn.textContent = selectedAvatarUrl ? "Заменить фото" : "Загрузить фото";
+    }
+    if (avatarRemoveBtn instanceof HTMLElement) {
+      avatarRemoveBtn.classList.toggle("hidden", !selectedAvatarUrl);
+    }
+  };
+
+  const attachInlinePicker = (inputEl, buttonEl, dropdownEl, options) => {
+    if (!(inputEl instanceof HTMLInputElement) || !(buttonEl instanceof HTMLButtonElement) || !(dropdownEl instanceof HTMLElement)) return;
+    const uniqueOptions = Array.from(new Set((options || []).map((item) => String(item || "").trim()).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, "ru"));
+    let isOpen = false;
+    const hide = () => {
+      isOpen = false;
+      dropdownEl.classList.add("hidden");
+    };
+    const show = () => {
+      isOpen = true;
+      dropdownEl.classList.remove("hidden");
+    };
+    const render = (forceAll = false) => {
+      const query = String(inputEl.value || "").trim().toLowerCase();
+      const filtered = uniqueOptions.filter((item) => {
+        if (forceAll) return true;
+        if (!query) return true;
+        return item.toLowerCase().includes(query);
+      });
+      dropdownEl.innerHTML = filtered.length
+        ? filtered.map((item) => `
+          <button type="button" class="employee-create-dropdown-item" data-dropdown-value="${escapeHtmlAttr(item)}">${escapeHtmlText(item)}</button>
+        `).join("")
+        : `<div class="employee-create-dropdown-empty">Ничего не найдено</div>`;
+      show();
+    };
+    inputEl.addEventListener("focus", () => render(false));
+    inputEl.addEventListener("input", () => render(false));
+    inputEl.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        hide();
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        render(true);
+      }
+    });
+    buttonEl.addEventListener("click", () => {
+      if (isOpen) {
+        hide();
+      } else {
+        render(true);
+        inputEl.focus();
+      }
+    });
+    dropdownEl.addEventListener("click", (event) => {
+      const btn = event.target instanceof HTMLElement ? event.target.closest(".employee-create-dropdown-item") : null;
+      if (!(btn instanceof HTMLButtonElement)) return;
+      inputEl.value = String(btn.dataset.dropdownValue || "").trim();
+      hide();
+      inputEl.focus();
+    });
+    const handleOutsideClick = (event) => {
+      if (!overlay.isConnected || !isOpen) return;
+      const target = event.target instanceof Node ? event.target : null;
+      if (!target) return;
+      if (inputEl.contains(target) || buttonEl.contains(target) || dropdownEl.contains(target)) return;
+      hide();
+    };
+    document.addEventListener("click", handleOutsideClick);
+    cleanupFns.push(() => document.removeEventListener("click", handleOutsideClick));
+  };
+
+  if (phoneInputEl instanceof HTMLInputElement) {
+    attachStrictPhoneInputBehavior(
+      phoneInputEl,
+      () => {
+        phoneInputEl.value = formatUzPhoneDisplay(phoneInputEl.value);
+      }
+    );
+    phoneInputEl.addEventListener("blur", () => {
+      phoneInputEl.value = formatUzPhoneDisplay(phoneInputEl.value || DEFAULT_PHONE_PREFIX);
+    });
+  }
+  attachInlinePicker(departmentInput, departmentPickerBtn, departmentDropdown, departments);
+  attachInlinePicker(roleInput, rolePickerBtn, roleDropdown, roles);
+
+  fullNameInput?.addEventListener("input", renderAvatarPreview);
+  avatarUploadBtn?.addEventListener("click", () => {
+    if (!isHostedRuntime() || !getAuthToken()) {
+      showStatusDialog({
+        title: "Недоступно",
+        message: "Загрузка фото работает только при подключении к серверу.",
+        type: "error"
+      });
+      return;
+    }
+    pickFile(async (file) => {
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        window.alert("Выберите файл изображения (JPEG, PNG, WebP и т.д.).");
+        return;
+      }
+      const url = await uploadTaskMediaToServer(file).catch((err) => {
+        window.alert(`Не удалось загрузить фото: ${String(err?.message || err)}`);
+        return null;
+      });
+      if (!url) return;
+      selectedAvatarUrl = url;
+      renderAvatarPreview();
+    }, "image/*");
+  });
+  avatarPreview?.addEventListener("click", () => avatarUploadBtn?.click());
+  avatarRemoveBtn?.addEventListener("click", () => {
+    selectedAvatarUrl = "";
+    renderAvatarPreview();
+  });
+  renderAvatarPreview();
+
+  const save = () => {
+    const fullName = normalizePersonName(fullNameInput?.value || "");
+    const phoneNormalized = normalizeUzPhone(phoneInputEl?.value || "");
+    const phoneFormatted = formatUzPhoneDisplay(phoneNormalized);
+    const department = String(departmentInput?.value || "").trim();
+    const role = String(roleInput?.value || "").trim();
+    const telegramState = String(telegramSelect?.value || "Не подключен").trim() === "Подключен" ? "Подключен" : "Не подключен";
+    const chatId = String(chatIdInput?.value || "").trim();
+    const activity = String(activityInput?.value || "").trim();
+    const adminAccess = adminAccessCheckbox instanceof HTMLInputElement && adminAccessCheckbox.checked ? "Да" : "Нет";
+
+    if (!fullName) {
+      setError("Укажите ФИО сотрудника.");
+      fullNameInput?.focus();
+      return;
+    }
+    if (!phoneNormalized || !isPhoneLengthValid(phoneNormalized)) {
+      setError(`Введите корректный номер (${getPhoneLengthHint(phoneNormalized)} цифр после +).`);
+      phoneInputEl?.focus();
+      return;
+    }
+    if (!department) {
+      setError("Выберите отдел сотрудника.");
+      departmentInput?.focus();
+      return;
+    }
+    if (!role) {
+      setError("Выберите должность сотрудника.");
+      roleInput?.focus();
+      return;
+    }
+    const duplicateNameIndex = firstRowIndexWithSameNormalizedName(section.rows, fullName);
+    if (duplicateNameIndex >= 0 && duplicateNameIndex !== rowIndex) {
+      setError("Сотрудник с таким ФИО уже существует.");
+      fullNameInput?.focus();
+      return;
+    }
+    const duplicatePhoneIndex = firstRowIndexWithSameCompletePhone(section.rows, phoneNormalized);
+    if (duplicatePhoneIndex >= 0 && duplicatePhoneIndex !== rowIndex) {
+      setError("Сотрудник с таким телефоном уже существует.");
+      phoneInputEl?.focus();
+      return;
+    }
+
+    const previousName = normalizePersonName(row[EMPLOYEE_COLUMNS.fullName] || "");
+    row[EMPLOYEE_COLUMNS.fullName] = fullName;
+    row[EMPLOYEE_COLUMNS.department] = department;
+    row[EMPLOYEE_COLUMNS.position] = role;
+    row[EMPLOYEE_COLUMNS.phone] = phoneFormatted;
+    row[EMPLOYEE_COLUMNS.telegram] = telegramState;
+    row[EMPLOYEE_COLUMNS.chatId] = chatId;
+    row[EMPLOYEE_COLUMNS.activity] = activity;
+    row[EMPLOYEE_COLUMNS.adminAccess] = toEmployeeAdminAccessStorageValue(adminAccess);
+    applyEmployeeTelegramDerivedFields(row);
+
+    if (previousName && previousName !== fullName) {
+      setEmployeeAvatarUrl(previousName, "");
+    }
+    if (selectedAvatarUrl) setEmployeeAvatarUrl(fullName, selectedAvatarUrl);
+    else setEmployeeAvatarUrl(fullName, "");
+
+    saveSectionsData();
+    renderTablePreserveScroll();
+    close();
+  };
+
+  overlay.querySelector(".employee-edit-save")?.addEventListener("click", save);
+  overlay.querySelector(".employee-edit-cancel")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
   });
   fullNameInput?.focus();
 }
