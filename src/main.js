@@ -14171,7 +14171,7 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
   }
 
   if (colIndex === TASK_COLUMNS.dueDate) {
-    return renderDueDateCell(getTaskParentDisplayDueDate(row));
+    return renderDueDateCell(getTaskParentDisplayDueDate(row), row);
   }
 
   if (colIndex === TASK_COLUMNS.task) {
@@ -14589,8 +14589,8 @@ function getRowHighlightClass(section, row) {
   return "";
 }
 
-function renderDueDateCell(dateValue) {
-  const wrap = (mainText, metaHtml = "", ringHtml = "") => `<div class="due-cell"><span class="task-cell-inline-label"><i data-lucide="calendar-days" class="lucide-icon" aria-hidden="true"></i><span>${escapeHtmlText(mainText)}</span></span><div class="due-cell-meta-row">${metaHtml}${ringHtml}</div></div>`;
+function renderDueDateCell(dateValue, taskRow = null) {
+  const wrap = (mainText, ringHtml = "") => `<div class="due-cell due-cell--inline"><span class="task-cell-inline-label"><i data-lucide="calendar-days" class="lucide-icon" aria-hidden="true"></i><span>${escapeHtmlText(mainText)}</span></span>${ringHtml}</div>`;
   if (!dateValue) {
     return wrap("—");
   }
@@ -14598,6 +14598,11 @@ function renderDueDateCell(dateValue) {
   const dueParts = parseRuDateStringToParts(dateValue);
   if (!dueParts) {
     return wrap(String(dateValue));
+  }
+  const status = String(getTaskDisplayStatus(taskRow) || "").trim().toLowerCase();
+  if (status === "закрыт") {
+    const shown = formatStoredDateForDisplay(String(dateValue));
+    return wrap(shown);
   }
 
   const todayParts = getCalendarDatePartsInTimeZone(new Date(), getServerTimezone());
@@ -14619,12 +14624,7 @@ function renderDueDateCell(dateValue) {
   const trackColor = "#d9e2ef";
   const ringStyle = `--due-ring-progress:${progress};--due-ring-color:${ringColor};--due-ring-track:${trackColor};`;
   const ringHtml = `<span class="due-ring ${diffDays < 0 ? "due-ring--late" : "due-ring--left"}" style="${ringStyle}" title="${escapeHtmlAttr(ringTitle)}">${escapeHtmlText(ringLabel)}</span>`;
-
-  if (diffDays >= 0) {
-    return wrap(shown, `<small class="due-ok">Осталось ${diffDays} дн.</small>`, ringHtml);
-  }
-
-  return wrap(shown, `<small class="due-late">Просрочено ${absDays} дн.</small>`, ringHtml);
+  return wrap(shown, ringHtml);
 }
 
 function slugify(value) {

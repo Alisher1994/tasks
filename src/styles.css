@@ -5164,6 +5164,12 @@ body.app-booting .app-boot-loader {
   gap: 2px;
 }
 
+.due-cell--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
 .due-cell-meta-row {
   display: inline-flex;
   align-items: center;
@@ -5184,13 +5190,13 @@ body.app-booting .app-boot-loader {
   --due-ring-progress: 0;
   --due-ring-color: #7fba3a;
   --due-ring-track: #d9e2ef;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   line-height: 1;
   background:
