@@ -3398,7 +3398,7 @@ async function refreshSmsHistorySection(options = {}) {
     }
     return historyResult;
   }
-  const nextRows = mapSmsInviteEntriesToSectionRows(historyResult.entries);
+  const nextRows = trimSmsHistoryRowsToRetention(mapSmsInviteEntriesToSectionRows(historyResult.entries));
   const prevJson = JSON.stringify(Array.isArray(section.rows) ? section.rows : []);
   const nextJson = JSON.stringify(nextRows);
   section.rows = nextRows;
@@ -4351,6 +4351,7 @@ let taskReassignLog = {};
 let cellCommentsByCellKey = {};
 let cellCommentDeletedIds = new Set();
 const expandedTaskAssigneeRows = new Set();
+const smsHistoryDayExpandState = new Map();
 
 function getSectionIcon(sectionId) {
   const iconBySection = {
@@ -6209,55 +6210,90 @@ function renderTable() {
     </thead>
   `;
 
+  const renderBodyDataRow = (entry) => {
+    const rowCells = visibleColumnIndexes
+      .map((colIndex, viewOrder) => {
+        const cell = entry.row[colIndex];
+        const firstVisibleClass = section.id === "roles" && viewOrder === 0 ? "first-visible-col" : "";
+        const stickyClass = colIndex === 0 ? "number-col" : "";
+        const rolesNumberClass = section.id === "roles" && colIndex === 0 && viewOrder === 0 ? "roles-number-col" : "";
+        const rolesFirstVisibleClass = section.id === "roles" && viewOrder === 0 ? "roles-first-visible-col" : "";
+        const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
+        const objectClass = colIndex === TASK_COLUMNS.object ? "object-col" : "";
+        const mediaClass = isMediaColumn(colIndex) ? "media-col" : "";
+        const objectPhotoClass = section.id === "objects" && colIndex === OBJECT_COLUMNS.photo ? "object-photo-col" : "";
+        const wideClass = getWideColumnClass(colIndex);
+        const readonlyClass = isReadonlyColumn(section, colIndex) ? "readonly-cell" : "";
+        return `<td class="editable-cell ${firstVisibleClass} ${stickyClass} ${rolesNumberClass} ${rolesFirstVisibleClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass} ${wideClass} ${readonlyClass}" data-row-index="${entry.rowIndex}" data-col-index="${colIndex}">${renderCellContent(section, entry.row, colIndex, cell, entry.rowIndex)}</td>`;
+      })
+      .join("");
+    const rowFocusClass = activeRowBySection[section.id] === entry.rowIndex ? "focused-row" : "";
+    const rowHighlightClass = getRowHighlightClass(section, entry.row);
+    const trashMetaCells = isTrashView
+      ? `<td class="trash-meta-col">${formatTrashDate(entry.deletedAt)}</td><td class="trash-meta-col">${formatTrashRemaining(entry.expiresAt)}</td>`
+      : "";
+    const accordionRow =
+      section.id === "tasks" ? renderTaskAssigneesAccordionRows(entry.row, visibleColumnIndexes, isTrashView) : "";
+    const reassignRows =
+      section.id === "tasks" ? renderTaskReassignRows(entry.row, visibleColumnIndexes, isTrashView) : "";
+    return `
+      <tr class="${rowFocusClass} ${rowHighlightClass}">
+        <td class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}">
+          <input type="checkbox" class="row-checkbox" data-row-index="${entry.rowIndex}" ${selectedRows.has(entry.rowIndex) ? "checked" : ""} />
+        </td>
+        ${rowCells}
+        ${trashMetaCells}
+        ${useVisualSpacerCol ? `<td class="ghost-spacer-col" aria-hidden="true"></td>` : ""}
+        <td class="actions-col ${section.id === "roles" ? "roles-compact-actions-col" : ""}">
+          ${renderRowActions(section.id, isTrashView, entry.rowIndex, entry.row)}
+        </td>
+      </tr>
+      ${accordionRow}
+      ${reassignRows}
+    `;
+  };
+
+  const bodyRowsHtml = section.id === "smsHistory"
+    ? (() => {
+      const todayKey = formatSmsHistoryDayKey(Date.now());
+      const grouped = new Map();
+      entriesForRenderedTbody.forEach((entry) => {
+        const ms = getSmsHistoryRowTimestampMs(entry.row);
+        const dayKey = ms ? formatSmsHistoryDayKey(ms) : "undated";
+        if (!grouped.has(dayKey)) grouped.set(dayKey, []);
+        grouped.get(dayKey).push(entry);
+      });
+      return Array.from(grouped.entries()).map(([dayKey, items]) => {
+        const label = dayKey === "undated" ? "Без даты" : formatSmsHistoryDayLabelFromKey(dayKey);
+        const isExpanded = smsHistoryDayExpandState.has(dayKey)
+          ? smsHistoryDayExpandState.get(dayKey) === true
+          : dayKey === todayKey;
+        const rows = isExpanded ? items.map((entry) => renderBodyDataRow(entry)).join("") : "";
+        return `
+          <tr class="sms-history-day-row">
+            <td colspan="${tableBodyColspan}">
+              <button type="button" class="sms-history-day-toggle" data-sms-day-toggle="${escapeHtmlAttr(dayKey)}" aria-expanded="${isExpanded ? "true" : "false"}">
+                <span class="sms-history-day-toggle__title">${escapeHtmlText(label)}</span>
+                <span class="sms-history-day-toggle__meta">сообщений: ${items.length}</span>
+              </button>
+            </td>
+          </tr>
+          ${rows}
+        `;
+      }).join("");
+    })()
+    : entriesForRenderedTbody
+      .map((entry) => {
+        if (entry?.type === "employeeDepartmentGroup") {
+          return renderEmployeeDepartmentGroupRow(entry, tableBodyColspan);
+        }
+        return renderBodyDataRow(entry);
+      })
+      .join("");
+
   const tbody = `
     <tbody>
-      ${entriesForRenderedTbody
-        .map((entry) => {
-          if (entry?.type === "employeeDepartmentGroup") {
-            return renderEmployeeDepartmentGroupRow(entry, tableBodyColspan);
-          }
-          const rowCells = visibleColumnIndexes
-            .map((colIndex, viewOrder) => {
-              const cell = entry.row[colIndex];
-              const firstVisibleClass = section.id === "roles" && viewOrder === 0 ? "first-visible-col" : "";
-              const stickyClass = colIndex === 0 ? "number-col" : "";
-              const rolesNumberClass = section.id === "roles" && colIndex === 0 && viewOrder === 0 ? "roles-number-col" : "";
-              const rolesFirstVisibleClass = section.id === "roles" && viewOrder === 0 ? "roles-first-visible-col" : "";
-              const statusClass = colIndex === TASK_COLUMNS.status ? "status-col" : "";
-              const objectClass = colIndex === TASK_COLUMNS.object ? "object-col" : "";
-              const mediaClass = isMediaColumn(colIndex) ? "media-col" : "";
-              const objectPhotoClass = section.id === "objects" && colIndex === OBJECT_COLUMNS.photo ? "object-photo-col" : "";
-              const wideClass = getWideColumnClass(colIndex);
-              const readonlyClass = isReadonlyColumn(section, colIndex) ? "readonly-cell" : "";
-              return `<td class="editable-cell ${firstVisibleClass} ${stickyClass} ${rolesNumberClass} ${rolesFirstVisibleClass} ${statusClass} ${objectClass} ${mediaClass} ${objectPhotoClass} ${wideClass} ${readonlyClass}" data-row-index="${entry.rowIndex}" data-col-index="${colIndex}">${renderCellContent(section, entry.row, colIndex, cell, entry.rowIndex)}</td>`;
-            })
-            .join("");
-          const rowFocusClass = activeRowBySection[section.id] === entry.rowIndex ? "focused-row" : "";
-          const rowHighlightClass = getRowHighlightClass(section, entry.row);
-          const trashMetaCells = isTrashView
-            ? `<td class="trash-meta-col">${formatTrashDate(entry.deletedAt)}</td><td class="trash-meta-col">${formatTrashRemaining(entry.expiresAt)}</td>`
-            : "";
-          const accordionRow =
-            section.id === "tasks" ? renderTaskAssigneesAccordionRows(entry.row, visibleColumnIndexes, isTrashView) : "";
-          const reassignRows =
-            section.id === "tasks" ? renderTaskReassignRows(entry.row, visibleColumnIndexes, isTrashView) : "";
-          return `
-            <tr class="${rowFocusClass} ${rowHighlightClass}">
-              <td class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}">
-                <input type="checkbox" class="row-checkbox" data-row-index="${entry.rowIndex}" ${selectedRows.has(entry.rowIndex) ? "checked" : ""} />
-              </td>
-              ${rowCells}
-              ${trashMetaCells}
-              ${useVisualSpacerCol ? `<td class="ghost-spacer-col" aria-hidden="true"></td>` : ""}
-              <td class="actions-col ${section.id === "roles" ? "roles-compact-actions-col" : ""}">
-                ${renderRowActions(section.id, isTrashView, entry.rowIndex, entry.row)}
-              </td>
-            </tr>
-            ${accordionRow}
-            ${reassignRows}
-          `;
-        })
-        .join("") || `<tr><td colspan="${tableBodyColspan}" class="empty-state">Нет данных по выбранным фильтрам</td></tr>`}
+      ${bodyRowsHtml || `<tr><td colspan="${tableBodyColspan}" class="empty-state">Нет данных по выбранным фильтрам</td></tr>`}
     </tbody>
   `;
 
@@ -6311,6 +6347,8 @@ function renderTable() {
     attachTaskAccordionHandlers(section);
     attachTasksListFooterHandlers(section);
     attachTasksObjectPickerHandlers(section);
+  } else if (section.id === "smsHistory") {
+    attachSmsHistoryAccordionHandlers(section);
   }
   initLucideIcons();
   updateTableStickyHeaderOffsets();
@@ -12736,6 +12774,44 @@ function getSmsHistoryRowTimestampMs(row) {
   return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
 }
 
+function getSmsHistoryRetentionCutoffMs() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setMonth(d.getMonth() - 2);
+  return d.getTime();
+}
+
+function trimSmsHistoryRowsToRetention(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const cutoff = getSmsHistoryRetentionCutoffMs();
+  return list
+    .filter((row) => {
+      const ms = getSmsHistoryRowTimestampMs(row);
+      if (!ms) return true;
+      return ms >= cutoff;
+    })
+    .map((row, idx) => {
+      const next = Array.isArray(row) ? [...row] : row;
+      if (Array.isArray(next)) {
+        next[SMS_HISTORY_COLUMNS.id] = String(idx + 1);
+        next.smsAtMs = Number(row?.smsAtMs) || getSmsHistoryRowTimestampMs(row);
+      }
+      return next;
+    });
+}
+
+function formatSmsHistoryDayKey(ms) {
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function formatSmsHistoryDayLabelFromKey(dayKey) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dayKey || ""));
+  if (!m) return "Без даты";
+  return `${m[3]}.${m[2]}.${m[1]}`;
+}
+
 function renderFilters(section, sectionFilters, isOpen) {
   const commonSearch = sectionFilters.search || "";
   if (!isOpen) {
@@ -12856,9 +12932,16 @@ function getFilteredRows(section, sectionFilters) {
   }
 
   const pendingImportedIds = section.id === "tasks" ? cleanupPendingImportedTaskIds({ save: false }) : null;
-  return section.rows
+  const sourceRows = section.id === "smsHistory"
+    ? trimSmsHistoryRowsToRetention(section.rows)
+    : section.rows;
+  return sourceRows
     .map((row, rowIndex) => ({ row, rowIndex }))
     .filter(({ row }) => {
+    if (section.id === "employees") {
+      const fullName = normalizePersonName(row?.[EMPLOYEE_COLUMNS.fullName] || "");
+      if (!fullName) return false;
+    }
     const searchMatch = !normalizedSearch
       || row.some((cell) => String(cell).toLowerCase().includes(normalizedSearch));
 
@@ -22603,6 +22686,23 @@ function openCreateEmployeeModal(section) {
     }
   });
   fullNameInput?.focus();
+}
+
+function attachSmsHistoryAccordionHandlers(section) {
+  if (section.id !== "smsHistory") return;
+  document.querySelectorAll(".sms-history-day-toggle").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const dayKey = String(button.getAttribute("data-sms-day-toggle") || "").trim();
+      if (!dayKey) return;
+      const current = smsHistoryDayExpandState.has(dayKey)
+        ? smsHistoryDayExpandState.get(dayKey) === true
+        : dayKey === formatSmsHistoryDayKey(Date.now());
+      smsHistoryDayExpandState.set(dayKey, !current);
+      renderTablePreserveScroll();
+    });
+  });
 }
 
 function openEditEmployeeModal(section, rowIndex) {
