@@ -1618,7 +1618,6 @@ function renderSidebarAccountInfo() {
   const position = String(row?.[EMPLOYEE_COLUMNS.position] || "").trim() || (currentAuthRole === "admin" ? "Администратор" : "Пользователь");
   const department = String(row?.[EMPLOYEE_COLUMNS.department] || "").trim() || "—";
   sidebarAccountInfo.innerHTML = `
-    <div class="sidebar-account-label">Текущий аккаунт</div>
     <div style="display:flex;align-items:center;gap:10px;min-width:0;">
       ${renderAvatar(fullName, 38)}
       <div style="flex:1;min-width:0;overflow:hidden;">
