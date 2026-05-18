@@ -5167,7 +5167,9 @@ body.app-booting .app-boot-loader {
 .due-cell--inline {
   flex-direction: row;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  width: 100%;
 }
 
 .due-cell-meta-row {
@@ -5211,6 +5213,52 @@ body.app-booting .app-boot-loader {
 
 .due-ring--late {
   color: #bb3434;
+}
+
+.table-card--tasks .table-wrap {
+  scrollbar-width: none;
+}
+
+.table-card--tasks .table-wrap::-webkit-scrollbar {
+  height: 0;
+}
+
+.tasks-x-scroll-zone {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 12px;
+  margin-top: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.table-card--tasks:hover .tasks-x-scroll-zone,
+.tasks-x-scroll-zone:hover {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tasks-x-scroll-inner {
+  height: 1px;
+}
+
+.tasks-x-scroll-zone::-webkit-scrollbar {
+  height: 10px;
+}
+
+.tasks-x-scroll-zone::-webkit-scrollbar-track {
+  background: #eef3f8;
+  border-radius: 999px;
+}
+
+.tasks-x-scroll-zone::-webkit-scrollbar-thumb {
+  background: #b7c3d5;
+  border-radius: 999px;
+}
+
+.tasks-x-scroll-zone::-webkit-scrollbar-thumb:hover {
+  background: #98a8c0;
 }
 
 .status-tabs-row {

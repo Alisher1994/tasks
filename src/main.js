@@ -6332,6 +6332,7 @@ function renderTable() {
         </table>
         ${tasksChunksSentinelHtml}
       </div>
+      ${section.id === "tasks" ? `<div class="tasks-x-scroll-zone" id="tasksXScrollZone"><div class="tasks-x-scroll-inner" id="tasksXScrollInner"></div></div>` : ""}
       ${tasksListFooterHtml}
     </section>
   `;
@@ -6347,6 +6348,7 @@ function renderTable() {
     attachTaskAccordionHandlers(section);
     attachTasksListFooterHandlers(section);
     attachTasksObjectPickerHandlers(section);
+    attachTasksExternalHorizontalScrollbar();
   } else if (section.id === "smsHistory") {
     attachSmsHistoryAccordionHandlers(section);
   }
@@ -6387,6 +6389,37 @@ function updateTableStickyHeaderOffsets() {
 function getActiveTableScrollElement() {
   return document.getElementById("tableMainPane")
     || document.querySelector(".table-wrap");
+}
+
+function attachTasksExternalHorizontalScrollbar() {
+  const zone = document.getElementById("tasksXScrollZone");
+  const inner = document.getElementById("tasksXScrollInner");
+  if (!(zone instanceof HTMLElement) || !(inner instanceof HTMLElement)) return;
+  const wrap = zone.closest(".table-card")?.querySelector(".table-wrap");
+  const table = wrap?.querySelector("table");
+  if (!(wrap instanceof HTMLElement) || !(table instanceof HTMLElement)) return;
+
+  let syncing = false;
+  const syncMetrics = () => {
+    inner.style.width = `${Math.max(1, table.scrollWidth)}px`;
+    zone.classList.toggle("hidden", table.scrollWidth <= wrap.clientWidth + 1);
+  };
+  const onWrapScroll = () => {
+    if (syncing) return;
+    syncing = true;
+    zone.scrollLeft = wrap.scrollLeft;
+    syncing = false;
+  };
+  const onZoneScroll = () => {
+    if (syncing) return;
+    syncing = true;
+    wrap.scrollLeft = zone.scrollLeft;
+    syncing = false;
+  };
+  wrap.addEventListener("scroll", onWrapScroll);
+  zone.addEventListener("scroll", onZoneScroll);
+  window.addEventListener("resize", syncMetrics);
+  syncMetrics();
 }
 
 function formatTrashDate(ts) {
