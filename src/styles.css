@@ -3082,12 +3082,45 @@ tbody td.first-visible-col {
   color: #243247;
   font-size: 13px;
   font-weight: 600;
+  transition: background 0.16s ease, color 0.16s ease;
 }
 
 .sms-history-day-toggle__meta {
   color: #5d6f87;
   font-size: 12px;
   font-weight: 500;
+  transition: color 0.16s ease;
+}
+
+.sms-history-day-toggle:hover {
+  background: #e8eef8;
+  color: #1b2a3f;
+}
+
+.sms-history-day-toggle:focus,
+.sms-history-day-toggle:focus-visible {
+  outline: none;
+  background: #e8eef8;
+  color: #1b2a3f;
+  box-shadow: inset 0 0 0 2px #9fb2d5;
+}
+
+.sms-history-day-toggle:active {
+  background: #3e4095;
+  color: #ffffff;
+}
+
+.sms-history-day-toggle:active .sms-history-day-toggle__meta {
+  color: #d8defe;
+}
+
+.sms-history-day-toggle[aria-expanded="true"] {
+  background: #dde6f5;
+  color: #16243a;
+}
+
+.sms-history-day-toggle[aria-expanded="true"] .sms-history-day-toggle__meta {
+  color: #485b76;
 }
 
 .action-buttons {
