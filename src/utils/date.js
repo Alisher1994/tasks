@@ -1,11 +1,21 @@
+function sanitizeDateEdgeGarbage(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .replace(/^[\s"'`“”‘’«»„]+/g, "")
+    .replace(/[\s"'`“”‘’«»„]+$/g, "")
+    .trim();
+}
+
 export function parseRuDateStringToParts(value) {
-  const s = String(value || "").trim();
+  const s = sanitizeDateEdgeGarbage(value);
   if (!s) return null;
-  const [a, b, c] = s.split(".");
-  if (!a || !b || !c) return null;
-  const day = Number(a);
-  const month = Number(b);
-  const year = Number(c);
+  const m = /(\d{1,2})\.(\d{1,2})\.(\d{2,4})/.exec(s);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  const year = Number(m[3].length === 2 ? `20${m[3]}` : m[3]);
   if (!day || !month || !year) return null;
   if (day < 1 || day > 31 || month < 1 || month > 12) return null;
   return { day, month, year };
@@ -55,7 +65,7 @@ export function getCalendarDatePartsInTimeZone(date, timeZone) {
  * @returns {number} ms либо NaN, если не удалось разобрать.
  */
 export function parseRuDateTimeToMs(value) {
-  const raw = String(value || "").trim();
+  const raw = sanitizeDateEdgeGarbage(value);
   if (!raw) return NaN;
   const m = raw.match(/(\d{1,2}\.\d{1,2}\.\d{2,4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
   if (!m) return NaN;

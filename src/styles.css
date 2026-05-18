@@ -5938,6 +5938,14 @@ button.task-card-tab.is-active {
   font-size: 12px;
 }
 
+.task-date-elapsed {
+  display: block;
+  margin-left: 19px;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 12px;
+}
+
 .gallery-block {
   margin-top: 10px;
 }

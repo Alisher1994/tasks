@@ -13857,10 +13857,19 @@ function renderTaskPriorityCell(value) {
   return `<span class="priority-text priority-${slugify(priority)}"><i data-lucide="${icon}" class="lucide-icon task-priority-icon" aria-hidden="true"></i>${escapeHtmlText(priority)}</span>`;
 }
 
-function renderTaskDateCell(value, { formatStored = false } = {}) {
+function renderTaskDateCell(value, { formatStored = false, showElapsedDays = false } = {}) {
   const raw = String(value || "").trim();
   const shown = raw ? (formatStored ? formatStoredDateForDisplay(raw) : raw) : "—";
-  return `<span class="task-cell-inline-label"><i data-lucide="calendar-days" class="lucide-icon" aria-hidden="true"></i><span>${escapeHtmlText(shown)}</span></span>`;
+  let elapsedHtml = "";
+  if (showElapsedDays && raw) {
+    const addedParts = parseRuDateStringToParts(raw);
+    const todayParts = getCalendarDatePartsInTimeZone(new Date(), getServerTimezone());
+    if (addedParts && todayParts) {
+      const days = Math.max(0, calendarDiffDays(addedParts, todayParts));
+      elapsedHtml = `<small class="task-date-elapsed">Прошло ${days} дн.</small>`;
+    }
+  }
+  return `<span class="task-cell-inline-label"><i data-lucide="calendar-days" class="lucide-icon" aria-hidden="true"></i><span>${escapeHtmlText(shown)}</span></span>${elapsedHtml}`;
 }
 
 function renderTaskReadStateCell(isRead, statusText, whenText) {
@@ -14153,7 +14162,11 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
     return renderTaskPeopleCell(value);
   }
 
-  if (colIndex === TASK_COLUMNS.addedDate || colIndex === TASK_COLUMNS.closedDate) {
+  if (colIndex === TASK_COLUMNS.addedDate) {
+    return renderTaskDateCell(value, { formatStored: true, showElapsedDays: true });
+  }
+
+  if (colIndex === TASK_COLUMNS.closedDate) {
     return renderTaskDateCell(value, { formatStored: true });
   }
 
