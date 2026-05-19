@@ -5220,6 +5220,11 @@ body.app-booting .app-boot-loader {
   color: #bb3434;
 }
 
+.due-ring--placeholder {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .table-card--tasks .table-wrap {
   scrollbar-width: none;
 }

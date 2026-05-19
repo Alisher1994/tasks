@@ -14647,6 +14647,12 @@ function pickFile(onPick, accept) {
 
 function getRowHighlightClass(section, row) {
   if (section.id !== "tasks") return "";
+  const status = getTaskDisplayStatus(row);
+
+  if (displaySettings.highlightClosed && status === "Закрыт") {
+    return "row-highlight-closed";
+  }
+
   const taskId = String(row?.[TASK_COLUMNS.number] || "").trim();
   if (taskId && Object.values(telegramReassignRequests || {}).some((item) => {
     if (!item || typeof item !== "object") return false;
@@ -14654,10 +14660,8 @@ function getRowHighlightClass(section, row) {
   })) {
     return "row-highlight-reassign-pending";
   }
-  const status = getTaskDisplayStatus(row);
 
   if (displaySettings.highlightClosed) {
-    if (status === "Закрыт") return "row-highlight-closed";
     if (status === "Проверка") return "row-highlight-review";
     if (status === "В процессе") return "row-highlight-progress";
   }
@@ -14671,6 +14675,7 @@ function getRowHighlightClass(section, row) {
 
 function renderDueDateCell(dateValue, taskRow = null) {
   const wrap = (mainText, ringHtml = "") => `<div class="due-cell due-cell--inline"><span class="task-cell-inline-label"><i data-lucide="calendar-days" class="lucide-icon" aria-hidden="true"></i><span>${escapeHtmlText(mainText)}</span></span>${ringHtml}</div>`;
+  const placeholderRingHtml = '<span class="due-ring due-ring--placeholder" aria-hidden="true"></span>';
   if (!dateValue) {
     return wrap("—");
   }
@@ -14682,7 +14687,7 @@ function renderDueDateCell(dateValue, taskRow = null) {
   const status = String(getTaskDisplayStatus(taskRow) || "").trim().toLowerCase();
   if (status === "закрыт") {
     const shown = formatStoredDateForDisplay(String(dateValue));
-    return wrap(shown);
+    return wrap(shown, placeholderRingHtml);
   }
 
   const todayParts = getCalendarDatePartsInTimeZone(new Date(), getServerTimezone());
