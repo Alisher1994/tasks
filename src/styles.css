@@ -3341,21 +3341,21 @@ tr:nth-child(even) td {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #f08c00;
-  box-shadow: 0 0 0 0 rgba(240, 140, 0, 0.5);
+  background: #e03131;
+  box-shadow: 0 0 0 0 rgba(224, 49, 49, 0.5);
   animation: task-assignee-alert-pulse 1.35s ease-out infinite;
   flex: 0 0 auto;
 }
 
 @keyframes task-assignee-alert-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(240, 140, 0, 0.5);
+    box-shadow: 0 0 0 0 rgba(224, 49, 49, 0.5);
   }
   70% {
-    box-shadow: 0 0 0 8px rgba(240, 140, 0, 0);
+    box-shadow: 0 0 0 8px rgba(224, 49, 49, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(240, 140, 0, 0);
+    box-shadow: 0 0 0 0 rgba(224, 49, 49, 0);
   }
 }
 
@@ -3425,8 +3425,8 @@ tr:nth-child(even) td {
 }
 
 .task-reassign-card--needs-assignee {
-  border-color: #f08c00;
-  background: #fff9db;
+  border-color: #e03131;
+  background: #fff5f5;
 }
 
 .task-reassign-card-actions {

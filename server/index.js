@@ -706,6 +706,10 @@ function buildBotApiUrl(token, method) {
   return `https://api.telegram.org/bot${token}/${method}`;
 }
 
+function taskCallbackData(taskId, code) {
+  return `t|${String(taskId || "").trim()}|${String(code || "").trim()}`;
+}
+
 async function tgSendMessage(token, chatId, text) {
   const r = await fetch(buildBotApiUrl(token, "sendMessage"), {
     method: "POST",
@@ -1940,7 +1944,9 @@ app.post("/api/tasks/reassign/decision", authMiddleware, requireAdmin, async (re
           await tgSendMessage(token, requesterChat, notifyTextRequester);
         }
         if (targetChat) {
-          await tgSendMessage(token, targetChat, notifyTextTarget);
+          await tgSendMessageWithMarkup(token, targetChat, notifyTextTarget, {
+            inline_keyboard: [[{ text: "📖 Прочитать", callback_data: taskCallbackData(reassignCode, "rd") }]]
+          });
         }
       }
     } else {

@@ -1226,6 +1226,17 @@ function getTelegramPhoneLink(employeeRow) {
   return digits ? `https://t.me/+${escapeTgHtml(digits)}` : "";
 }
 
+function getAdminChatMentionHtml(name, payload) {
+  const fio = String(name || "").trim();
+  if (!fio) return "";
+  const safe = escapeTgHtml(fio);
+  const adminChatId = String(payload?.displaySettings?.telegramAdminChatId || "").trim();
+  if (!adminChatId) return safe;
+  const looksLikeAdmin = /(^|\s)(admin|админ|administrator|администратор)(\s|$)/i.test(fio);
+  if (!looksLikeAdmin) return safe;
+  return `<a href="tg://user?id=${escapeTgHtml(adminChatId)}">${safe}</a>`;
+}
+
 /**
  * Превращает одно ФИО в HTML-mention <a href="tg://user?id=CHAT_ID">Name</a>,
  * если для этого сотрудника известен chat_id. Если chat_id нет, пробуем username
@@ -1243,7 +1254,7 @@ function buildEmployeeMentionHtml(name, payload) {
   const empRows = Array.isArray(employees?.rows) ? employees.rows : [];
   const want = fio.toLowerCase();
   const er = empRows.find((r) => String(r?.[EMPLOYEE_COLUMNS.fullName] || "").trim().toLowerCase() === want);
-  if (!er) return safe;
+  if (!er) return getAdminChatMentionHtml(fio, payload);
   const chatId = String(er[EMPLOYEE_COLUMNS.chatId] || "").trim() || getTelegramChatIdFromPhoneBinding(payload, er);
   if (chatId) {
     // Для личных чатов Telegram chat_id совпадает с user id, поэтому ссылка открывает профиль сотрудника.
