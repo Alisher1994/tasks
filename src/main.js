@@ -20599,11 +20599,9 @@ function openTaskDetailsModal(section, row, rowIndex) {
       const needsAssignee = isMistakeReassignRequest(req) && !String(req.toEmployeeName || "").trim();
       return `
         <div class="task-reassign-card ${needsAssignee ? "task-reassign-card--needs-assignee" : ""}">
-          <div><strong>ID:</strong> ${escapeHtmlText(String(req.id || "—"))}</div>
           <div><strong>Тип:</strong> ${escapeHtmlText(isMistakeReassignRequest(req) ? "Ошибочная задача" : "Делегирование задачи")}</div>
           <div><strong>С кого:</strong> ${escapeHtmlText(String(req.fromEmployeeName || "—"))}</div>
           <div><strong>На кого:</strong> ${escapeHtmlText(String(req.toEmployeeName || (needsAssignee ? "нужно выбрать" : "—")))}</div>
-          <div><strong>Причина:</strong> ${escapeHtmlText(String(req.reasonText || "—"))}</div>
           <div class="task-reassign-card-actions">
             ${currentAuthRole === "admin"
         ? needsAssignee
