@@ -20594,6 +20594,9 @@ function openTaskDetailsModal(section, row, rowIndex) {
       .join("")
     : '<span class="close-approver-empty">Не определены (проверьте руководителя отдела и Telegram-подключение).</span>';
   const pendingReassign = getPendingReassignRequestsForTask(taskId);
+  const hasPendingMistakeAssigneeChoice = pendingReassign.some((req) =>
+    isMistakeReassignRequest(req) && !String(req.toEmployeeName || "").trim()
+  );
   const reassignListHtml = pendingReassign.length
     ? pendingReassign.map((req) => {
       const needsAssignee = isMistakeReassignRequest(req) && !String(req.toEmployeeName || "").trim();
@@ -20616,7 +20619,7 @@ function openTaskDetailsModal(section, row, rowIndex) {
     }).join("")
     : '<span class="close-approver-empty">Нет активных заявок на переназначение.</span>';
   const isTaskClosed = normalizeTaskStatusValue(String(row[TASK_COLUMNS.status] || "")) === "Закрыт";
-  const reassignActionHtml = isTaskClosed
+  const reassignActionHtml = isTaskClosed || hasPendingMistakeAssigneeChoice
     ? ""
     : `<button type="button" class="secondary task-reassign-open-form-btn" data-task-id="${escapeHtmlAttr(taskId)}">Запросить переназначение</button>`;
   const modal = document.createElement("div");
