@@ -2287,7 +2287,6 @@ select:focus {
   overflow-x: hidden;
   overflow-y: hidden;
   background: #ffffff;
-  border-right: 1px solid #dbe2ea;
   scrollbar-width: none;
 }
 
@@ -2557,10 +2556,6 @@ thead.table-head-has-order .table-head-order-row th.table-order-cell {
   min-width: 82px;
   width: 82px;
   white-space: nowrap;
-}
-
-.table-wrap--split .table-frozen-pane .number-col {
-  border-right: 0;
 }
 
 .table-wrap--split .checkbox-col::after,
@@ -3445,7 +3440,7 @@ td.task-mistake-indicator-col {
 }
 
 .task-reassign-subrow td {
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .task-reassign-card {
@@ -10603,6 +10598,15 @@ td.object-photo-col {
 }
 
 .task-assignee-subrow td {
+  vertical-align: middle;
+}
+
+.task-assignee-subrow .checkbox-col,
+.task-assignee-subrow .task-mistake-indicator-col,
+.task-assignee-subrow .number-col,
+.task-reassign-subrow .checkbox-col,
+.task-reassign-subrow .task-mistake-indicator-col,
+.task-reassign-subrow .number-col {
   vertical-align: middle;
 }
 
