@@ -13261,6 +13261,7 @@ function isReadonlyColumn(section, colIndex) {
       colIndex === TASK_COLUMNS.plan
       || colIndex === TASK_COLUMNS.delayReason
       || colIndex === TASK_COLUMNS.reassignReason
+      || colIndex === TASK_COLUMNS.reassignType
       || colIndex === TASK_COLUMNS.closedDate
       || colIndex === TASK_COLUMNS.readState
       || colIndex === TASK_COLUMNS.lastSentAt
