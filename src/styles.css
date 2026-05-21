@@ -2281,12 +2281,13 @@ select:focus {
 
 .table-frozen-pane {
   flex: 0 0 auto;
-  width: 128px;
+  width: 150px;
   min-height: 0;
   height: 100%;
   overflow-x: hidden;
   overflow-y: hidden;
   background: #ffffff;
+  border-right: 1px solid #dbe2ea;
   scrollbar-width: none;
 }
 
@@ -2556,6 +2557,10 @@ thead.table-head-has-order .table-head-order-row th.table-order-cell {
   min-width: 82px;
   width: 82px;
   white-space: nowrap;
+}
+
+.table-wrap--split .table-frozen-pane .number-col {
+  border-right: 0;
 }
 
 .table-wrap--split .checkbox-col::after,
