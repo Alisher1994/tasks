@@ -13556,7 +13556,6 @@ function renderTasksSplitLayout(section, options) {
   const showHeaderNumbers = section.id === "tasks" && headerNumberingBySection[section.id] !== false;
   const idVisible = visibleColumnIndexes.includes(TASK_COLUMNS.number);
   const leftHasOrderRow = showHeaderNumbers && idVisible;
-  const checkboxHeadRowspan = leftHasOrderRow ? ` rowspan="2"` : "";
   const mainHeadRowspan = showHeaderNumbers ? ` rowspan="2"` : "";
   const dataHeadRowspan = showHeaderNumbers ? "" : ` rowspan="1"`;
   const mainVisibleColumnIndexes = visibleColumnIndexes.filter((colIndex) => colIndex !== TASK_COLUMNS.number);
@@ -13575,7 +13574,9 @@ function renderTasksSplitLayout(section, options) {
   }).join("");
   const leftOrderHeaderCells = leftHasOrderRow
     ? `<tr class="table-head-order-row" data-split-row-key="head-order">
-        <th class="table-order-cell"><span class="table-th-order">${visibleColumnIndexes.indexOf(TASK_COLUMNS.number) + 1}</span></th>
+        ${hideSelectionControls ? "" : `<th class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}" aria-hidden="true"></th>`}
+        ${idVisible ? `<th class="task-mistake-indicator-col" aria-hidden="true"></th>` : ""}
+        <th class="table-order-cell number-col"><span class="table-th-order">${visibleColumnIndexes.indexOf(TASK_COLUMNS.number) + 1}</span></th>
       </tr>`
     : "";
   const mainOrderHeaderCells = showHeaderNumbers
@@ -13586,10 +13587,10 @@ function renderTasksSplitLayout(section, options) {
   const leftThead = `
     <thead class="${showHeaderNumbers ? "table-head-has-order" : ""}">
       <tr class="table-head-main-row" data-split-row-key="head-main">
-        ${hideSelectionControls ? "" : `<th class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}"${checkboxHeadRowspan}>
+        ${hideSelectionControls ? "" : `<th class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}">
           <input type="checkbox" id="selectAllRows" ${isAllFilteredSelected ? "checked" : ""} />
         </th>`}
-        ${idVisible ? `<th class="task-mistake-indicator-col"${checkboxHeadRowspan} aria-label="Индикатор ошибочной задачи"></th>` : ""}
+        ${idVisible ? `<th class="task-mistake-indicator-col" aria-label="Индикатор ошибочной задачи"></th>` : ""}
         ${idVisible ? `<th class="number-col"${dataHeadRowspan}>${renderColumnHeaderTitle(section.id, TASK_COLUMNS.number, section.columns[TASK_COLUMNS.number] || "ID")}</th>` : ""}
       </tr>
       ${leftOrderHeaderCells}
