@@ -354,6 +354,22 @@ const SYSTEM_DELAY_REASONS = [
   "Форс-мажор"
 ];
 const REMINDER_STATUS_OPTIONS = STATUS_OPTIONS.filter((status) => status !== "Закрыт");
+const TASK_MESSAGE_TEMPLATE_STATUSES = [...STATUS_OPTIONS, "Передано"];
+const DEFAULT_TASK_MESSAGE_TEMPLATE = [
+  "ID: [ид_задачи]",
+  "",
+  "Объект: [объект]",
+  "Задача от: [постановщик_задачи]",
+  "Исполнитель: [ответственный]",
+  "Статус: [статус]",
+  "Приоритет: [приоритет]",
+  "",
+  "[фаза] > [раздел] > [подраздел]",
+  "",
+  "Задача: [название_задачи]",
+  "Примечание: [комментарии_к_задаче]",
+  "Срок: [дата_постановки_задачи] - [плановый_срок_устранения]"
+].join("\n");
 
 /** Подписи месяцев для графика «Добавление задач по месяцам» (текущий год, ось X). */
 const REPORT_MONTH_LABELS_RU = ["Янв.", "Февр.", "Мар.", "Апр.", "Май", "Июн.", "Июл.", "Авг.", "Сен.", "Окт.", "Ноя.", "Дек."];
@@ -2166,7 +2182,7 @@ function attachTelegramTemplatePreviews() {
   const capRem = document.getElementById("reminderTelegramCaption");
 
   let taskPreviewMode = "status";
-  let taskPreviewStatus = STATUS_OPTIONS[0];
+  let taskPreviewStatus = TASK_MESSAGE_TEMPLATE_STATUSES[0];
   let reminderPreviewStatus = REMINDER_STATUS_OPTIONS[0] || STATUS_OPTIONS[0];
 
   const setTaskKeyboardVisible = (show) => {
@@ -2212,12 +2228,12 @@ function attachTelegramTemplatePreviews() {
   document.querySelectorAll(".task-message-template-input").forEach((el) => {
     el.addEventListener("focus", () => {
       taskPreviewMode = "status";
-      taskPreviewStatus = String(el.dataset.status || STATUS_OPTIONS[0]).trim() || STATUS_OPTIONS[0];
+      taskPreviewStatus = String(el.dataset.status || TASK_MESSAGE_TEMPLATE_STATUSES[0]).trim() || TASK_MESSAGE_TEMPLATE_STATUSES[0];
       refreshTaskPreview();
     });
     el.addEventListener("input", () => {
       taskPreviewMode = "status";
-      taskPreviewStatus = String(el.dataset.status || STATUS_OPTIONS[0]).trim() || STATUS_OPTIONS[0];
+      taskPreviewStatus = String(el.dataset.status || TASK_MESSAGE_TEMPLATE_STATUSES[0]).trim() || TASK_MESSAGE_TEMPLATE_STATUSES[0];
       refreshTaskPreview();
     });
   });
@@ -2238,7 +2254,7 @@ function attachTelegramTemplatePreviews() {
       const ta = block.querySelector(".task-message-template-input");
       if (!ta) return;
       taskPreviewMode = "status";
-      taskPreviewStatus = String(ta.dataset.status || STATUS_OPTIONS[0]).trim() || STATUS_OPTIONS[0];
+      taskPreviewStatus = String(ta.dataset.status || TASK_MESSAGE_TEMPLATE_STATUSES[0]).trim() || TASK_MESSAGE_TEMPLATE_STATUSES[0];
       ta.focus();
       refreshTaskPreview();
     });
@@ -4295,7 +4311,9 @@ let displaySettings = {
   reminderSettings: Object.fromEntries(
     REMINDER_STATUS_OPTIONS.map((status) => [status, { days: "none", time: "09:00", text: "" }])
   ),
-  taskMessageTemplatesByStatus: Object.fromEntries(STATUS_OPTIONS.map((status) => [status, ""])),
+  taskMessageTemplatesByStatus: Object.fromEntries(
+    TASK_MESSAGE_TEMPLATE_STATUSES.map((status) => [status, DEFAULT_TASK_MESSAGE_TEMPLATE])
+  ),
   /** ID сотрудников (колонка ID): всегда получают копию по всем задачам при отправке в Telegram */
   telegramGlobalDuplicateRecipientIds: [],
   /** Подмножество ID из списка копий: могут подтверждать закрытие задачи в Telegram (кнопки уведомления) */
@@ -18950,7 +18968,7 @@ function renderOtherSettingsPanel() {
                 <h4>Подсказки (поля таблицы задач)</h4>
                 <div class="task-placeholder-bar" aria-label="Подсказки для вставки">${placeholderBarHtml}</div>
                 <div class="task-format-status-list">
-            ${STATUS_OPTIONS.map((status, idx) => {
+            ${TASK_MESSAGE_TEMPLATE_STATUSES.map((status, idx) => {
               const statusClass = getStatusClass(status);
               const cardMod = REMINDER_CARD_UI[status] || "new";
               const tpl = String(taskFormatByStatus[status] ?? "");
@@ -19206,7 +19224,9 @@ function attachOtherSettingsHandlers() {
     const status = String(input.dataset.status || "");
     if (!status) return;
     if (!displaySettings.taskMessageTemplatesByStatus) {
-      displaySettings.taskMessageTemplatesByStatus = Object.fromEntries(STATUS_OPTIONS.map((s) => [s, ""]));
+      displaySettings.taskMessageTemplatesByStatus = Object.fromEntries(
+        TASK_MESSAGE_TEMPLATE_STATUSES.map((s) => [s, DEFAULT_TASK_MESSAGE_TEMPLATE])
+      );
     }
     displaySettings.taskMessageTemplatesByStatus[status] = String(input.value || "");
     saveDisplaySettings();
@@ -19908,7 +19928,9 @@ function restoreDisplaySettings() {
     const defaultReminderSettings = Object.fromEntries(
       REMINDER_STATUS_OPTIONS.map((status) => [status, { days: "none", time: "09:00", text: "" }])
     );
-    const defaultTaskTemplates = Object.fromEntries(STATUS_OPTIONS.map((status) => [status, ""]));
+    const defaultTaskTemplates = Object.fromEntries(
+      TASK_MESSAGE_TEMPLATE_STATUSES.map((status) => [status, DEFAULT_TASK_MESSAGE_TEMPLATE])
+    );
     const parsedReminderSettings = parsed && typeof parsed === "object" ? parsed.reminderSettings : null;
     const parsedTaskTemplates =
       parsed && typeof parsed === "object" && parsed.taskMessageTemplatesByStatus && typeof parsed.taskMessageTemplatesByStatus === "object"
