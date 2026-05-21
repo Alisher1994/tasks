@@ -645,6 +645,22 @@ function ensureTaskReassignLogStore(payload) {
   return payload.taskReassignLog;
 }
 
+function hasPendingMistakeReassignRequest(payload, taskId) {
+  const task = String(taskId || "").trim();
+  if (!task) return false;
+  const reqStore = payload?.telegramReassignRequests && typeof payload.telegramReassignRequests === "object"
+    ? payload.telegramReassignRequests
+    : {};
+  return Object.values(reqStore).some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const reasonType = String(item.reasonType || "").trim().toLowerCase();
+    return String(item.taskId || "").trim() === task
+      && String(item.status || "").trim() === "pending"
+      && (reasonType === "mistake" || reasonType === "objective")
+      && !String(item.toEmployeeName || "").trim();
+  });
+}
+
 function buildReassignChildTaskId(baseTaskId, seq = 1) {
   const base = String(baseTaskId || "").trim();
   const n = Math.max(1, Number(seq) || 1);
@@ -1183,10 +1199,30 @@ function escapeTgHtml(value) {
     .replace(/>/g, "&gt;");
 }
 
+function getTelegramChatIdFromPhoneBinding(payload, employeeRow) {
+  const phoneKey = normalizePhoneBindingKey(employeeRow?.[EMPLOYEE_COLUMNS.phone]);
+  if (!phoneKey) return "";
+  const bindings = payload?.telegramPhoneChatBindings && typeof payload.telegramPhoneChatBindings === "object"
+    ? payload.telegramPhoneChatBindings
+    : null;
+  return String(bindings?.[phoneKey] || "").trim();
+}
+
+function getTelegramUsernameLink(employeeRow) {
+  const raw = String(employeeRow?.telegramUsername || employeeRow?.username || "").trim().replace(/^@+/, "");
+  if (!/^[a-zA-Z0-9_]{5,32}$/.test(raw)) return "";
+  return `https://t.me/${escapeTgHtml(raw)}`;
+}
+
+function getTelegramPhoneLink(employeeRow) {
+  const digits = normalizePhoneForMatch(employeeRow?.[EMPLOYEE_COLUMNS.phone]);
+  return digits ? `https://t.me/+${escapeTgHtml(digits)}` : "";
+}
+
 /**
  * Превращает одно ФИО в HTML-mention <a href="tg://user?id=CHAT_ID">Name</a>,
- * если для этого сотрудника известны chat_id и поле "Telegram" = "Подключен".
- * Иначе — просто экранированный текст.
+ * если для этого сотрудника известен chat_id. Если chat_id нет, пробуем username
+ * и телефонную ссылку. Иначе — просто экранированный текст.
  *
  * Telegram-клиенты (iOS/Android/Desktop/Web) корректно показывают такие mention'ы
  * как «синий ник» и при клике открывают чат с пользователем.
@@ -1201,11 +1237,16 @@ function buildEmployeeMentionHtml(name, payload) {
   const want = fio.toLowerCase();
   const er = empRows.find((r) => String(r?.[EMPLOYEE_COLUMNS.fullName] || "").trim().toLowerCase() === want);
   if (!er) return safe;
-  const chatId = String(er[EMPLOYEE_COLUMNS.chatId] || "").trim();
-  const connected = String(er[EMPLOYEE_COLUMNS.telegram] || "").trim() === "Подключен";
-  if (!chatId || !connected) return safe;
-  // Числовой chat_id — escape только цифры, но всё равно прогоняем для безопасности.
-  return `<a href="tg://user?id=${escapeTgHtml(chatId)}">${safe}</a>`;
+  const chatId = String(er[EMPLOYEE_COLUMNS.chatId] || "").trim() || getTelegramChatIdFromPhoneBinding(payload, er);
+  if (chatId) {
+    // Для личных чатов Telegram chat_id совпадает с user id, поэтому ссылка открывает профиль сотрудника.
+    return `<a href="tg://user?id=${escapeTgHtml(chatId)}">${safe}</a>`;
+  }
+  const usernameLink = getTelegramUsernameLink(er);
+  if (usernameLink) return `<a href="${usernameLink}">${safe}</a>`;
+  const phoneLink = getTelegramPhoneLink(er);
+  if (phoneLink) return `<a href="${phoneLink}">${safe}</a>`;
+  return safe;
 }
 
 /**
@@ -2332,6 +2373,61 @@ async function handleCallback(q, pool, token) {
     else if (rawType === "delegation" || rawType === "subj") reasonType = "delegation";
     if (!reasonType) {
       await answerOk("Некорректный выбор");
+      return;
+    }
+    if (reasonType === "mistake") {
+      if (hasPendingMistakeReassignRequest(payload, taskId)) {
+        await answerOk("Уже отправлено администратору");
+        return;
+      }
+      const requestId = `rr_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      const reassignCode = getNextReassignCode(payload, taskId);
+      const reqStore = ensureReassignRequestsStore(payload);
+      const requestAllowed = new Set();
+      getAlwaysConfirmChatIds(payload).forEach((cid) => requestAllowed.add(cid));
+      const adminChat = String(payload?.displaySettings?.telegramAdminChatId || "").trim();
+      if (adminChat) requestAllowed.add(adminChat);
+      const currentAssignees = parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]);
+      const fromAssignee = String(viewerAssigneeName || currentAssignees[0] || "").trim();
+      reqStore[requestId] = {
+        id: requestId,
+        code: reassignCode,
+        taskId,
+        status: "pending",
+        reasonType: "mistake",
+        reasonText: "Ожидает выбора нового ответственного администратором",
+        departmentName: "",
+        fromEmployeeName: fromAssignee,
+        toEmployeeName: "",
+        requesterChatId: String(chatId),
+        requesterName: empName,
+        requesterAssigneeName: String(viewerAssigneeName || "").trim(),
+        createdAt: new Date().toISOString(),
+        sourceMessageId: Number(messageId) || null,
+        allowedConfirmChatIds: Array.from(requestAllowed),
+        needsAdminAssignee: true
+      };
+      row[TASK_COLUMNS.status] = "Передано";
+      row[TASK_COLUMNS.reassignReason] = "";
+      row[TASK_COLUMNS.reassignType] = "Ошибочная задача";
+      appendTaskHistory(payload, taskId, empName, `Telegram: задача отмечена как ошибочная, ожидает выбора нового ответственного администратором (${fromAssignee || "—"})`);
+      clearSession(payload, String(chatId));
+      await savePayload(pool, payload);
+
+      const requestText =
+        `${buildFullTaskMessage(row, payload)}\n\nОшибочная задача\n` +
+        `Задача: ${escapeTgHtml(reassignCode)}\n` +
+        `От кого: ${buildEmployeeMentionHtml(fromAssignee, payload) || "—"}\n` +
+        `Нужно выбрать нового ответственного в веб-приложении.`;
+      for (const cid of requestAllowed) {
+        await tg(token, "sendMessage", { chat_id: cid, text: requestText });
+      }
+      await tg(token, "editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${taskCaptionWithPlan(row, payload)}\n\nЗадача отправлена администратору как ошибочная. Новый ответственный будет выбран в веб-приложении.`
+      });
+      await answerOk("Отправлено администратору");
       return;
     }
     if (!payload.telegramSessions) payload.telegramSessions = {};

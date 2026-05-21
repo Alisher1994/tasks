@@ -11743,6 +11743,23 @@ function syncResponsibleCatalogEmployeeNames({
   return changed;
 }
 
+function syncTaskObjectNames(oldName = "", newName = "") {
+  const oldKey = normalizePersonName(oldName).toLowerCase();
+  const nextName = normalizePersonName(newName);
+  if (!oldKey || !nextName || oldKey === nextName.toLowerCase()) return false;
+  const tasksSection = getSectionById("tasks");
+  if (!tasksSection) return false;
+  let changed = false;
+  tasksSection.rows.forEach((taskRow) => {
+    if (!Array.isArray(taskRow)) return;
+    const taskObjectKey = normalizePersonName(taskRow[TASK_COLUMNS.object]).toLowerCase();
+    if (taskObjectKey !== oldKey) return;
+    taskRow[TASK_COLUMNS.object] = nextName;
+    changed = true;
+  });
+  return changed;
+}
+
 
 function setCaretAfterDialCode(input) {
   if (!(input instanceof HTMLInputElement)) return;
@@ -12974,6 +12991,11 @@ function renderFilters(section, sectionFilters, isOpen) {
   const sectionValues = getUniqueValues(section.rows, TASK_COLUMNS.phaseSection);
   const subsectionValues = getUniqueValues(section.rows, TASK_COLUMNS.phaseSubsection);
   const delayReasonValues = getUniqueValues(section.rows, TASK_COLUMNS.delayReason);
+  const reassignTypeValues = Array.from(new Set([
+    "Ошибочное",
+    "Делегирование задачи",
+    ...getUniqueValues(section.rows, TASK_COLUMNS.reassignType)
+  ].filter(Boolean)));
   const authorValues = getUniqueValues(section.rows, TASK_COLUMNS.responsible);
   const readValues = ["Прочитано", "Не прочитано"];
 
@@ -12991,6 +13013,7 @@ function renderFilters(section, sectionFilters, isOpen) {
       ${renderSelectFilter("filterSection", "Раздел", sectionValues, sectionFilters.section || "")}
       ${renderSelectFilter("filterSubsection", "Подраздел", subsectionValues, sectionFilters.subsection || "")}
       ${renderSelectFilter("filterDelayReason", "Причина отставания", delayReasonValues, sectionFilters.delayReason || "")}
+      ${renderSelectFilter("filterReassignType", "Тип переназначения", reassignTypeValues, sectionFilters.reassignType || "")}
       ${renderSelectFilter("filterReadState", "Ознакомление", readValues, sectionFilters.readState || "")}
       <button id="filterResetBtn" type="button" class="secondary">Сбросить</button>
     </div>
@@ -13090,10 +13113,15 @@ function getFilteredRows(section, sectionFilters) {
     const sectionMatch = !sectionFilters.section || row[TASK_COLUMNS.phaseSection] === sectionFilters.section;
     const subsectionMatch = !sectionFilters.subsection || row[TASK_COLUMNS.phaseSubsection] === sectionFilters.subsection;
     const delayReasonMatch = !sectionFilters.delayReason || row[TASK_COLUMNS.delayReason] === sectionFilters.delayReason;
+    const reassignTypeFilter = String(sectionFilters.reassignType || "").trim().toLowerCase();
+    const rowReassignType = String(row[TASK_COLUMNS.reassignType] || "").trim().toLowerCase();
+    const reassignTypeMatch = !reassignTypeFilter
+      || rowReassignType === reassignTypeFilter
+      || (reassignTypeFilter === "ошибочное" && rowReassignType.includes("ошибоч"));
     const readStateLabel = getTaskReadStatePartsForRow(row).statusText;
     const readStateMatch = !sectionFilters.readState || readStateLabel.startsWith(sectionFilters.readState);
 
-    return statusMatch && responsibleMatch && authorMatch && objectMatch && phaseMatch && sectionMatch && subsectionMatch && delayReasonMatch && readStateMatch;
+    return statusMatch && responsibleMatch && authorMatch && objectMatch && phaseMatch && sectionMatch && subsectionMatch && delayReasonMatch && reassignTypeMatch && readStateMatch;
   });
 }
 
@@ -14232,10 +14260,16 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
     const status = String(getTaskDisplayStatus(row) || "").trim().toLowerCase();
     const fio = String(value || "").trim();
     const renderedPeople = renderTaskPeopleCell(fio);
+    const pendingMistake = rowHasPendingMistakeReassign(row);
+    const notice = pendingMistake
+      ? '<span class="task-assignee-alert-dot" title="Ошибочная задача: администратору нужно выбрать нового ответственного" aria-label="Ошибочная задача"></span>'
+      : "";
     if (status === "передано" && fio) {
-      return `<s>${renderedPeople}</s>`;
+      return `<span class="task-assignee-alert-wrap">${notice}<s>${renderedPeople}</s></span>`;
     }
-    return renderedPeople;
+    return pendingMistake
+      ? `<span class="task-assignee-alert-wrap">${notice}${renderedPeople}</span>`
+      : renderedPeople;
   }
 
   if (colIndex === TASK_COLUMNS.responsible) {
@@ -16019,6 +16053,14 @@ function normalizeRowAfterEdit(section, rowIndex, colIndex, previousValue = "") 
         oldName: previousValue,
         newName: row[EMPLOYEE_COLUMNS.fullName]
       });
+    }
+    return;
+  }
+
+  if (section.id === "objects") {
+    if (colIndex === OBJECT_COLUMNS.name) {
+      row[OBJECT_COLUMNS.name] = normalizePersonName(row[OBJECT_COLUMNS.name]);
+      syncTaskObjectNames(previousValue, row[OBJECT_COLUMNS.name]);
     }
     return;
   }
@@ -20157,7 +20199,22 @@ function getPendingReassignRequestsForTask(taskId) {
     .filter((item) => String(item.taskId || "").trim() === id && String(item.status || "").trim() === "pending");
 }
 
-async function decideTaskReassignRequest(requestId, decision) {
+function isMistakeReassignRequest(req) {
+  const reasonType = String(req?.reasonType || "").trim().toLowerCase();
+  return reasonType === "mistake" || reasonType === "objective";
+}
+
+function getPendingMistakeReassignRequestForTask(taskId) {
+  return getPendingReassignRequestsForTask(taskId)
+    .find((req) => isMistakeReassignRequest(req) && !String(req?.toEmployeeName || "").trim()) || null;
+}
+
+function rowHasPendingMistakeReassign(row) {
+  const taskId = String(row?.[TASK_COLUMNS.number] || "").trim();
+  return Boolean(getPendingMistakeReassignRequestForTask(taskId));
+}
+
+async function decideTaskReassignRequest(requestId, decision, toEmployeeName = "") {
   if (!isHostedRuntime() || !getAuthToken()) {
     return { ok: false, error: "Решение доступно только при подключенном сервере." };
   }
@@ -20170,7 +20227,8 @@ async function decideTaskReassignRequest(requestId, decision) {
       },
       body: JSON.stringify({
         requestId: String(requestId || "").trim(),
-        decision: String(decision || "").trim()
+        decision: String(decision || "").trim(),
+        toEmployeeName: String(toEmployeeName || "").trim()
       })
     });
     const j = await r.json().catch(() => ({}));
@@ -20335,6 +20393,99 @@ function openReassignRequestModal({ taskId, currentAssignees = [], afterCreate }
   initLucideIcons();
 }
 
+function openMistakeReassignAssigneeModal({ requestId, taskId, currentAssignees = [], afterDecision } = {}) {
+  const employeesSection = getSectionById("employees");
+  const employeeOptions = (Array.isArray(employeesSection?.rows) ? employeesSection.rows : [])
+    .map((empRow) => {
+      const fullName = String(empRow?.[EMPLOYEE_COLUMNS.fullName] || "").trim();
+      if (!fullName) return null;
+      const department = String(empRow?.[EMPLOYEE_COLUMNS.department] || "").trim();
+      return { fullName, department };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      const byDep = a.department.localeCompare(b.department, "ru");
+      return byDep !== 0 ? byDep : a.fullName.localeCompare(b.fullName, "ru");
+    });
+  const optionsHtml = employeeOptions
+    .map((emp) => `<option value="${escapeHtmlAttr(emp.fullName)}" label="${escapeHtmlAttr(emp.department ? `${emp.fullName} — ${emp.department}` : emp.fullName)}"></option>`)
+    .join("");
+
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay reassign-request-modal-overlay";
+  overlay.tabIndex = -1;
+  overlay.innerHTML = `
+    <div class="responsible-modal reassign-request-modal" role="dialog" aria-modal="true" aria-label="Выбрать нового ответственного">
+      <h3>Выбрать ответственного для задачи #${escapeHtmlText(taskId)}</h3>
+      <form data-mistake-reassign-form>
+        <div class="reassign-form-row">
+          <label for="mistakeReassignTarget">Новый ответственный</label>
+          <input
+            id="mistakeReassignTarget"
+            name="toEmployeeName"
+            type="text"
+            class="reassign-target-input"
+            list="mistakeReassignTargetList"
+            placeholder="Начните вводить ФИО или отдел..."
+            autocomplete="off"
+            required
+          />
+          <datalist id="mistakeReassignTargetList">${optionsHtml}</datalist>
+        </div>
+        <div class="reassign-form-row">
+          <span class="close-approver-empty">Текущий ответственный: ${escapeHtmlText(currentAssignees.join(", ") || "—")}</span>
+        </div>
+        <p class="error reassign-form-error hidden" data-mistake-reassign-error></p>
+        <div class="responsible-modal-actions">
+          <button type="button" class="secondary" data-mistake-reassign-cancel>Отмена</button>
+          <button type="submit" class="primary" data-mistake-reassign-submit>Подтвердить</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  const close = () => overlay.remove();
+  const errorEl = overlay.querySelector("[data-mistake-reassign-error]");
+  const showError = (msg) => {
+    if (!errorEl) return;
+    errorEl.textContent = msg;
+    errorEl.classList.remove("hidden");
+  };
+  overlay.querySelector("[data-mistake-reassign-cancel]")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  const form = overlay.querySelector("[data-mistake-reassign-form]");
+  const submitBtn = overlay.querySelector("[data-mistake-reassign-submit]");
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const fd = new FormData(form);
+    const toEmployeeName = String(fd.get("toEmployeeName") || "").trim();
+    const targetEmp = employeeOptions.find((e) => e.fullName.toLowerCase() === toEmployeeName.toLowerCase());
+    if (!targetEmp) {
+      showError("Выберите сотрудника из списка.");
+      return;
+    }
+    submitBtn?.setAttribute("disabled", "disabled");
+    const result = await decideTaskReassignRequest(requestId, "approve", targetEmp.fullName);
+    if (!result.ok) {
+      submitBtn?.removeAttribute("disabled");
+      showError(result.error || "Не удалось подтвердить переназначение.");
+      return;
+    }
+    close();
+    if (typeof afterDecision === "function") {
+      await afterDecision(result);
+    } else {
+      await pullRemoteAppState({ rerender: true });
+      renderTablePreserveScroll();
+    }
+  });
+
+  document.body.appendChild(overlay);
+  overlay.querySelector("#mistakeReassignTarget")?.focus();
+}
+
 function openTaskDetailsModal(section, row, rowIndex) {
   const columns = section.columns;
   const taskId = String(row[TASK_COLUMNS.number] || "");
@@ -20382,20 +20533,27 @@ function openTaskDetailsModal(section, row, rowIndex) {
     : '<span class="close-approver-empty">Не определены (проверьте руководителя отдела и Telegram-подключение).</span>';
   const pendingReassign = getPendingReassignRequestsForTask(taskId);
   const reassignListHtml = pendingReassign.length
-    ? pendingReassign.map((req) => `
-      <div class="task-reassign-card">
-        <div><strong>ID:</strong> ${escapeHtmlText(String(req.id || "—"))}</div>
-        <div><strong>С кого:</strong> ${escapeHtmlText(String(req.fromEmployeeName || "—"))}</div>
-        <div><strong>На кого:</strong> ${escapeHtmlText(String(req.toEmployeeName || "—"))}</div>
-        <div><strong>Причина:</strong> ${escapeHtmlText(String(req.reasonText || "—"))}</div>
-        <div class="task-reassign-card-actions">
-          ${currentAuthRole === "admin"
-    ? `<button type="button" class="secondary task-reassign-approve-btn" data-reassign-id="${escapeHtmlAttr(String(req.id || ""))}">Подтвердить</button>
-             <button type="button" class="secondary task-reassign-reject-btn" data-reassign-id="${escapeHtmlAttr(String(req.id || ""))}">Отклонить</button>`
-    : `<span class="close-approver-empty">Ожидает решения администратора</span>`}
+    ? pendingReassign.map((req) => {
+      const needsAssignee = isMistakeReassignRequest(req) && !String(req.toEmployeeName || "").trim();
+      return `
+        <div class="task-reassign-card ${needsAssignee ? "task-reassign-card--needs-assignee" : ""}">
+          <div><strong>ID:</strong> ${escapeHtmlText(String(req.id || "—"))}</div>
+          <div><strong>Тип:</strong> ${escapeHtmlText(isMistakeReassignRequest(req) ? "Ошибочная задача" : "Делегирование задачи")}</div>
+          <div><strong>С кого:</strong> ${escapeHtmlText(String(req.fromEmployeeName || "—"))}</div>
+          <div><strong>На кого:</strong> ${escapeHtmlText(String(req.toEmployeeName || (needsAssignee ? "нужно выбрать" : "—")))}</div>
+          <div><strong>Причина:</strong> ${escapeHtmlText(String(req.reasonText || "—"))}</div>
+          <div class="task-reassign-card-actions">
+            ${currentAuthRole === "admin"
+        ? needsAssignee
+          ? `<button type="button" class="primary task-reassign-pick-assignee-btn" data-reassign-id="${escapeHtmlAttr(String(req.id || ""))}">Выбрать ответственного</button>
+                 <button type="button" class="secondary task-reassign-reject-btn" data-reassign-id="${escapeHtmlAttr(String(req.id || ""))}">Отклонить</button>`
+          : `<button type="button" class="secondary task-reassign-approve-btn" data-reassign-id="${escapeHtmlAttr(String(req.id || ""))}">Подтвердить</button>
+                 <button type="button" class="secondary task-reassign-reject-btn" data-reassign-id="${escapeHtmlAttr(String(req.id || ""))}">Отклонить</button>`
+        : `<span class="close-approver-empty">Ожидает решения администратора</span>`}
+          </div>
         </div>
-      </div>
-    `).join("")
+      `;
+    }).join("")
     : '<span class="close-approver-empty">Нет активных заявок на переназначение.</span>';
   const isTaskClosed = normalizeTaskStatusValue(String(row[TASK_COLUMNS.status] || "")) === "Закрыт";
   const reassignActionHtml = isTaskClosed
@@ -20525,6 +20683,22 @@ function openTaskDetailsModal(section, row, rowIndex) {
       const id = String(btn.getAttribute("data-reassign-id") || "").trim();
       if (!id) return;
       finalizeReassignDecision(btn, id, "reject");
+    });
+  });
+  modal.querySelectorAll(".task-reassign-pick-assignee-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = String(btn.getAttribute("data-reassign-id") || "").trim();
+      if (!id) return;
+      openMistakeReassignAssigneeModal({
+        requestId: id,
+        taskId,
+        currentAssignees: parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]),
+        afterDecision: async () => {
+          modal.remove();
+          await pullRemoteAppState({ rerender: true });
+          renderTablePreserveScroll();
+        }
+      });
     });
   });
   modal.querySelectorAll(".task-reassign-open-form-btn").forEach((btn) => {
@@ -22286,6 +22460,7 @@ function attachFilterHandlers(section) {
   const sectionSelect = document.getElementById("filterSection");
   const subsectionSelect = document.getElementById("filterSubsection");
   const delayReasonSelect = document.getElementById("filterDelayReason");
+  const reassignTypeSelect = document.getElementById("filterReassignType");
   const readStateSelect = document.getElementById("filterReadState");
   const smsEmployeeSelect = document.getElementById("filterSmsEmployee");
   const smsStatusSelect = document.getElementById("filterSmsStatus");
@@ -22379,6 +22554,15 @@ function attachFilterHandlers(section) {
     delayReasonSelect.addEventListener("change", () => {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.delayReason = delayReasonSelect.value;
+      bumpTasksPagingReset();
+      renderTablePreserveScroll();
+    });
+  }
+
+  if (reassignTypeSelect) {
+    reassignTypeSelect.addEventListener("change", () => {
+      const sectionFilters = ensureSectionFilters();
+      sectionFilters.reassignType = reassignTypeSelect.value;
       bumpTasksPagingReset();
       renderTablePreserveScroll();
     });

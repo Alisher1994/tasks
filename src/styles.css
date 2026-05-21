@@ -3331,6 +3331,34 @@ tr:nth-child(even) td {
   background: #fff3bf !important;
 }
 
+.task-assignee-alert-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.task-assignee-alert-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #f08c00;
+  box-shadow: 0 0 0 0 rgba(240, 140, 0, 0.5);
+  animation: task-assignee-alert-pulse 1.35s ease-out infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes task-assignee-alert-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(240, 140, 0, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(240, 140, 0, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(240, 140, 0, 0);
+  }
+}
+
 .focused-row td {
   background: var(--brand-surface) !important;
 }
@@ -3394,6 +3422,11 @@ tr:nth-child(even) td {
   padding: 10px;
   background: #fffef7;
   margin-bottom: 8px;
+}
+
+.task-reassign-card--needs-assignee {
+  border-color: #f08c00;
+  background: #fff9db;
 }
 
 .task-reassign-card-actions {

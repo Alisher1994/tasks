@@ -1859,7 +1859,19 @@ app.post("/api/tasks/reassign/decision", authMiddleware, requireAdmin, async (re
 
     if (decision === "approve") {
       const fromName = String(reqEntry.fromEmployeeName || "").trim();
-      const toName = String(reqEntry.toEmployeeName || "").trim();
+      let toName = String(reqEntry.toEmployeeName || "").trim();
+      if (!toName) {
+        toName = String(req.body?.toEmployeeName || "").trim();
+        if (!toName) {
+          return res.status(400).json({ ok: false, error: "Выберите нового ответственного для ошибочной задачи." });
+        }
+        const targetEmployee = findEmployeeByFullNameInPayload(payload, toName);
+        if (!targetEmployee) {
+          return res.status(404).json({ ok: false, error: "Получатель не найден среди сотрудников" });
+        }
+        reqEntry.toEmployeeName = toName;
+        reqEntry.departmentName = String(reqEntry.departmentName || targetEmployee?.[2] || "").trim();
+      }
       const reassignCode = String(reqEntry.code || `${taskId}/1`).trim();
       row[TASK_STATUS_COL] = "Передано";
       row[TASK_REASSIGN_REASON_COL] = String(reqEntry.reasonText || "").trim();
@@ -2408,4 +2420,3 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-
