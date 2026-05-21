@@ -3296,10 +3296,6 @@ tbody td.first-visible-col {
   color: var(--brand);
 }
 
-tr:nth-child(even) td {
-  background: #fafcfe;
-}
-
 .row-highlight-closed td {
   background: var(--closed-highlight-surface) !important;
 }
