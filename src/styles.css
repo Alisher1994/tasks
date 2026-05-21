@@ -3317,7 +3317,7 @@ tr:nth-child(even) td {
 .row-highlight-progress .first-visible-col,
 .row-highlight-progress .number-col,
 .row-highlight-progress .actions-col {
-  background: #ffefd1 !important;
+  background: #fff7e8 !important;
 }
 
 .row-highlight-need-decision .checkbox-col,
@@ -3337,7 +3337,7 @@ tr:nth-child(even) td {
 .row-highlight-reassign-pending .first-visible-col,
 .row-highlight-reassign-pending .number-col,
 .row-highlight-reassign-pending .actions-col {
-  background: #fff3bf !important;
+  background: #fff9db !important;
 }
 
 .task-mistake-indicator-col {
