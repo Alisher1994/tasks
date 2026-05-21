@@ -3338,13 +3338,14 @@ tr:nth-child(even) td {
 
 .task-id-alert-badge {
   position: relative;
+  padding-left: 18px;
 }
 
 .task-id-alert-badge::before {
   content: "";
   position: absolute;
-  left: -11px;
-  top: -5px;
+  left: 0;
+  top: 50%;
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -3353,6 +3354,7 @@ tr:nth-child(even) td {
   box-shadow: 0 0 0 0 rgba(224, 49, 49, 0.5);
   animation: task-assignee-alert-pulse 1.35s ease-out infinite;
   pointer-events: none;
+  transform: translateY(-50%);
   z-index: 2;
 }
 
