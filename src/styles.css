@@ -2288,6 +2288,10 @@ select:focus {
   overflow-y: hidden;
   background: #ffffff;
   scrollbar-width: none;
+  /* Фиксированная вертикальная линия между ID и «Название объекта».
+     Лежит на правом крае замороженной панели, поэтому не уходит при
+     горизонтальной прокрутке основной таблицы. */
+  border-right: 1px solid #dbe2ea;
 }
 
 .table-frozen-pane::-webkit-scrollbar {
@@ -2597,6 +2601,22 @@ th.checkbox-col {
   background: #f9fbfd;
   isolation: isolate;
   overflow: visible;
+}
+
+/* Фиксированная вертикальная линия слева от колонки «Действие».
+   Раньше разделитель был правой границей колонки «Время занесения»,
+   которая уезжала при горизонтальной прокрутке. Теперь линия лежит
+   на левом крае залипающей колонки «Действие» и остаётся на месте. */
+.table-main-pane .actions-col::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  bottom: -1px;
+  width: 1px;
+  background: #dbe2ea;
+  pointer-events: none;
+  z-index: 4;
 }
 
 th.actions-col {
@@ -3296,47 +3316,39 @@ tr:nth-child(even) td {
   background: #fff1f1 !important;
 }
 
+/* Фиксированные (нередактируемые) столбцы всегда сохраняют серый фон —
+   статусная подсветка на них не распространяется. Так серый цвет служит
+   признаком «эту ячейку нельзя менять», а цвет статуса виден только на
+   редактируемых ячейках данных. */
 .row-highlight-closed .checkbox-col,
 .row-highlight-closed .task-mistake-indicator-col,
 .row-highlight-closed .first-visible-col,
 .row-highlight-closed .number-col,
-.row-highlight-closed .actions-col {
-  background: var(--closed-highlight-edge) !important;
-}
-
+.row-highlight-closed .actions-col,
 .row-highlight-review .checkbox-col,
 .row-highlight-review .task-mistake-indicator-col,
 .row-highlight-review .first-visible-col,
 .row-highlight-review .number-col,
-.row-highlight-review .actions-col {
-  background: #e2edff !important;
-}
-
+.row-highlight-review .actions-col,
 .row-highlight-progress .checkbox-col,
 .row-highlight-progress .task-mistake-indicator-col,
 .row-highlight-progress .first-visible-col,
 .row-highlight-progress .number-col,
-.row-highlight-progress .actions-col {
-  background: #fff9db !important;
-}
-
+.row-highlight-progress .actions-col,
 .row-highlight-need-decision .checkbox-col,
 .row-highlight-need-decision .task-mistake-indicator-col,
 .row-highlight-need-decision .first-visible-col,
 .row-highlight-need-decision .number-col,
-.row-highlight-need-decision .actions-col {
-  background: #ffe7e7 !important;
-}
-
-.row-highlight-reassign-pending td {
-  background: #fff9db !important;
-}
-
+.row-highlight-need-decision .actions-col,
 .row-highlight-reassign-pending .checkbox-col,
 .row-highlight-reassign-pending .task-mistake-indicator-col,
 .row-highlight-reassign-pending .first-visible-col,
 .row-highlight-reassign-pending .number-col,
 .row-highlight-reassign-pending .actions-col {
+  background: #f9fbfd !important;
+}
+
+.row-highlight-reassign-pending td {
   background: #fff9db !important;
 }
 
@@ -3393,7 +3405,7 @@ td.task-mistake-indicator-col {
 .focused-row .first-visible-col,
 .focused-row .number-col,
 .focused-row .actions-col {
-  background: var(--brand-surface-2) !important;
+  background: #f9fbfd !important;
 }
 
 .row-anchor-flash td {
@@ -3415,6 +3427,14 @@ td.task-mistake-indicator-col {
   font-size: 12px;
 }
 
+.task-reassign-subrow .checkbox-col,
+.task-reassign-subrow .task-mistake-indicator-col,
+.task-reassign-subrow .first-visible-col,
+.task-reassign-subrow .number-col,
+.task-reassign-subrow .actions-col {
+  background: #f9fbfd !important;
+}
+
 .task-reassign-subrow.row-highlight-closed td {
   background: var(--closed-highlight-surface) !important;
 }
@@ -3424,7 +3444,7 @@ td.task-mistake-indicator-col {
 .task-reassign-subrow.row-highlight-closed .first-visible-col,
 .task-reassign-subrow.row-highlight-closed .number-col,
 .task-reassign-subrow.row-highlight-closed .actions-col {
-  background: var(--closed-highlight-edge) !important;
+  background: #f9fbfd !important;
 }
 
 .task-reassign-subrow .status-badge {
