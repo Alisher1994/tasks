@@ -13872,6 +13872,22 @@ function syncSplitTableHeights() {
     leftRow.style.height = px;
     rightRow.style.height = px;
   });
+  syncSplitTableScrollbarGutter(frozenPane, mainPane);
+}
+
+// Основная панель имеет горизонтальную полосу прокрутки и нижний отступ,
+// из-за чего её clientHeight меньше, чем у замороженной панели (без полосы).
+// Тогда у замороженной панели максимальный scrollTop оказывается меньше, она
+// «упирается» при прокрутке в самый низ, и строки двух панелей расходятся
+// лесенкой. Резервируем такой же нижний зазор на замороженной панели, чтобы
+// диапазоны вертикальной прокрутки совпадали.
+function syncSplitTableScrollbarGutter(frozenPane, mainPane) {
+  if (!(frozenPane instanceof HTMLElement) || !(mainPane instanceof HTMLElement)) return;
+  frozenPane.style.paddingBottom = "0px";
+  const mainMax = mainPane.scrollHeight - mainPane.clientHeight;
+  const frozenMax = frozenPane.scrollHeight - frozenPane.clientHeight;
+  const deficit = Math.max(0, Math.round(mainMax - frozenMax));
+  frozenPane.style.paddingBottom = `${deficit}px`;
 }
 
 function syncSplitTableScrollPositions() {
