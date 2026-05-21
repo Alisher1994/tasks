@@ -2730,7 +2730,7 @@ tbody td.number-col {
   z-index: 71;
   border-right: 1px solid #d7dfea;
   border-bottom: 1px solid #d7dfea;
-  box-shadow: inset 0 -1px 0 #d7dfea;
+  box-shadow: none;
 }
 
 tbody td.first-visible-col {
@@ -3342,13 +3342,20 @@ tr:nth-child(even) td {
   width: 24px;
   min-width: 24px;
   text-align: center;
-  padding: 0 4px;
+  vertical-align: middle;
+  padding: 0;
   background: #f9fbfd;
   border-right: 0 !important;
+  line-height: 1;
 }
 
 th.task-mistake-indicator-col {
   background: #eaf0f6;
+  border-bottom: 1px solid #dbe2ea;
+}
+
+td.task-mistake-indicator-col {
+  border-bottom: 1px solid #d7dfea;
 }
 
 .task-mistake-indicator-dot {
