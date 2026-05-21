@@ -14018,14 +14018,21 @@ function renderTaskReadStateCell(isRead, statusText, whenText) {
   return `<span class="task-read-state ${isRead ? "is-read" : "is-unread"}"><i data-lucide="${icon}" class="lucide-icon task-read-icon" aria-hidden="true"></i>${escapeHtmlText(statusText)}</span><br><span class="task-read-time">${escapeHtmlText(whenText)}</span>`;
 }
 
-function renderTaskPeopleCell(value, employeeNameSet = null) {
+function renderTaskPeopleCell(value, employeeNameSet = null, options = {}) {
   const names = parseTaskAssigneeNames(value);
   if (!names.length) return "—";
   const known = employeeNameSet || getEmployeeNameSet();
+  const alertNames = new Set(
+    (Array.isArray(options.alertNames) ? options.alertNames : [])
+      .map((name) => normalizePersonName(name).toLowerCase())
+      .filter(Boolean)
+  );
   return names
     .map((name) => {
       const missingClass = hasSystemEmployeeName(name, known) ? "" : " task-person--missing";
-      return `<span class="task-person-badge${missingClass}">${renderAvatar(name, 18)}<span style="margin-left:5px;">${escapeHtmlText(name)}</span></span>`;
+      const alertClass = alertNames.has(normalizePersonName(name).toLowerCase()) ? " task-person-badge--alert" : "";
+      const alertTitle = alertClass ? ' title="Ошибочная задача: администратору нужно выбрать нового ответственного"' : "";
+      return `<span class="task-person-badge${missingClass}${alertClass}"${alertTitle}>${renderAvatar(name, 18)}<span style="margin-left:5px;">${escapeHtmlText(name)}</span></span>`;
     })
     .join('<span class="task-person-sep">, </span>');
 }
@@ -14301,17 +14308,14 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
   if (colIndex === TASK_COLUMNS.assignedResponsible) {
     const status = String(getTaskDisplayStatus(row) || "").trim().toLowerCase();
     const fio = String(value || "").trim();
-    const renderedPeople = renderTaskPeopleCell(fio);
     const pendingMistake = rowHasPendingMistakeReassign(row);
-    const notice = pendingMistake
-      ? '<span class="task-assignee-alert-dot" title="Ошибочная задача: администратору нужно выбрать нового ответственного" aria-label="Ошибочная задача"></span>'
-      : "";
+    const renderedPeople = renderTaskPeopleCell(fio, null, {
+      alertNames: pendingMistake ? parseTaskAssigneeNames(fio) : []
+    });
     if (status === "передано" && fio) {
-      return `<span class="task-assignee-alert-wrap">${notice}<s>${renderedPeople}</s></span>`;
+      return `<s>${renderedPeople}</s>`;
     }
-    return pendingMistake
-      ? `<span class="task-assignee-alert-wrap">${notice}${renderedPeople}</span>`
-      : renderedPeople;
+    return renderedPeople;
   }
 
   if (colIndex === TASK_COLUMNS.responsible) {

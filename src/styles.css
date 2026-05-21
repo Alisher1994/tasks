@@ -3331,20 +3331,24 @@ tr:nth-child(even) td {
   background: #fff3bf !important;
 }
 
-.task-assignee-alert-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
+.task-person-badge--alert {
+  position: relative;
 }
 
-.task-assignee-alert-dot {
+.task-person-badge--alert::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  top: 1px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
   background: #e03131;
+  border: 2px solid #fff7d6;
   box-shadow: 0 0 0 0 rgba(224, 49, 49, 0.5);
   animation: task-assignee-alert-pulse 1.35s ease-out infinite;
-  flex: 0 0 auto;
+  pointer-events: none;
+  z-index: 2;
 }
 
 @keyframes task-assignee-alert-pulse {
