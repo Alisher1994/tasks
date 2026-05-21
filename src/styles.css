@@ -10365,6 +10365,50 @@ button.tasks-object-pick-card:focus-visible {
   font-weight: 500;
 }
 
+.tasks-object-pick-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.tasks-object-pick-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.tasks-object-pick-stat.is-zero {
+  color: #94a3b8;
+  opacity: 0.65;
+}
+
+.tasks-object-pick-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tasks-object-pick-stat--new .tasks-object-pick-dot {
+  background: #3e4095;
+}
+
+.tasks-object-pick-stat--progress .tasks-object-pick-dot {
+  background: #e8920c;
+}
+
+.tasks-object-pick-stat--closed .tasks-object-pick-dot {
+  background: #2d8a4d;
+}
+
+.tasks-object-pick-stat.is-zero .tasks-object-pick-dot {
+  background: #cbd5e1;
+}
+
 .tasks-back-objects-btn {
   flex-shrink: 0;
   margin-right: 0;

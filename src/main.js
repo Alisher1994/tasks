@@ -5216,6 +5216,35 @@ function renderObjectCardThumb(objectLabel) {
   return `<div class="tasks-object-pick-photo tasks-object-pick-photo--empty" aria-hidden="true"><span class="tasks-object-pick-logo" role="img" aria-label=""></span></div>`;
 }
 
+// Подсчёт задач объекта по трём корзинам для кружков на карточке:
+// «Новые», «В процессе» (сюда же «Проверка» и прочие активные статусы)
+// и «Закрытые».
+function taskStatusBucketCounts(entries) {
+  let neu = 0;
+  let progress = 0;
+  let closed = 0;
+  for (const e of entries) {
+    const status = normalizeTaskStatusValue(String(e.row[TASK_COLUMNS.status] || "").trim());
+    if (status === "Закрыт") closed += 1;
+    else if (status === "Новый") neu += 1;
+    else progress += 1;
+  }
+  return { neu, progress, closed };
+}
+
+function renderObjectCardStatusDots(entries) {
+  const { neu, progress, closed } = taskStatusBucketCounts(entries);
+  const stat = (modifier, label, value) =>
+    `<span class="tasks-object-pick-stat tasks-object-pick-stat--${modifier}${value ? "" : " is-zero"}" title="${label}">
+      <i class="tasks-object-pick-dot" aria-hidden="true"></i>${value}
+    </span>`;
+  return `<div class="tasks-object-pick-stats" aria-label="Статусы задач">
+    ${stat("new", "Новые", neu)}
+    ${stat("progress", "В процессе", progress)}
+    ${stat("closed", "Закрытые", closed)}
+  </div>`;
+}
+
 function renderTasksObjectPickerHtml(grouped) {
   if (!grouped.length) {
     return `<p class="hint tasks-object-picker-empty">Нет задач по текущему фильтру.</p>`;
@@ -5230,6 +5259,7 @@ function renderTasksObjectPickerHtml(grouped) {
           <div class="tasks-object-pick-card-body">
             <span class="tasks-object-pick-name">${escapeHtmlText(g.key)}</span>
             <span class="tasks-object-pick-count">${pluralTasksRu(g.count)}</span>
+            ${renderObjectCardStatusDots(g.entries)}
           </div>
         </button>`
         )
