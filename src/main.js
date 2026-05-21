@@ -9477,6 +9477,22 @@ function getTaskDueStateInfo(row) {
   return { kind: "late", days: Math.abs(diffDays), text: `-${Math.abs(diffDays)}` };
 }
 
+function isTaskOverdueWithoutDelayReason(row) {
+  if (!row) return false;
+  const status = normalizeTaskStatusValue(String(row[TASK_COLUMNS.status] || "").trim());
+  if (status === "Закрыт") return false;
+  return getTaskDueStateInfo(row).kind === "late"
+    && !String(row[TASK_COLUMNS.delayReason] || "").trim();
+}
+
+function showTaskDelayReasonRequiredDialog() {
+  showStatusDialog({
+    title: "Закрытие недоступно",
+    message: "Задача просрочена. Перед закрытием укажите причину отставания.",
+    type: "error"
+  });
+}
+
 function statusToGanttProgress(status) {
   const s = String(status || "").trim();
   if (s === "Закрыт") return 1;
@@ -13014,6 +13030,7 @@ function renderFilters(section, sectionFilters, isOpen) {
       ${renderSelectFilter("filterSubsection", "Подраздел", subsectionValues, sectionFilters.subsection || "")}
       ${renderSelectFilter("filterDelayReason", "Причина отставания", delayReasonValues, sectionFilters.delayReason || "")}
       ${renderSelectFilter("filterReassignType", "Тип переназначения", reassignTypeValues, sectionFilters.reassignType || "")}
+      ${renderSelectFilter("filterOverdue", "Отставание", ["Отстающие", "Не отстающие", "Без срока"], sectionFilters.overdue || "")}
       ${renderSelectFilter("filterReadState", "Ознакомление", readValues, sectionFilters.readState || "")}
       <button id="filterResetBtn" type="button" class="secondary">Сбросить</button>
     </div>
@@ -13118,10 +13135,17 @@ function getFilteredRows(section, sectionFilters) {
     const reassignTypeMatch = !reassignTypeFilter
       || rowReassignType === reassignTypeFilter
       || (reassignTypeFilter === "ошибочное" && rowReassignType.includes("ошибоч"));
+    const overdueFilter = String(sectionFilters.overdue || "").trim();
+    const dueState = getTaskDueStateInfo(row);
+    const isTaskClosed = normalizeTaskStatusValue(String(row[TASK_COLUMNS.status] || "")) === "Закрыт";
+    const overdueMatch = !overdueFilter
+      || (overdueFilter === "Отстающие" && !isTaskClosed && dueState.kind === "late")
+      || (overdueFilter === "Не отстающие" && !isTaskClosed && dueState.kind === "left")
+      || (overdueFilter === "Без срока" && dueState.kind === "none");
     const readStateLabel = getTaskReadStatePartsForRow(row).statusText;
     const readStateMatch = !sectionFilters.readState || readStateLabel.startsWith(sectionFilters.readState);
 
-    return statusMatch && responsibleMatch && authorMatch && objectMatch && phaseMatch && sectionMatch && subsectionMatch && delayReasonMatch && reassignTypeMatch && readStateMatch;
+    return statusMatch && responsibleMatch && authorMatch && objectMatch && phaseMatch && sectionMatch && subsectionMatch && delayReasonMatch && reassignTypeMatch && overdueMatch && readStateMatch;
   });
 }
 
@@ -15704,6 +15728,10 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
       (value) => {
         const nextStatus = String(value || "").trim();
         if (nextStatus === "Закрыт") {
+          if (isTaskOverdueWithoutDelayReason(row)) {
+            showTaskDelayReasonRequiredDialog();
+            return;
+          }
           const summary = getTaskAssigneeProgressSummary(row);
           if (summary && summary.closed < summary.total) {
             showStatusDialog({
@@ -17912,14 +17940,20 @@ flowchart TD
     A[Создание задачи] --> B[Новый]
     B --> C[В процессе]
     C --> D[Запрос закрытия]
-    D --> E[Проверка]
+    D --> W{Просрочена?}
+    W -->|Нет| E[Проверка]
+    W -->|Да| X{Причина отставания указана?}
+    X -->|Да| E
+    X -->|Нет| O[Причина отставания]
     E --> F{Решение админа}
     F -->|approve| G[Закрыт]
     F -->|reject| C
     C --> H[Запрос переназначения]
     H --> I{Тип}
-    I -->|Ошибочная| J[Отдел]
+    I -->|Ошибочная| Y[Админ выбирает ответственного в вебе]
+    Y --> M
     I -->|Делегирование| J
+    J[Отдел]
     J --> K[Сотрудник]
     K --> L{Решение админа}
     L -->|approve| M[Передано]
@@ -17930,6 +17964,8 @@ flowchart TD
     P -->|Внешний| Q[Сохранить причину]
     P -->|Внутренний| R[Причина + делегирование]
     P -->|Принять на себя| S[Без переназначения]
+    Q --> D
+    S --> D
     R --> J
     A --> T{Несколько исполнителей}
     T -->|Да| U[Статусы по каждому]
@@ -22461,6 +22497,7 @@ function attachFilterHandlers(section) {
   const subsectionSelect = document.getElementById("filterSubsection");
   const delayReasonSelect = document.getElementById("filterDelayReason");
   const reassignTypeSelect = document.getElementById("filterReassignType");
+  const overdueSelect = document.getElementById("filterOverdue");
   const readStateSelect = document.getElementById("filterReadState");
   const smsEmployeeSelect = document.getElementById("filterSmsEmployee");
   const smsStatusSelect = document.getElementById("filterSmsStatus");
@@ -22563,6 +22600,15 @@ function attachFilterHandlers(section) {
     reassignTypeSelect.addEventListener("change", () => {
       const sectionFilters = ensureSectionFilters();
       sectionFilters.reassignType = reassignTypeSelect.value;
+      bumpTasksPagingReset();
+      renderTablePreserveScroll();
+    });
+  }
+
+  if (overdueSelect) {
+    overdueSelect.addEventListener("change", () => {
+      const sectionFilters = ensureSectionFilters();
+      sectionFilters.overdue = overdueSelect.value;
       bumpTasksPagingReset();
       renderTablePreserveScroll();
     });

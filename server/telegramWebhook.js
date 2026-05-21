@@ -289,6 +289,13 @@ function isDelayReasonAllowedNow(row, appTimeZone = "UTC") {
   return compareYmd(today, due) > 0;
 }
 
+function isTaskOverdueWithoutDelayReason(row, appTimeZone = "UTC") {
+  const status = normalizeTaskStatusValue(String(row?.[TASK_COLUMNS.status] || "").trim());
+  if (status === "Закрыт") return false;
+  return isDelayReasonAllowedNow(row, appTimeZone)
+    && !String(row?.[TASK_COLUMNS.delayReason] || "").trim();
+}
+
 function mainKeyboard(taskNumber, row, appTimeZone = "UTC") {
   const status = normalizeTaskStatusValue(String(row?.[TASK_COLUMNS.status] || "").trim());
   if (status === "Закрыт") return [];
@@ -2112,6 +2119,16 @@ async function handleCallback(q, pool, token) {
     const activeReassign = getActiveReassignForTask(payload, taskId);
 
     if (isClose) {
+      if (isTaskOverdueWithoutDelayReason(viewerRow, appTz)) {
+        await answerOk("Сначала укажите причину отставания");
+        await tg(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nЗадача просрочена. Перед закрытием укажите причину отставания через кнопку «🚧 Причина отставания».`,
+          reply_markup: mainKeyboardForChat(payload, taskId, viewerRow, chatId, appTz)
+        });
+        return;
+      }
       // Перед созданием запроса на закрытие — даём шанс прикрепить файл-обоснование.
       // Сохраняем контекст в сессии и просим прислать документ/фото/видео и т.п.
       // Поддерживаем несколько файлов: после каждого — обновляем prompt и ждём ещё.
@@ -2755,6 +2772,10 @@ async function handleCallback(q, pool, token) {
 
     if (decision === "y") {
       const appTz = resolveAppTimeZone(payload);
+      if (isTaskOverdueWithoutDelayReason(row, appTz)) {
+        await answerOk("Сначала укажите причину отставания");
+        return;
+      }
       const now = new Date();
       const confirmedAt = formatRuDateTime(now, appTz);
       const requesterAssignee = normalizePersonName(req.requesterAssigneeName || "");

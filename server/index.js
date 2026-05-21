@@ -844,6 +844,36 @@ function compareYmd(a, b) {
   return a.day - b.day;
 }
 
+function getTodayYmdInTimeZone(timeZone = "UTC") {
+  try {
+    const parts = new Intl.DateTimeFormat("ru-RU", {
+      timeZone,
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    }).formatToParts(new Date());
+    const pick = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
+    const day = pick("day");
+    const month = pick("month");
+    const year = pick("year");
+    if (!day || !month || !year) return null;
+    return { year, month, day };
+  } catch (_) {
+    return null;
+  }
+}
+
+function isTaskOverdueWithoutDelayReason(row, payload) {
+  const status = String(row?.[TASK_STATUS_COL] || "").trim();
+  if (status === "Закрыт") return false;
+  if (String(row?.[TASK_DELAY_REASON_COL] || "").trim()) return false;
+  const due = parseRuDateToYmd(String(row?.[TASK_DUE_DATE_COL] || "").trim());
+  if (!due) return false;
+  const tz = String(payload?.displaySettings?.serverTimezone || "").trim() || "UTC";
+  const today = getTodayYmdInTimeZone(tz);
+  return Boolean(today) && compareYmd(today, due) > 0;
+}
+
 function normalizeOverdueNotifyTimeValue(value) {
   const match = String(value || "").trim().match(/^(\d{1,2}):(\d{1,2})$/);
   if (!match) return "09:00";
@@ -1990,6 +2020,12 @@ app.post("/api/tasks/close/decision", authMiddleware, requireAdmin, async (req, 
     const requesterChat = String(closeReq.chatId || "").trim();
 
     if (decision === "approve") {
+      if (isTaskOverdueWithoutDelayReason(taskRow, payload)) {
+        return res.status(400).json({
+          ok: false,
+          error: "Задача просрочена. Перед закрытием укажите причину отставания."
+        });
+      }
       taskRow[TASK_STATUS_COL] = "Закрыт";
       const tz = String(payload?.displaySettings?.serverTimezone || "").trim() || "UTC";
       try {
