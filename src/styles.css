@@ -2533,6 +2533,7 @@ thead.table-head-has-order .table-head-order-row th.table-order-cell {
   width: 44px;
   text-align: center;
   min-width: 44px;
+  vertical-align: middle;
   position: sticky;
   left: 0;
   z-index: 3;
@@ -2618,6 +2619,7 @@ th.actions-col {
   min-width: 56px;
   width: 56px;
   white-space: nowrap;
+  vertical-align: middle;
   position: sticky;
   left: 44px;
   z-index: 3;
