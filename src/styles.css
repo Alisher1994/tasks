@@ -3338,8 +3338,8 @@ tr:nth-child(even) td {
 .task-person-badge--alert::before {
   content: "";
   position: absolute;
-  left: -2px;
-  top: 1px;
+  left: -5px;
+  top: -2px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
