@@ -2578,7 +2578,7 @@ thead.table-head-has-order .table-head-order-row th.table-order-cell {
 }
 
 th.checkbox-col {
-  background: #eaf0f6;
+  background: #f0f4f8;
 }
 
 .checkbox-col input[type="checkbox"] {
@@ -2600,7 +2600,7 @@ th.checkbox-col {
 }
 
 th.actions-col {
-  background: #eaf0f6;
+  background: #f0f4f8;
 }
 
 /* Невидимый столбец-растяжка в компактных справочниках:
@@ -2612,7 +2612,7 @@ th.actions-col {
 }
 
 .table--with-ghost-spacer thead .ghost-spacer-col {
-  background: #eaf0f6;
+  background: #f0f4f8;
 }
 
 .number-col {
@@ -2683,7 +2683,7 @@ th.actions-col {
 }
 
 th.number-col {
-  background: #eaf0f6;
+  background: #f0f4f8;
 }
 
 thead th.checkbox-col,
@@ -3352,7 +3352,7 @@ tr:nth-child(even) td {
 }
 
 th.task-mistake-indicator-col {
-  background: #eaf0f6;
+  background: #f0f4f8;
   border-bottom: 1px solid #dbe2ea;
 }
 
