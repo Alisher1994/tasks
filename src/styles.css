@@ -2542,6 +2542,7 @@ thead.table-head-has-order .table-head-order-row th.table-order-cell {
 }
 
 .table-wrap--split tbody .checkbox-col,
+.table-wrap--split tbody .task-mistake-indicator-col,
 .table-wrap--split tbody .number-col,
 .table-wrap--split tbody .first-visible-col {
   position: static;
@@ -2557,6 +2558,7 @@ thead.table-head-has-order .table-head-order-row th.table-order-cell {
 }
 
 .table-wrap--split .checkbox-col::after,
+.table-wrap--split .task-mistake-indicator-col::after,
 .table-wrap--split .number-col::after,
 .table-wrap--split .number-col::before {
   display: none;
@@ -3293,6 +3295,7 @@ tr:nth-child(even) td {
 }
 
 .row-highlight-closed .checkbox-col,
+.row-highlight-closed .task-mistake-indicator-col,
 .row-highlight-closed .first-visible-col,
 .row-highlight-closed .number-col,
 .row-highlight-closed .actions-col {
@@ -3300,6 +3303,7 @@ tr:nth-child(even) td {
 }
 
 .row-highlight-review .checkbox-col,
+.row-highlight-review .task-mistake-indicator-col,
 .row-highlight-review .first-visible-col,
 .row-highlight-review .number-col,
 .row-highlight-review .actions-col {
@@ -3307,6 +3311,7 @@ tr:nth-child(even) td {
 }
 
 .row-highlight-progress .checkbox-col,
+.row-highlight-progress .task-mistake-indicator-col,
 .row-highlight-progress .first-visible-col,
 .row-highlight-progress .number-col,
 .row-highlight-progress .actions-col {
@@ -3314,6 +3319,7 @@ tr:nth-child(even) td {
 }
 
 .row-highlight-need-decision .checkbox-col,
+.row-highlight-need-decision .task-mistake-indicator-col,
 .row-highlight-need-decision .first-visible-col,
 .row-highlight-need-decision .number-col,
 .row-highlight-need-decision .actions-col {
@@ -3325,27 +3331,28 @@ tr:nth-child(even) td {
 }
 
 .row-highlight-reassign-pending .checkbox-col,
+.row-highlight-reassign-pending .task-mistake-indicator-col,
 .row-highlight-reassign-pending .first-visible-col,
 .row-highlight-reassign-pending .number-col,
 .row-highlight-reassign-pending .actions-col {
   background: #fff3bf !important;
 }
 
-.task-id-cell {
-  position: relative;
+.task-mistake-indicator-col {
+  width: 24px;
+  min-width: 24px;
+  text-align: center;
+  padding: 0 4px;
+  background: #f9fbfd;
+  border-right: 0 !important;
+}
+
+th.task-mistake-indicator-col {
+  background: #eaf0f6;
+}
+
+.task-mistake-indicator-dot {
   display: inline-block;
-}
-
-.task-id-alert-badge {
-  position: relative;
-  padding-left: 18px;
-}
-
-.task-id-alert-badge::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -3353,9 +3360,7 @@ tr:nth-child(even) td {
   border: 2px solid #fff7d6;
   box-shadow: 0 0 0 0 rgba(224, 49, 49, 0.5);
   animation: task-assignee-alert-pulse 1.35s ease-out infinite;
-  pointer-events: none;
-  transform: translateY(-50%);
-  z-index: 2;
+  vertical-align: middle;
 }
 
 @keyframes task-assignee-alert-pulse {
@@ -3375,6 +3380,7 @@ tr:nth-child(even) td {
 }
 
 .focused-row .checkbox-col,
+.focused-row .task-mistake-indicator-col,
 .focused-row .first-visible-col,
 .focused-row .number-col,
 .focused-row .actions-col {
@@ -3405,6 +3411,7 @@ tr:nth-child(even) td {
 }
 
 .task-reassign-subrow.row-highlight-closed .checkbox-col,
+.task-reassign-subrow.row-highlight-closed .task-mistake-indicator-col,
 .task-reassign-subrow.row-highlight-closed .first-visible-col,
 .task-reassign-subrow.row-highlight-closed .number-col,
 .task-reassign-subrow.row-highlight-closed .actions-col {

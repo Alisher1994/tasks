@@ -13588,6 +13588,7 @@ function renderTasksSplitLayout(section, options) {
         ${hideSelectionControls ? "" : `<th class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}"${checkboxHeadRowspan}>
           <input type="checkbox" id="selectAllRows" ${isAllFilteredSelected ? "checked" : ""} />
         </th>`}
+        ${idVisible ? `<th class="task-mistake-indicator-col"${checkboxHeadRowspan} aria-label="Индикатор ошибочной задачи"></th>` : ""}
         ${idVisible ? `<th class="number-col"${dataHeadRowspan}>${renderColumnHeaderTitle(section.id, TASK_COLUMNS.number, section.columns[TASK_COLUMNS.number] || "ID")}</th>` : ""}
       </tr>
       ${leftOrderHeaderCells}
@@ -13613,11 +13614,15 @@ function renderTasksSplitLayout(section, options) {
     const rowHighlightClass = getRowHighlightClass(section, row);
     const rowClass = `${rowFocusClass} ${rowHighlightClass}`.trim();
     const rowKey = `row-${rowIndex}`;
+    const mistakeIndicatorHtml = rowHasPendingMistakeReassign(row)
+      ? '<span class="task-mistake-indicator-dot" title="Ошибочная задача: администратору нужно выбрать нового ответственного" aria-label="Ошибочная задача"></span>'
+      : "";
     leftBodyRows.push(`
       <tr class="${rowClass}" data-split-row-key="${rowKey}">
         ${hideSelectionControls ? "" : `<td class="checkbox-col ${section.id === "roles" ? "roles-compact-col" : ""}">
           <input type="checkbox" class="row-checkbox" data-row-index="${entry.rowIndex}" ${selectedRows.has(entry.rowIndex) ? "checked" : ""} />
         </td>`}
+        ${idVisible ? `<td class="task-mistake-indicator-col">${mistakeIndicatorHtml}</td>` : ""}
         ${idVisible ? `<td class="number-col editable-cell readonly-cell" data-row-index="${entry.rowIndex}" data-col-index="${TASK_COLUMNS.number}">${renderCellContent(section, entry.row, TASK_COLUMNS.number, entry.row[TASK_COLUMNS.number], entry.rowIndex)}</td>` : ""}
       </tr>
     `);
@@ -13658,6 +13663,7 @@ function renderTasksSplitLayout(section, options) {
           leftBodyRows.push(`
             <tr class="task-assignee-subrow" data-split-row-key="${subKey}">
               ${hideSelectionControls ? "" : `<td class="checkbox-col"><input type="checkbox" disabled aria-label="Подзадача ${escapeHtmlAttr(subId)}" /></td>`}
+              ${idVisible ? `<td class="task-mistake-indicator-col"></td>` : ""}
               ${idVisible ? `<td class="number-col task-accordion-readonly-cell">${renderTaskAccordionReadonlyCell(row, TASK_COLUMNS.number, name, state, subId)}</td>` : ""}
             </tr>
           `);
@@ -13723,6 +13729,7 @@ function renderTasksSplitLayout(section, options) {
         leftBodyRows.push(`
           <tr class="${reassignRowClass}" data-split-row-key="${reassignKey}">
             ${hideSelectionControls ? "" : `<td class="checkbox-col"><input type="checkbox" disabled aria-label="Переназначение ${escapeHtmlAttr(subId)}" /></td>`}
+            ${idVisible ? `<td class="task-mistake-indicator-col"></td>` : ""}
             ${idVisible ? `<td class="number-col">${escapeHtmlText(`↪ ${subId}`)}</td>` : ""}
           </tr>
         `);
@@ -13769,7 +13776,7 @@ function renderTasksSplitLayout(section, options) {
 
   const leftEmpty = `
     <tbody>
-      ${leftBodyRows.join("") || `<tr data-split-row-key="empty">${hideSelectionControls ? "" : `<td class="checkbox-col"></td>`}${idVisible ? `<td class="number-col"></td>` : ""}</tr>`}
+      ${leftBodyRows.join("") || `<tr data-split-row-key="empty">${hideSelectionControls ? "" : `<td class="checkbox-col"></td>`}${idVisible ? `<td class="task-mistake-indicator-col"></td><td class="number-col"></td>` : ""}</tr>`}
     </tbody>
   `;
   const mainEmptyColspan = mainVisibleColumnIndexes.length + (isTrashView ? 3 : 1);
@@ -14279,17 +14286,13 @@ function renderCellContent(section, row, colIndex, value, rowIndexForPhoto = -1)
     const taskId = getTaskIdForMultiState(row);
     const summary = getTaskAssigneeProgressSummary(row);
     const hasReassignRows = taskId && Array.isArray(taskReassignLog?.[taskId]) && taskReassignLog[taskId].length > 0;
-    const pendingMistake = rowHasPendingMistakeReassign(row);
-    const alertClass = pendingMistake ? " task-id-alert-badge" : "";
-    const alertTitle = pendingMistake ? ' title="Ошибочная задача: администратору нужно выбрать нового ответственного"' : "";
     if (!summary && !hasReassignRows) {
-      return `<span class="task-id-cell${alertClass}"${alertTitle}>${escapeHtmlText(String(value || ""))}</span>`;
+      return escapeHtmlText(String(value || ""));
     }
     const toggleTitle = hasReassignRows
       ? "Нажмите на ID, чтобы раскрыть подзадачи и переназначения"
       : "Нажмите на ID, чтобы раскрыть подзадачи";
-    const title = pendingMistake ? `${toggleTitle}. Ошибочная задача: администратору нужно выбрать нового ответственного` : toggleTitle;
-    return `<span class="task-parent-id-toggle task-id-cell${alertClass}" data-task-assignees-toggle="${escapeHtmlAttr(taskId)}" title="${escapeHtmlAttr(title)}">${escapeHtmlText(String(value || ""))}</span>`;
+    return `<span class="task-parent-id-toggle" data-task-assignees-toggle="${escapeHtmlAttr(taskId)}" title="${escapeHtmlAttr(toggleTitle)}">${escapeHtmlText(String(value || ""))}</span>`;
   }
 
   if (colIndex === TASK_COLUMNS.status) {
