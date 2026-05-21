@@ -3331,15 +3331,20 @@ tr:nth-child(even) td {
   background: #fff3bf !important;
 }
 
-.task-person-badge--alert {
+.task-id-cell {
+  position: relative;
+  display: inline-block;
+}
+
+.task-id-alert-badge {
   position: relative;
 }
 
-.task-person-badge--alert::before {
+.task-id-alert-badge::before {
   content: "";
   position: absolute;
-  left: -5px;
-  top: -2px;
+  left: -11px;
+  top: -5px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
