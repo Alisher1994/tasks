@@ -2372,8 +2372,8 @@ async function handleCallback(q, pool, token) {
       return;
     }
     const keyboard = [
-      [{ text: "Ошибочная задача", callback_data: cb(taskId, "rat|mistake") }],
-      [{ text: "Делегирование задачи", callback_data: cb(taskId, "rat|delegation") }],
+      [{ text: "⚠️ Ошибочная задача", callback_data: cb(taskId, "rat|mistake") }],
+      [{ text: "👥 Делегирование задачи", callback_data: cb(taskId, "rat|delegation") }],
       [{ text: "⬅️ Назад", callback_data: cb(taskId, "bk") }]
     ];
     setLastTaskContext(payload, chatId, taskId, messageId);
