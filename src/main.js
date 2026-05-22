@@ -23863,6 +23863,7 @@ function openCreateTaskModal(section) {
   let isSaving = false;
   let createdDraftRow = null;
   let createdDraftRowPersisted = false;
+  let creationHistoryLogged = false;
 
   const close = () => overlay.remove();
   const removeDraftRowIfExists = () => {
@@ -24211,6 +24212,20 @@ function openCreateTaskModal(section) {
       row[TASK_COLUMNS.closedDate] = getTodayRuDate();
     } else {
       row[TASK_COLUMNS.closedDate] = "";
+    }
+
+    // Стартовая запись в истории задачи — фиксируем сам факт создания
+    // ровно один раз (повторные попытки сохранения на сервер не дублируют).
+    if (!creationHistoryLogged) {
+      creationHistoryLogged = true;
+      const createdDetails = [
+        objectName ? `объект: ${shortenHistorySnippet(objectName)}` : "",
+        assignee ? `ответственный: ${shortenHistorySnippet(assignee)}` : ""
+      ].filter(Boolean).join(", ");
+      appendTaskHistoryEntry(
+        String(row[TASK_COLUMNS.number] || ""),
+        `Задача создана: «${shortenHistorySnippet(title)}»${createdDetails ? ` (${createdDetails})` : ""}`
+      );
     }
 
     saveSectionsData();
