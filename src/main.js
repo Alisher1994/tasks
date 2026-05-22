@@ -6055,14 +6055,39 @@ function detachTasksChunksObserver() {
   }
 }
 
+// Осмысленная иконка (lucide) для каждой колонки задачи. Используется и в
+// заголовке таблицы (renderColumnHeaderTitle), и в карточке задачи
+// (renderTaskDetailLabel). Все имена есть в vendor/lucide.min.js.
+const TASK_COLUMN_ICONS = {
+  [TASK_COLUMNS.number]: "hash",
+  [TASK_COLUMNS.object]: "building-2",
+  [TASK_COLUMNS.status]: "circle-dot",
+  [TASK_COLUMNS.priority]: "flag",
+  [TASK_COLUMNS.addedDate]: "calendar-plus",
+  [TASK_COLUMNS.phase]: "layers",
+  [TASK_COLUMNS.phaseSection]: "layers",
+  [TASK_COLUMNS.phaseSubsection]: "layers",
+  [TASK_COLUMNS.task]: "clipboard-list",
+  [TASK_COLUMNS.responsible]: "user-round-check",
+  [TASK_COLUMNS.assignedResponsible]: "user-round",
+  [TASK_COLUMNS.note]: "message-square",
+  [TASK_COLUMNS.plan]: "message-square-text",
+  [TASK_COLUMNS.fact]: "message-square-text",
+  [TASK_COLUMNS.dueDate]: "calendar-clock",
+  [TASK_COLUMNS.closedDate]: "calendar-check",
+  [TASK_COLUMNS.mediaBefore]: "image",
+  [TASK_COLUMNS.mediaAfter]: "image",
+  [TASK_COLUMNS.readState]: "book-open-check",
+  [TASK_COLUMNS.lastSentAt]: "send",
+  [TASK_COLUMNS.delayReason]: "triangle-alert",
+  [TASK_COLUMNS.createdBy]: "user-round-pen",
+  [TASK_COLUMNS.createdAt]: "calendar-days",
+  [TASK_COLUMNS.reassignReason]: "repeat-2",
+  [TASK_COLUMNS.reassignType]: "tag"
+};
+
 function getTaskColumnIconName(columnIndex) {
-  if (columnIndex === TASK_COLUMNS.createdBy || columnIndex === TASK_COLUMNS.responsible || columnIndex === TASK_COLUMNS.assignedResponsible) {
-    return "user-round";
-  }
-  if (columnIndex === TASK_COLUMNS.createdAt || columnIndex === TASK_COLUMNS.dueDate || columnIndex === TASK_COLUMNS.closedDate) {
-    return "calendar-days";
-  }
-  return "info";
+  return TASK_COLUMN_ICONS[columnIndex] || "info";
 }
 
 function renderColumnHeaderTitle(sectionId, columnIndex, title) {
