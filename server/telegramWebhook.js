@@ -2131,13 +2131,28 @@ async function handleCallback(q, pool, token) {
 
     if (isClose) {
       if (isTaskOverdueWithoutDelayReason(viewerRow, appTz)) {
-        await answerOk("Сначала укажите причину отставания");
+        // Просроченная задача: перед закрытием показываем список причин
+        // отставания. После выбора причины перейдём к шагу прикрепления файла.
+        if (!payload.telegramSessions) payload.telegramSessions = {};
+        payload.telegramSessions[String(chatId)] = {
+          expect: "closeDelayReason",
+          taskId,
+          baseTaskId,
+          assigneeName: assigneeName || "",
+          promptMessageId: Number(messageId) || null
+        };
+        setLastTaskContext(payload, chatId, taskId, messageId);
+        await savePayload(pool, payload);
+        const reasonOptions = getDelayReasonOptions(payload);
+        const reasonKeyboard = reasonOptions.map((reason, i) => [{ text: reason, callback_data: cb(taskId, `cdr|${i}`) }]);
+        reasonKeyboard.push([{ text: "⬅️ Назад", callback_data: cb(taskId, "bk") }]);
         await tg(token, "editMessageText", {
           chat_id: chatId,
           message_id: messageId,
-          text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nЗадача просрочена. Перед закрытием укажите причину отставания через кнопку «🚧 Причина отставания».`,
-          reply_markup: mainKeyboardForChat(payload, taskId, viewerRow, chatId, appTz)
+          text: `${taskCaptionWithPlan(viewerRow, payload)}\n\nЗадача просрочена. Перед закрытием выберите причину отставания:`,
+          reply_markup: { inline_keyboard: reasonKeyboard }
         });
+        await answerOk();
         return;
       }
       // Перед созданием запроса на закрытие — даём шанс прикрепить файл-обоснование.
@@ -2235,6 +2250,55 @@ async function handleCallback(q, pool, token) {
   // при закрытии задачи. Логика одинаковая — финализируем close-request.
   // Разница только в показанной надписи (Пропустить = 0 файлов, Готово = N файлов),
   // обработчик любой из них доводит до submitTaskCloseRequest.
+  // Выбор причины отставания при закрытии просроченной задачи (Telegram).
+  // После сохранения причины переходим к шагу прикрепления файла-обоснования.
+  if (parsed.action === "cdr") {
+    const sess = payload.telegramSessions?.[String(chatId)];
+    if (!sess || sess.expect !== "closeDelayReason" || String(sess.taskId || "").trim() !== taskId) {
+      await answerOk("Сессия истекла, начните заново");
+      return;
+    }
+    if (!canChatUseTaskActions(payload, viewerRow, chatId)) {
+      await answerOk("Действие доступно только исполнителю");
+      return;
+    }
+    const idx = Number(parsed.rest?.[0]);
+    const options = getDelayReasonOptions(payload);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= options.length) {
+      await answerOk("Неверный выбор");
+      return;
+    }
+    const prevReason = String(row[TASK_COLUMNS.delayReason] || "").trim();
+    const nextReason = String(options[idx] || "").trim();
+    row[TASK_COLUMNS.delayReason] = nextReason;
+    appendTaskHistory(payload, taskId, empName, `Telegram: причина отставания «${prevReason || "—"}» → «${nextReason}» (перед закрытием)`);
+    // Переходим к шагу прикрепления файла-обоснования (как в обычном закрытии).
+    const viewerAssigneeName = getTaskAssigneeNameByChat(payload, viewerRow, chatId);
+    payload.telegramSessions[String(chatId)] = {
+      expect: "closeTaskFile",
+      taskId,
+      baseTaskId: String(sess.baseTaskId || baseTaskId || taskId || "").trim(),
+      assigneeName: String(sess.assigneeName || viewerAssigneeName || "").trim(),
+      promptMessageId: Number(messageId) || null,
+      attachedNames: []
+    };
+    setLastTaskContext(payload, chatId, taskId, messageId);
+    await savePayload(pool, payload);
+    await broadcastTaskCardUpdate(payload, token, row, "Причина отставания обновлена.", String(chatId));
+    const closeFileKeyboard = [[
+      { text: "⬅️ Назад", callback_data: cb(taskId, "bk") },
+      { text: "⏭ Пропустить", callback_data: cb(taskId, "csk") }
+    ]];
+    await tg(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: `${taskCaptionWithPlan(buildTaskRowForChat(payload, row, chatId, taskId), payload)}\n\nПричина сохранена. Теперь прикрепите файлы-обоснования закрытия (документ, фото, видео и т.п.).\nМожно отправить несколько подряд — каждое сообщение добавит файл. Лимит: до 20 МБ на файл.\n\nКогда закончите — нажмите «Готово». Если документа нет — нажмите «Пропустить».`,
+      reply_markup: { inline_keyboard: closeFileKeyboard }
+    });
+    await answerOk();
+    return;
+  }
+
   if (parsed.action === "csk" || parsed.action === "cdn") {
     const sess = payload.telegramSessions?.[String(chatId)];
     if (!sess || sess.expect !== "closeTaskFile" || String(sess.taskId || "").trim() !== taskId) {

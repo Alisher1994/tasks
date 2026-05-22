@@ -3062,6 +3062,74 @@ async function attachFileToTaskAttachments(taskId, file) {
   }
 }
 
+/** Список причин отставания из справочника (колонка «Причина»). */
+function getDelayReasonsList() {
+  const sec = getSectionById("delayReasons");
+  const rows = Array.isArray(sec?.rows) ? sec.rows : [];
+  const list = rows.map((r) => String(r?.[1] || "").trim()).filter(Boolean);
+  return Array.from(new Set(list.length ? list : SYSTEM_DELAY_REASONS));
+}
+
+/**
+ * Окно выбора причины отставания при закрытии просроченной задачи.
+ * Кнопка подтверждения активна только после выбора причины.
+ * onConfirm(reason) вызывается после выбора — дальше задачу закрывает вызывающий код.
+ */
+function openCloseDelayReasonModal(taskId, onConfirm) {
+  const reasons = getDelayReasonsList();
+  const overlay = document.createElement("div");
+  overlay.className = "responsible-modal-overlay";
+  overlay.innerHTML = `
+    <div class="responsible-modal">
+      <h4>Причина отставания</h4>
+      <p class="close-approver-empty" style="margin:0 0 10px;">Задача просрочена. Выберите причину отставания, чтобы закрыть задачу #${escapeHtmlText(String(taskId || ""))}.</p>
+      <input type="text" class="responsible-modal-search" placeholder="Поиск..." />
+      <div class="responsible-modal-list"></div>
+      <div class="responsible-modal-actions">
+        <button type="button" class="secondary responsible-cancel-btn">Отмена</button>
+        <button type="button" class="responsible-apply-btn" disabled>Закрыть задачу</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const list = overlay.querySelector(".responsible-modal-list");
+  const search = overlay.querySelector(".responsible-modal-search");
+  const cancelBtn = overlay.querySelector(".responsible-cancel-btn");
+  const applyBtn = overlay.querySelector(".responsible-apply-btn");
+  let selected = "";
+  const render = (q = "") => {
+    const n = String(q).trim().toLowerCase();
+    const filtered = reasons.filter((r) => r.toLowerCase().includes(n));
+    list.innerHTML = filtered.length
+      ? filtered.map((r) => `
+        <label class="responsible-option-item">
+          <input type="radio" name="closeDelayReason" value="${escapeHtmlAttr(r)}" ${r === selected ? "checked" : ""} />
+          <span class="responsible-option-name">${escapeHtmlText(r)}</span>
+        </label>
+      `).join("")
+      : '<div class="responsible-option-empty">Ничего не найдено</div>';
+  };
+  list.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== "radio") return;
+    selected = target.value;
+    if (applyBtn) applyBtn.disabled = !selected;
+  });
+  search?.addEventListener("input", () => render(search.value));
+  const close = () => overlay.remove();
+  cancelBtn?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  applyBtn?.addEventListener("click", () => {
+    if (!selected) return;
+    close();
+    if (typeof onConfirm === "function") onConfirm(selected);
+  });
+  render();
+  search?.focus();
+}
+
 /**
  * Модалка после закрытия задачи: «Прикрепить файл (обоснование)» или «Пропустить».
  * Файл уходит во вкладку «Файлы» этой задачи. Возвращает Promise — resolved после
@@ -9533,14 +9601,6 @@ function isTaskOverdueWithoutDelayReason(row) {
     && !String(row[TASK_COLUMNS.delayReason] || "").trim();
 }
 
-function showTaskDelayReasonRequiredDialog() {
-  showStatusDialog({
-    title: "Закрытие недоступно",
-    message: "Задача просрочена. Перед закрытием укажите причину отставания.",
-    type: "error"
-  });
-}
-
 function statusToGanttProgress(status) {
   const s = String(status || "").trim();
   if (s === "Закрыт") return 1;
@@ -15797,16 +15857,27 @@ function openCellEditor(section, cell, rowIndex, colIndex) {
       (value) => {
         const nextStatus = String(value || "").trim();
         if (nextStatus === "Закрыт") {
-          if (isTaskOverdueWithoutDelayReason(row)) {
-            showTaskDelayReasonRequiredDialog();
-            return;
-          }
           const summary = getTaskAssigneeProgressSummary(row);
           if (summary && summary.closed < summary.total) {
             showStatusDialog({
               title: "Закрытие недоступно",
               message: `Нельзя закрыть родительскую задачу: закрыто ${summary.closed} из ${summary.total} подзадач.`,
               type: "error"
+            });
+            return;
+          }
+          // Просроченная задача без причины отставания: показываем окно выбора
+          // причины из справочника. Если задача не просрочена — не спрашиваем.
+          if (isTaskOverdueWithoutDelayReason(row)) {
+            const taskId = String(row[TASK_COLUMNS.number] || "").trim();
+            openCloseDelayReasonModal(taskId, (reason) => {
+              row[TASK_COLUMNS.delayReason] = reason;
+              row[TASK_COLUMNS.status] = "Закрыт";
+              cleanupTaskMultiStateForRow(row);
+              appendTaskHistoryEntry(taskId, `Причина отставания: «${shortenHistorySnippet(reason)}» (перед закрытием)`);
+              saveSectionsData();
+              renderTablePreserveScroll();
+              if (taskId) openCloseTaskFileAttachModal(taskId).catch(() => {});
             });
             return;
           }
