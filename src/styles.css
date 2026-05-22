@@ -3478,6 +3478,104 @@ td.task-mistake-indicator-col {
   gap: 8px;
 }
 
+/* Встроенное поле выбора сотрудника (combobox) в карточке заявки. */
+.task-reassign-assignee-picker {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-reassign-picker-label {
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+}
+
+.emp-combo {
+  position: relative;
+  width: 100%;
+}
+
+.emp-combo-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font: inherit;
+  background: #fff;
+}
+
+.emp-combo-input:focus {
+  outline: none;
+  border-color: #3e4095;
+  box-shadow: 0 0 0 3px rgba(62, 64, 149, 0.15);
+}
+
+.emp-combo-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 260px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 4px;
+}
+
+.emp-combo-dropdown.hidden {
+  display: none;
+}
+
+.emp-combo-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.emp-combo-option:hover,
+.emp-combo-option:focus-visible {
+  background: var(--brand-surface, #f5f4fb);
+  outline: none;
+}
+
+.emp-combo-option-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.emp-combo-option-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.emp-combo-option-dep {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.emp-combo-empty {
+  padding: 10px 8px;
+  font-size: 12px;
+  color: #94a3b8;
+  text-align: center;
+}
+
 .task-reassign-request-actions {
   margin-top: 10px;
   display: flex;

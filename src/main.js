@@ -20502,9 +20502,11 @@ function openReassignRequestModal({ taskId, currentAssignees = [], afterCreate }
   initLucideIcons();
 }
 
-function openMistakeReassignAssigneeModal({ requestId, taskId, currentAssignees = [], afterDecision } = {}) {
+// Список сотрудников для встроенного поля выбора: ФИО + отдел, отсортировано
+// по отделу, затем по имени. Используется встроенным combobox'ом в карточке.
+function getEmployeeComboOptions() {
   const employeesSection = getSectionById("employees");
-  const employeeOptions = (Array.isArray(employeesSection?.rows) ? employeesSection.rows : [])
+  return (Array.isArray(employeesSection?.rows) ? employeesSection.rows : [])
     .map((empRow) => {
       const fullName = String(empRow?.[EMPLOYEE_COLUMNS.fullName] || "").trim();
       if (!fullName) return null;
@@ -20516,83 +20518,81 @@ function openMistakeReassignAssigneeModal({ requestId, taskId, currentAssignees 
       const byDep = a.department.localeCompare(b.department, "ru");
       return byDep !== 0 ? byDep : a.fullName.localeCompare(b.fullName, "ru");
     });
-  const optionsHtml = employeeOptions
-    .map((emp) => `<option value="${escapeHtmlAttr(emp.fullName)}" label="${escapeHtmlAttr(emp.department ? `${emp.fullName} — ${emp.department}` : emp.fullName)}"></option>`)
-    .join("");
+}
 
-  const overlay = document.createElement("div");
-  overlay.className = "responsible-modal-overlay reassign-request-modal-overlay";
-  overlay.tabIndex = -1;
-  overlay.innerHTML = `
-    <div class="responsible-modal reassign-request-modal" role="dialog" aria-modal="true" aria-label="Выбрать нового ответственного">
-      <h3>Выбрать ответственного для задачи #${escapeHtmlText(taskId)}</h3>
-      <form data-mistake-reassign-form>
-        <div class="reassign-form-row">
-          <label for="mistakeReassignTarget">Новый ответственный</label>
-          <input
-            id="mistakeReassignTarget"
-            name="toEmployeeName"
-            type="text"
-            class="reassign-target-input"
-            list="mistakeReassignTargetList"
-            placeholder="Начните вводить ФИО или отдел..."
-            autocomplete="off"
-            required
-          />
-          <datalist id="mistakeReassignTargetList">${optionsHtml}</datalist>
-        </div>
-        <div class="reassign-form-row">
-          <span class="close-approver-empty">Текущий ответственный: ${escapeHtmlText(currentAssignees.join(", ") || "—")}</span>
-        </div>
-        <p class="error reassign-form-error hidden" data-mistake-reassign-error></p>
-        <div class="responsible-modal-actions">
-          <button type="button" class="secondary" data-mistake-reassign-cancel>Отмена</button>
-          <button type="submit" class="primary" data-mistake-reassign-submit>Подтвердить</button>
-        </div>
-      </form>
-    </div>
-  `;
+// HTML встроенного поля выбора сотрудника с поиском (combobox).
+// Раскрывается по клику/фокусу, фильтрует по вводу, опции с аватарками.
+function renderInlineEmployeeComboHtml(idPrefix) {
+  return `<div class="emp-combo" data-emp-combo data-emp-combo-id="${escapeHtmlAttr(String(idPrefix || ""))}">
+    <input type="text" class="emp-combo-input" placeholder="Начните вводить ФИО или отдел..." autocomplete="off" aria-label="Поиск сотрудника" />
+    <input type="hidden" class="emp-combo-value" />
+    <div class="emp-combo-dropdown hidden" data-emp-combo-dropdown role="listbox"></div>
+  </div>`;
+}
 
-  const close = () => overlay.remove();
-  const errorEl = overlay.querySelector("[data-mistake-reassign-error]");
-  const showError = (msg) => {
-    if (!errorEl) return;
-    errorEl.textContent = msg;
-    errorEl.classList.remove("hidden");
+// Подключает поведение к встроенному combobox'у выбора сотрудника.
+// onChange(emp|null) вызывается при выборе из списка или сбросе ввода.
+function setupInlineEmployeeCombo(root, { onChange } = {}) {
+  if (!(root instanceof HTMLElement)) return null;
+  const input = root.querySelector(".emp-combo-input");
+  const hidden = root.querySelector(".emp-combo-value");
+  const dropdown = root.querySelector("[data-emp-combo-dropdown]");
+  if (!input || !hidden || !dropdown) return null;
+  const employees = getEmployeeComboOptions();
+  const renderOptions = (filter) => {
+    const f = String(filter || "").trim().toLowerCase();
+    const list = f
+      ? employees.filter((e) => e.fullName.toLowerCase().includes(f) || e.department.toLowerCase().includes(f))
+      : employees;
+    if (!list.length) {
+      dropdown.innerHTML = `<div class="emp-combo-empty">Ничего не найдено</div>`;
+      return;
+    }
+    dropdown.innerHTML = list
+      .map((e) => `<button type="button" class="emp-combo-option" role="option" data-name="${escapeHtmlAttr(e.fullName)}">
+        ${renderAvatar(e.fullName, 26)}
+        <span class="emp-combo-option-text">
+          <span class="emp-combo-option-name">${escapeHtmlText(e.fullName)}</span>
+          ${e.department ? `<span class="emp-combo-option-dep">${escapeHtmlText(e.department)}</span>` : ""}
+        </span>
+      </button>`)
+      .join("");
   };
-  overlay.querySelector("[data-mistake-reassign-cancel]")?.addEventListener("click", close);
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) close();
+  const open = () => {
+    renderOptions(input.value);
+    dropdown.classList.remove("hidden");
+    root.classList.add("emp-combo--open");
+  };
+  const closeDropdown = () => {
+    dropdown.classList.add("hidden");
+    root.classList.remove("emp-combo--open");
+  };
+  input.addEventListener("focus", open);
+  input.addEventListener("click", open);
+  input.addEventListener("input", () => {
+    if (hidden.value) {
+      hidden.value = "";
+      if (typeof onChange === "function") onChange(null);
+    }
+    open();
   });
-  const form = overlay.querySelector("[data-mistake-reassign-form]");
-  const submitBtn = overlay.querySelector("[data-mistake-reassign-submit]");
-  form?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const fd = new FormData(form);
-    const toEmployeeName = String(fd.get("toEmployeeName") || "").trim();
-    const targetEmp = employeeOptions.find((e) => e.fullName.toLowerCase() === toEmployeeName.toLowerCase());
-    if (!targetEmp) {
-      showError("Выберите сотрудника из списка.");
-      return;
-    }
-    submitBtn?.setAttribute("disabled", "disabled");
-    const result = await decideTaskReassignRequest(requestId, "approve", targetEmp.fullName);
-    if (!result.ok) {
-      submitBtn?.removeAttribute("disabled");
-      showError(result.error || "Не удалось подтвердить переназначение.");
-      return;
-    }
-    close();
-    if (typeof afterDecision === "function") {
-      await afterDecision(result);
-    } else {
-      await pullRemoteAppState({ rerender: true });
-      renderTablePreserveScroll();
-    }
+  dropdown.addEventListener("click", (event) => {
+    const opt = event.target.closest(".emp-combo-option");
+    if (!opt) return;
+    const name = opt.getAttribute("data-name") || "";
+    const emp = employees.find((e) => e.fullName === name) || null;
+    input.value = name;
+    hidden.value = name;
+    closeDropdown();
+    if (typeof onChange === "function") onChange(emp);
   });
-
-  document.body.appendChild(overlay);
-  overlay.querySelector("#mistakeReassignTarget")?.focus();
+  document.addEventListener("click", (event) => {
+    if (!root.contains(event.target)) closeDropdown();
+  });
+  initLucideIcons();
+  return {
+    getSelected: () => employees.find((e) => e.fullName === hidden.value) || null
+  };
 }
 
 function openTaskDetailsModal(section, row, rowIndex) {
@@ -20647,20 +20647,36 @@ function openTaskDetailsModal(section, row, rowIndex) {
   const reassignListHtml = pendingReassign.length
     ? pendingReassign.map((req) => {
       const needsAssignee = isMistakeReassignRequest(req) && !String(req.toEmployeeName || "").trim();
+      const reqId = escapeHtmlAttr(String(req.id || ""));
+      const isAdmin = currentAuthRole === "admin";
+      let actionsHtml;
+      if (!isAdmin) {
+        actionsHtml = `<div class="task-reassign-card-actions"><span class="close-approver-empty">Ожидает решения администратора</span></div>`;
+      } else if (needsAssignee) {
+        // Поле выбора нового ответственного встроено прямо в карточку (без модалки):
+        // поиск по ФИО/отделу + аватарки. Подтверждение активно после выбора.
+        actionsHtml = `
+          <div class="task-reassign-assignee-picker">
+            <label class="task-reassign-picker-label">Новый ответственный</label>
+            ${renderInlineEmployeeComboHtml(`reassign-${reqId}`)}
+          </div>
+          <div class="task-reassign-card-actions">
+            <button type="button" class="primary task-reassign-confirm-assignee-btn" data-reassign-id="${reqId}" disabled>Подтвердить</button>
+            <button type="button" class="secondary task-reassign-reject-btn" data-reassign-id="${reqId}">Отклонить</button>
+          </div>`;
+      } else {
+        actionsHtml = `
+          <div class="task-reassign-card-actions">
+            <button type="button" class="secondary task-reassign-approve-btn" data-reassign-id="${reqId}">Подтвердить</button>
+            <button type="button" class="secondary task-reassign-reject-btn" data-reassign-id="${reqId}">Отклонить</button>
+          </div>`;
+      }
       return `
         <div class="task-reassign-card ${needsAssignee ? "task-reassign-card--needs-assignee" : ""}">
           <div><strong>Тип:</strong> ${escapeHtmlText(isMistakeReassignRequest(req) ? "Ошибочная задача" : "Делегирование задачи")}</div>
           <div><strong>С кого:</strong> ${escapeHtmlText(String(req.fromEmployeeName || "—"))}</div>
           <div><strong>На кого:</strong> ${escapeHtmlText(String(req.toEmployeeName || (needsAssignee ? "нужно выбрать" : "—")))}</div>
-          <div class="task-reassign-card-actions">
-            ${currentAuthRole === "admin"
-        ? needsAssignee
-          ? `<button type="button" class="primary task-reassign-pick-assignee-btn" data-reassign-id="${escapeHtmlAttr(String(req.id || ""))}">Выбрать ответственного</button>
-                 <button type="button" class="secondary task-reassign-reject-btn" data-reassign-id="${escapeHtmlAttr(String(req.id || ""))}">Отклонить</button>`
-          : `<button type="button" class="secondary task-reassign-approve-btn" data-reassign-id="${escapeHtmlAttr(String(req.id || ""))}">Подтвердить</button>
-                 <button type="button" class="secondary task-reassign-reject-btn" data-reassign-id="${escapeHtmlAttr(String(req.id || ""))}">Отклонить</button>`
-        : `<span class="close-approver-empty">Ожидает решения администратора</span>`}
-          </div>
+          ${actionsHtml}
         </div>
       `;
     }).join("")
@@ -20795,20 +20811,36 @@ function openTaskDetailsModal(section, row, rowIndex) {
       finalizeReassignDecision(btn, id, "reject");
     });
   });
-  modal.querySelectorAll(".task-reassign-pick-assignee-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
+  // Встроенные поля выбора сотрудника в карточках заявок (вместо модалки).
+  modal.querySelectorAll(".task-reassign-assignee-picker .emp-combo").forEach((combo) => {
+    const card = combo.closest(".task-reassign-card");
+    const confirmBtn = card?.querySelector(".task-reassign-confirm-assignee-btn");
+    setupInlineEmployeeCombo(combo, {
+      onChange: (emp) => {
+        if (confirmBtn) confirmBtn.disabled = !emp;
+      }
+    });
+  });
+  modal.querySelectorAll(".task-reassign-confirm-assignee-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
       const id = String(btn.getAttribute("data-reassign-id") || "").trim();
       if (!id) return;
-      openMistakeReassignAssigneeModal({
-        requestId: id,
-        taskId,
-        currentAssignees: parseTaskAssigneeNames(row[TASK_COLUMNS.assignedResponsible]),
-        afterDecision: async () => {
-          modal.remove();
-          await pullRemoteAppState({ rerender: true });
-          renderTablePreserveScroll();
-        }
-      });
+      const card = btn.closest(".task-reassign-card");
+      const name = String(card?.querySelector(".emp-combo-value")?.value || "").trim();
+      if (!name) {
+        window.alert("Выберите сотрудника из списка.");
+        return;
+      }
+      btn.setAttribute("disabled", "disabled");
+      const r = await decideTaskReassignRequest(id, "approve", name);
+      if (!r.ok) {
+        btn.removeAttribute("disabled");
+        window.alert(r.error || "Не удалось подтвердить переназначение.");
+        return;
+      }
+      modal.remove();
+      await pullRemoteAppState({ rerender: true });
+      renderTablePreserveScroll();
     });
   });
   modal.querySelectorAll(".task-reassign-open-form-btn").forEach((btn) => {
